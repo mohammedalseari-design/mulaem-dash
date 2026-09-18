@@ -72,8 +72,44 @@
     </div>
     <div class="notification" id="notification"></div>
 
-    <!-- نفس شبكة التوزيع المستخدمة في اللوحة القديمة -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- حارس الإقلاع: نص تقليدي (لا وحدة) يسبق كل ما سواه، حتى يلتقط فشل تحميل
+         المكتبة أو الإعدادات نفسها، فلا يرى المستخدم شاشة بيضاء بلا تفسير. -->
+    <script>
+        (function () {
+            var shown = false;
+            function bootError(detail) {
+                var boot = document.getElementById('bootScreen');
+                // لا نلمس الشاشة بعد نجاح الإقلاع: التطبيق يخفيها بـ crm-hidden
+                if (!boot || shown || boot.className.indexOf('crm-hidden') !== -1) return;
+                shown = true;
+                boot.className = 'crm-error';
+                boot.style.cssText = 'margin:90px auto 0;max-width:640px';
+                boot.textContent = 'تعذّر تحميل الإعدادات أو المكتبة — راجع js/config.js';
+                if (detail) {
+                    var line = document.createElement('div');
+                    line.className = 'crm-subtle';
+                    line.style.marginTop = '8px';
+                    line.textContent = String(detail);
+                    boot.appendChild(line);
+                }
+            }
+            window.onerror = function (message) { bootError(message); };
+            // فشل تحميل ملف (المكتبة أو config.js) لا يمرّ على onerror، بل على
+            // حدث error في طور الالتقاط على النافذة
+            window.addEventListener('error', function (event) {
+                if (event.target && event.target !== window && event.target.src) {
+                    bootError('تعذّر تحميل: ' + event.target.src);
+                }
+            }, true);
+            window.addEventListener('unhandledrejection', function (event) {
+                var reason = event.reason;
+                bootError(reason && reason.message ? reason.message : reason);
+            });
+        })();
+    </script>
+
+    <!-- نفس شبكة التوزيع المستخدمة في اللوحة القديمة، بإصدار مثبّت لا يتغيّر تحتنا -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
     <script src="../js/config.js"></script>
     <!-- بدون supabase-shim.js وبدون script.js: هذه الصفحة تتحدث إلى Supabase مباشرة -->
     <script type="module" src="js/app.js"></script>

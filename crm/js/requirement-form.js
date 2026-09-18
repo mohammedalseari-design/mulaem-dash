@@ -8,43 +8,63 @@ import { inventoryVocabulary } from './data.js';
 import { PURPOSE, REQ_STATUS, PRIORITY, FINANCING } from './labels.js';
 import {
     el, field, input, select, optionList, moneyInput, parseNumber,
-    openModal, closeModal, notify, fail
+    openModal, closeModal, notify, fail, errorText
 } from './ui.js';
 
 export async function openRequirementForm(client, requirement, onSaved) {
     const editing = Boolean(requirement);
+    // المفردات لا تُعطّل النموذج: ما فشل منها يصير حقلاً نصياً حراً مع بيان السبب
     let vocabulary;
     try {
         vocabulary = await inventoryVocabulary();
     } catch (error) {
-        return fail(error, 'تعذّر تحميل مفردات المخزون');
+        vocabulary = { propertyTypes: [], propertyTypesError: error, districts: [], districtsError: error };
+    }
+
+    const vocabNotice = el('div', { class: 'crm-hidden' });
+    function vocabFailed(error, what) {
+        if (!error) return false;
+        vocabNotice.className = 'crm-error';
+        vocabNotice.appendChild(el('div', { text: 'تعذّر تحميل ' + what + ': ' + errorText(error) + ' — اكتب القيمة يدوياً.' }));
+        return true;
     }
 
     const purpose = select(optionList(PURPOSE), requirement ? requirement.purpose : 'sale');
-    const propertyType = select(
-        [{ value: '', label: 'اختر النوع' }].concat(vocabulary.propertyTypes.map((t) => ({ value: t, label: t }))),
-        requirement ? requirement.property_type : '',
-        { required: true }
-    );
+
+    const typeFree = vocabFailed(vocabulary.propertyTypesError, 'أنواع العقارات');
+    const propertyType = typeFree
+        ? input({
+            value: requirement && requirement.property_type ? requirement.property_type : '',
+            required: true, maxLength: 60, placeholder: 'مثال: شقة'
+        })
+        : select(
+            [{ value: '', label: 'اختر النوع' }].concat(vocabulary.propertyTypes.map((t) => ({ value: t, label: t }))),
+            requirement ? requirement.property_type : '',
+            { required: true }
+        );
     // نوع مسجّل على طلب قديم لم يعد موجوداً في المخزون: نضيفه حتى لا تضيع القيمة
-    if (editing && requirement.property_type && propertyType.value !== requirement.property_type) {
+    if (!typeFree && editing && requirement.property_type && propertyType.value !== requirement.property_type) {
         propertyType.appendChild(el('option', { value: requirement.property_type, text: requirement.property_type }));
         propertyType.value = requirement.property_type;
     }
 
     const chosen = new Set(requirement && requirement.districts ? requirement.districts : []);
+    const districtsFree = vocabFailed(vocabulary.districtsError, 'الأحياء');
+    const districtsInput = input({ value: [...chosen].join('، '), placeholder: 'افصل بين الأحياء بفاصلة' });
     const districtsBox = el('div', { class: 'chips' });
-    const allDistricts = [...new Set(vocabulary.districts.concat([...chosen]))];
-    for (const name of allDistricts) {
-        const box = el('input', { type: 'checkbox', value: name, checked: chosen.has(name) });
-        const chip = el('label', { class: 'chip' + (chosen.has(name) ? ' on' : '') }, [box, name]);
-        box.addEventListener('change', () => {
-            if (box.checked) chosen.add(name); else chosen.delete(name);
-            chip.classList.toggle('on', box.checked);
-        });
-        districtsBox.appendChild(chip);
+    if (!districtsFree) {
+        const allDistricts = [...new Set(vocabulary.districts.concat([...chosen]))];
+        for (const name of allDistricts) {
+            const box = el('input', { type: 'checkbox', value: name, checked: chosen.has(name) });
+            const chip = el('label', { class: 'chip' + (chosen.has(name) ? ' on' : '') }, [box, name]);
+            box.addEventListener('change', () => {
+                if (box.checked) chosen.add(name); else chosen.delete(name);
+                chip.classList.toggle('on', box.checked);
+            });
+            districtsBox.appendChild(chip);
+        }
+        if (allDistricts.length === 0) districtsBox.appendChild(el('span', { class: 'crm-subtle', text: 'لا توجد أحياء في المخزون' }));
     }
-    if (allDistricts.length === 0) districtsBox.appendChild(el('span', { class: 'crm-subtle', text: 'لا توجد أحياء في المخزون' }));
 
     const budgetMin = moneyInput({ value: requirement && requirement.budget_min ? requirement.budget_min : '' });
     const budgetMax = moneyInput({ value: requirement && requirement.budget_max ? requirement.budget_max : '' });
@@ -66,7 +86,8 @@ export async function openRequirementForm(client, requirement, onSaved) {
         field('نوع العقار', propertyType, { required: true }),
         field('الأولوية', priority),
         editing ? field('الحالة', status) : null,
-        field('الأحياء المطلوبة', districtsBox, { span2: true, hint: 'اتركها فارغة لقبول كل الأحياء' }),
+        field('الأحياء المطلوبة', districtsFree ? districtsInput : districtsBox,
+            { span2: true, hint: 'اتركها فارغة لقبول كل الأحياء' }),
         field('الميزانية من (ريال)', budgetMin),
         field('الميزانية إلى (ريال)', budgetMax),
         field('المساحة من (م²)', areaMin),
@@ -80,6 +101,7 @@ export async function openRequirementForm(client, requirement, onSaved) {
 
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: editing ? 'حفظ التعديل' : 'إضافة الطلب' });
     const form = el('form', {}, [
+        vocabNotice,
         grid,
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
@@ -89,7 +111,8 @@ export async function openRequirementForm(client, requirement, onSaved) {
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        if (!propertyType.value) return void notify('اختر نوع العقار', 'error');
+        const typeValue = propertyType.value.trim();
+        if (!typeValue) return void notify('اختر نوع العقار', 'error');
 
         const bMin = parseNumber(budgetMin.value);
         const bMax = parseNumber(budgetMax.value);
@@ -100,8 +123,8 @@ export async function openRequirementForm(client, requirement, onSaved) {
 
         const payload = {
             purpose: purpose.value,
-            property_type: propertyType.value,
-            districts: [...chosen],
+            property_type: typeValue,
+            districts: districtsFree ? splitDistricts(districtsInput.value) : [...chosen],
             budget_min: bMin,
             budget_max: bMax,
             area_min: aMin,
@@ -139,4 +162,14 @@ export async function openRequirementForm(client, requirement, onSaved) {
     });
 
     openModal(editing ? 'تعديل الطلب' : 'طلب جديد', form);
+}
+
+// نص حرّ بديل عن قائمة الأحياء عند تعذّر crm_districts(): يفصل بالفاصلة العربية أو اللاتينية
+function splitDistricts(text) {
+    const out = [];
+    for (const part of String(text || '').split(/[,،\n]/)) {
+        const name = part.trim();
+        if (name && !out.includes(name)) out.push(name);
+    }
+    return out;
 }

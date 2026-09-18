@@ -3,16 +3,16 @@
 // لا يوجد أي ترشيح بالمستخدم هنا: v_my_work معرّف security_invoker وسياسات
 // follow_ups تتكفّل بالباقي، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً.
 //
-// حدود اليوم: v_my_work تحسب بـ current_date و date_trunc('day', now()) وقاعدة
-// البيانات تعمل بتوقيت UTC، فالقائمتان تستخدمان حدود يوم UTC نفسها كي يطابق
-// عدّاد البطاقة طول القائمة تماماً.
+// حدود اليوم: v_my_work صارت تحسب "اليوم" و"المتأخر" بتوقيت Asia/Riyadh
+// (006_inventory_quality.sql)، فالقائمتان ترسلان بداية اليوم المحلي وبداية الغد
+// نصّاً ISO بإزاحة المتصفح، كي يطابق عدّاد البطاقة طول القائمة تماماً.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, label } from './labels.js';
 import {
     el, replace, clear, loading, empty, errorBox, pager, fmtDateTime,
-    utcDayStart, dash, number
+    localDayStart, dash, number
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
@@ -92,12 +92,12 @@ function list(host, names, scope, onChanged) {
 
         if (scope === 'today') {
             query = query
-                .gte('due_at', utcDayStart(0))
-                .lt('due_at', utcDayStart(1))
+                .gte('due_at', localDayStart(0))
+                .lt('due_at', localDayStart(1))
                 .order('due_at', { ascending: true });
         } else {
             query = query
-                .lt('due_at', utcDayStart(0))
+                .lt('due_at', localDayStart(0))
                 .order('due_at', { ascending: true });
         }
 

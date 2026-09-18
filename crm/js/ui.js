@@ -240,16 +240,13 @@ export function toLocalISO(dateValue, timeValue) {
         + sign + pad2(Math.trunc(offset / 60)) + ':' + pad2(offset % 60);
 }
 
-// تاريخ اليوم كما تراه قاعدة البيانات (UTC)، لأن v_my_work تحسب بـ current_date
-export function utcToday() {
-    return new Date().toISOString().slice(0, 10);
-}
-
-export function utcDayStart(dayOffset = 0) {
+// بداية اليوم المحلي كنص ISO بإزاحة المتصفح. v_my_work تحسب حدود اليوم بتوقيت
+// Asia/Riyadh، والمستخدم في السعودية على الإزاحة نفسها، فتتفق البطاقة مع القائمة.
+export function localDayStart(dayOffset = 0) {
     const d = new Date();
-    d.setUTCHours(0, 0, 0, 0);
-    d.setUTCDate(d.getUTCDate() + dayOffset);
-    return d.toISOString();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + dayOffset);
+    return toLocalISO(d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()), '00:00');
 }
 
 /* ===================== شارات ونصوص جاهزة ===================== */

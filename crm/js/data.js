@@ -58,43 +58,45 @@ export async function defaultCity() {
 }
 
 /* ===================== مفردات المخزون ===================== */
-// استعلام واحد على عمودين من جدول العقارات (110 صفوف اليوم) لبناء قوائم
-// "نوع العقار" و"الحي". هذا استعلام مفردات لا قائمة عرض، ولذلك بلا ترقيم،
-// لكنه مسقوف بحد أعلى صريح حتى لا يكبر بلا حساب مع نمو المخزون.
+// المفردات تأتي من قاعدة البيانات لا من مسح للجدول: crm_property_types() تُرجع
+// أنواع الوحدات الموجودة فعلاً في المخزون (v_units لا projects، ولهذا صار الروف
+// مطروحاً بعد أن كان خارج القائمة)، و crm_districts() تُرجع الأحياء مرتبة بالتكرار.
+// كلتاهما security invoker، فما لا يراه المستخدم لا يظهر له في القائمة.
+//
+// لا ترمي هذه الدالة أبداً: الفشل يُبلَّغ في propertyTypesError / districtsError
+// ليتحوّل الحقل إلى نص حر، فلا يبقى النموذج مقفلاً بسبب مفردات.
 
-const VOCAB_LIMIT = 3000;
 let inventoryPromise = null;
 
 export function inventoryVocabulary() {
     if (!inventoryPromise) {
-        inventoryPromise = supabase
-            .from('projects')
-            .select('type, district')
-            .limit(VOCAB_LIMIT)
-            .then(({ data, error }) => {
-                if (error) { inventoryPromise = null; throw error; }
+        // Promise.resolve لأن باني PostgREST قابل للانتظار لا وعداً كاملاً (لا ‎.catch‎ عليه)
+        const safe = (name) => Promise.resolve(supabase.rpc(name)).catch((error) => ({ data: null, error: error }));
+        inventoryPromise = Promise.all([safe('crm_property_types'), safe('crm_districts')])
+            .then(([types, districts]) => {
+                // نتيجة ناقصة لا تُخزَّن: الفتحة التالية للنموذج تعيد السؤال
+                if (types.error || districts.error) inventoryPromise = null;
                 return {
-                    propertyTypes: byFrequency(data, 'type'),
-                    districts: byFrequency(data, 'district')
+                    propertyTypes: column(types.data, 'property_type'),
+                    propertyTypesError: types.error || null,
+                    districts: column(districts.data, 'district'),
+                    districtsError: districts.error || null
                 };
             });
     }
     return inventoryPromise;
 }
 
-// قيم مميزة مرتبة تنازلياً حسب التكرار (الأكثر شيوعاً أولاً) ثم أبجدياً
-function byFrequency(rows, column) {
-    const counts = new Map();
+// عمود واحد من صفوف الدالة، بلا فراغات ولا تكرار، مع الحفاظ على ترتيب الخادم
+function column(rows, key) {
+    const seen = [];
     for (const row of rows || []) {
-        const value = row[column];
+        const value = row[key];
         if (value === null || value === undefined) continue;
-        const key = String(value).trim();
-        if (!key) continue;
-        counts.set(key, (counts.get(key) || 0) + 1);
+        const text = String(value).trim();
+        if (text && !seen.includes(text)) seen.push(text);
     }
-    return [...counts.entries()]
-        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], 'ar'))
-        .map((entry) => entry[0]);
+    return seen;
 }
 
 /* ===================== أرقام الجوال ===================== */

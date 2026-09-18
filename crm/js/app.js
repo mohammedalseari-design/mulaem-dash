@@ -8,6 +8,7 @@ import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
 import { renderInventory } from './inventory.js';
+import { renderSettings } from './settings.js';
 
 /* ===================== المسارات ===================== */
 
@@ -18,14 +19,16 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
-    { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true }
+    { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
+    { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true }
 ];
 
 // admin: بند للمدير وحده — يُخفى من القائمة ويُرفض مساره إن كُتب بالعنوان
 const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
-    { hash: '#/inventory', label: 'جودة المخزون', admin: true }
+    { hash: '#/inventory', label: 'جودة المخزون', admin: true },
+    { hash: '#/settings', label: 'الإعدادات', admin: true }
 ];
 
 /* ===================== الموجّه ===================== */

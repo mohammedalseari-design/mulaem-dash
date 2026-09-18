@@ -210,8 +210,9 @@
 
 .crm-money { direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }
 
-/* تنبيه لا يمنع الحفظ (مبلغ يبدو مكتوباً بالألوف) */
-.form-group .hint.crm-warn { color: #b45309; font-weight: 700; }
+/* تنبيه لا يمنع الحفظ (مبلغ يبدو مكتوباً بالألوف، أو مجموع أوزان غير 100) */
+.crm-warn { color: #b45309; font-weight: 700; }
+.form-group .hint.crm-warn { color: #b45309; }
 
 /* صناديق اختيار الأحياء */
 .chips {

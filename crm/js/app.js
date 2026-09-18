@@ -11,6 +11,7 @@ import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
 import { renderBoard } from './board.js';
 import { renderDeal } from './deal.js';
+import { renderCommissions } from './commissions.js';
 
 /* ===================== المسارات ===================== */
 
@@ -23,6 +24,7 @@ const ROUTES = [
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
     { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
+    { pattern: /^#\/commissions\/?$/, view: renderCommissions, nav: '#/commissions', admin: true },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true }
 ];
@@ -33,6 +35,7 @@ const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
+    { hash: '#/commissions', label: 'العمولات', admin: true },
     { hash: '#/inventory', label: 'جودة المخزون', admin: true },
     { hash: '#/settings', label: 'الإعدادات', admin: true }
 ];

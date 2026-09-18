@@ -16,6 +16,7 @@ import {
     select, moneyInput, parseNumber, openModal, closeModal,
     money, fmtDate, fmtDateTime, dash, notify, fail
 } from './ui.js';
+import { renderCommission } from './commission.js';
 
 export async function renderDeal(root, dealId) {
     replace(root, loading());
@@ -52,16 +53,21 @@ export async function renderDeal(root, dealId) {
     const reload = () => renderDeal(root, dealId);
 
     const historyBody = el('div');
+    const commissionHost = el('div');
     append(root, [
         headerCard(deal, stage, names),
         stageCard(deal, stages, reload),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [el('h2', { text: 'سجل المراحل' })]),
             historyBody
-        ])
+        ]),
+        commissionHost
     ]);
 
-    await renderHistory(historyBody, deal, stages, names);
+    await Promise.all([
+        renderHistory(historyBody, deal, stages, names),
+        renderCommission(commissionHost, deal)
+    ]);
 }
 
 /* ===================== الترويسة ===================== */

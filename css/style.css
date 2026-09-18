@@ -2715,4 +2715,57 @@ body { background: var(--bg-page); }
 /* ── طباعة ─────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
+}
+
+/* =============== Shared navigation (dashboard + CRM) =============== */
+/* الترويسة وشريط التنقل واحد في اللوحة القديمة وفي /crm/. الأسماء كما كانت في
+   crm.css حتى لا يتغيّر شيء في صفحات الـCRM. */
+.crm-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+    z-index: 1;
+}
+
+.crm-logo {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid rgba(197, 168, 128, 0.35);
+}
+
+.user-badge small {
+    display: block;
+    font-weight: 500;
+    font-size: 0.82em;
+    opacity: 0.75;
+}
+
+.crm-nav {
+    display: flex;
+    gap: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 6px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.crm-nav a {
+    padding: 10px 22px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-weight: 700;
+    font-size: 0.95em;
+    transition: all 0.2s;
+}
+
+.crm-nav a:hover { background: rgba(197, 168, 128, 0.12); color: var(--text-primary); }
+.crm-nav a.active { background: var(--gradient-primary); color: #fff; }
+
+/* رابط يغادر الصفحة الحالية (لا يحمله موجّه الهاش) — بلا فرق بصري */
+.crm-nav a.nav-ext { }

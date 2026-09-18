@@ -1,0 +1,54 @@
+# نسخة احتياطية ليلية لقاعدة البيانات. الخطة المجانية في Supabase بلا نسخ احتياطي، والعمولات سجلات مالية.
+# الناتج ملف SQL مضغوط يُرفع كـ artifact ويبقى تسعين يوماً. التفاصيل وخطوات الاستعادة في docs/BACKUP.md.
+name: backup
+
+on:
+  schedule:
+    - cron: '42 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      # يسبق كل شيء: بلا السر لا فائدة من التثبيت ولا من الرفع، ونريد رسالة مفهومة لا فشلاً غامضاً.
+      - name: Check the database URL secret is set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::add the SUPABASE_DB_URL secret — see docs/BACKUP.md"
+            exit 1
+          fi
+
+      # عميل postgres بنفس إصدار الخادم الرئيسي (Postgres 17)؛ إصدار أقدم من pg_dump يرفض الاتصال.
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          pg_dump --version
+
+      - name: Dump the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          file="mulaem-$(date -u +%F).sql"
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges --clean --if-exists -f "$file"
+          gzip "$file"
+          ls -lh "$file.gz"
+
+      - name: Upload the backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mulaem-db-backup
+          path: 'mulaem-*.sql.gz'
+          retention-days: 90
+          if-no-files-found: error

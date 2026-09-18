@@ -113,14 +113,17 @@ export function openDoneForm(followUp, onDone) {
         event.preventDefault();
         saveBtn.disabled = true;
         saveBtn.textContent = 'جارٍ الحفظ…';
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
             .from('follow_ups')
             .update({ status: 'done', outcome: outcome.value.trim() || null })
-            .eq('id', followUp.id);
+            .eq('id', followUp.id)
+            .select('id');
         saveBtn.disabled = false;
         saveBtn.textContent = 'تأكيد الإنجاز';
 
         if (error) return void fail(error, 'تعذّر إنهاء المتابعة');
+        // صفر صفوف بلا خطأ = RLS رشّحت الصف
+        if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
         closeModal();
         notify('تم إنجاز المتابعة', 'success');
         if (onDone) onDone();

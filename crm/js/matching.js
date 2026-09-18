@@ -216,10 +216,14 @@ async function shareMatch(button, requirementId, row, onChanged) {
     const original = button.textContent;
     button.textContent = 'جارٍ الحفظ…';
 
+    // الفهرس الفريد يبني مفتاحه على coalesce(unit_key,'')، فالسلسلة الفارغة و null
+    // مفتاح واحد عنده. نوحّدهما على null قبل الإدخال حتى يتفق الإدخال مع التحديث.
+    const unitKey = row.unit_key === null || row.unit_key === undefined || row.unit_key === '' ? null : row.unit_key;
+
     const payload = {
         requirement_id: requirementId,
         project_id: row.project_id,
-        unit_key: row.unit_key,
+        unit_key: unitKey,
         score: row.score,
         score_breakdown: row.breakdown || {},
         state: 'shared'
@@ -227,16 +231,17 @@ async function shareMatch(button, requirementId, row, onChanged) {
     const { error } = await supabase.from('property_matches').insert(payload);
 
     if (error && error.code === '23505') {
-        const { error: updateError } = await unitFilter(
+        const { data: updated, error: updateError } = await unitFilter(
             supabase.from('property_matches')
                 .update({ score: row.score, score_breakdown: row.breakdown || {}, state: 'shared' })
                 .eq('requirement_id', requirementId)
                 .eq('project_id', row.project_id),
-            row.unit_key
-        );
+            unitKey
+        ).select('id');
         button.disabled = false;
         button.textContent = original;
         if (updateError) return void fail(updateError, 'تعذّر تحديث المطابقة');
+        if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
         notify('تم تحديث المطابقة المحفوظة', 'success');
         return void onChanged();
     }
@@ -297,22 +302,25 @@ function savedTable(rows, onChanged) {
 
 async function setState(button, row, state, note, onChanged) {
     button.disabled = true;
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
         .from('property_matches')
         .update({ state: state, note: note.trim() || null })
-        .eq('id', row.id);
+        .eq('id', row.id)
+        .select('id');
     button.disabled = false;
 
     if (error) return void fail(error, 'تعذّر تحديث حالة المطابقة');
+    if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
     notify('تم تحديث الحالة إلى: ' + label(MATCH_STATE, state), 'success');
     onChanged();
 }
 
 /* ===================== مساعدات ===================== */
 
-// الفهرس الفريد يستخدم coalesce(unit_key,'')، فالقيمة الفارغة تُطابَق بـ is null
+// الفهرس الفريد يستخدم coalesce(unit_key,'')، فـ null والسلسلة الفارغة صفٌّ واحد عنده.
+// التحديث يجب أن يشملهما معاً، وإلا فات صفٌّ قديم مخزَّن بسلسلة فارغة.
 function unitFilter(query, unitKey) {
-    return unitKey === null || unitKey === undefined
-        ? query.is('unit_key', null)
+    return unitKey === null || unitKey === undefined || unitKey === ''
+        ? query.or('unit_key.is.null,unit_key.eq.')
         : query.eq('unit_key', unitKey);
 }

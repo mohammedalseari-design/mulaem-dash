@@ -125,11 +125,13 @@ export async function openRequirementForm(client, requirement, onSaved) {
         const query = editing
             ? supabase.from('client_requirements').update(payload).eq('id', requirement.id)
             : supabase.from('client_requirements').insert(payload);
-        const { data, error } = await query.select('id').single();
+        const { data, error } = await query.select('id').maybeSingle();
 
         saveBtn.disabled = false;
         saveBtn.textContent = editing ? 'حفظ التعديل' : 'إضافة الطلب';
         if (error) return void fail(error, 'تعذّر حفظ الطلب');
+        // صفر صفوف بلا خطأ = RLS رشّحت الصف
+        if (!data) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
 
         closeModal();
         notify(editing ? 'تم حفظ الطلب' : 'تم إضافة الطلب', 'success');

@@ -5,7 +5,7 @@
 
 import { supabase } from './supabase.js';
 import { canAssign, isAdmin } from './auth.js';
-import { defaultCity, fieldStaff, normalizePhone } from './data.js';
+import { defaultCity, fieldStaff, normalizePhone, staffMap } from './data.js';
 import { CLIENT_SOURCES, CLIENT_STATUS, CLIENT_TYPE } from './labels.js';
 import {
     el, append, clear, field, input, select, optionList, openModal, closeModal,
@@ -15,10 +15,12 @@ import {
 export async function openClientForm(client, onSaved) {
     const editing = Boolean(client);
     let staffOptions = [];
+    let staffNames = new Map();
     let city = client ? (client.city || '') : '';
 
     try {
         if (canAssign()) {
+            staffNames = await staffMap();
             staffOptions = (await fieldStaff()).map((p) => ({ value: p.id, label: p.fullname || p.username }));
         }
         if (!editing) city = await defaultCity();
@@ -44,11 +46,21 @@ export async function openClientForm(client, onSaved) {
 
     // الإسناد: المدير يغيّره متى شاء، ومركز الاتصال يسنده مرة واحدة فقط وهو فارغ.
     const ownerLocked = editing && !isAdmin() && Boolean(client.owner_id);
+    const originalOwner = client ? (client.owner_id || '') : '';
     const owner = select(
         [{ value: '', label: 'غير مُسند' }].concat(staffOptions),
-        client ? (client.owner_id || '') : '',
+        originalOwner,
         { disabled: ownerLocked }
     );
+
+    // قيم مسجّلة على العميل ولم تعد ضمن الخيارات تُضاف كما هي، وإلا أعادها المتصفح
+    // فارغة فأرسل النموذج null ومحا المصدر أو فكّ الإسناد بلا أن يطلب أحد ذلك.
+    if (editing) {
+        keepCurrent(source, client.source);
+        keepCurrent(clientType, client.client_type);
+        keepCurrent(status, client.status);
+        keepCurrent(owner, client.owner_id, staffNames.get(client.owner_id));
+    }
 
     const grid = el('div', { class: 'form-grid' }, [
         field('الاسم الكامل', fullName, { required: true }),
@@ -93,7 +105,8 @@ export async function openClientForm(client, onSaved) {
             notes: notes.value.trim() || null
         };
         if (editing) payload.status = status.value;
-        if (canAssign() && !ownerLocked) payload.owner_id = owner.value || null;
+        // الإسناد لا يُرسل إلا إذا غيّره المستخدم فعلاً
+        if (canAssign() && !ownerLocked && owner.value !== originalOwner) payload.owner_id = owner.value || null;
 
         saveBtn.disabled = true;
         saveBtn.textContent = 'جارٍ الحفظ…';
@@ -102,15 +115,20 @@ export async function openClientForm(client, onSaved) {
         const query = editing
             ? supabase.from('clients').update(payload).eq('id', client.id)
             : supabase.from('clients').insert(payload);
-        const { data, error } = await query.select('id, full_name, phone').single();
+        const { data, error } = await query.select('id, full_name, phone').maybeSingle();
 
         saveBtn.disabled = false;
         saveBtn.textContent = editing ? 'حفظ التعديل' : 'إضافة العميل';
 
         if (error) {
-            if (error.code === '23505') return showDuplicate(notice, payload.phone);
+            // 23505 قد يأتي من أي فهرس فريد؛ التكرار على الجوال وحده هو ما نعرض له شاشة العميل الموجود
+            if (error.code === '23505' && String(error.message || '').includes('clients_phone_uk')) {
+                return showDuplicate(notice, payload.phone);
+            }
             return fail(error, 'تعذّر حفظ العميل');
         }
+        // صفر صفوف بلا خطأ = RLS رشّحت الصف، فلا يجوز أن نقول "تم"
+        if (!data) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
 
         closeModal();
         notify((editing ? 'تم حفظ التعديل' : 'تم إضافة العميل') + ' — الجوال: ' + data.phone, 'success', 6000);
@@ -120,7 +138,17 @@ export async function openClientForm(client, onSaved) {
     openModal(editing ? 'تعديل بيانات العميل' : 'عميل جديد', form);
 }
 
-// 23505 = تكرار على clients_phone_uk. نعرض الرسالة ثم نبحث عن العميل بالرقم بعد تطبيعه.
+// قيمة محفوظة لم تعد ضمن خيارات القائمة: يضيفها كخيار ويختارها، فلا تضيع عند الحفظ.
+// (نفس ما يفعله requirement-form.js مع property_type)
+function keepCurrent(node, value, labelText) {
+    if (value === null || value === undefined || value === '') return;
+    const text = String(value);
+    if (node.value === text) return;
+    node.appendChild(el('option', { value: text, text: labelText || text }));
+    node.value = text;
+}
+
+// 23505 على clients_phone_uk = تكرار جوال. نعرض الرسالة ثم نبحث عن العميل بالرقم بعد تطبيعه.
 async function showDuplicate(notice, rawPhone) {
     notify('العميل موجود مسبقاً', 'error', 8000);
     notice.className = 'crm-error';

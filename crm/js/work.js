@@ -16,7 +16,8 @@ import {
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
-const CARDS = [
+// تُستعمل أيضاً في لوحة الإدارة (#/dashboard) فوق بطاقات القمع الشهري
+export const WORK_CARDS = [
     { key: 'follow_ups_today', label: 'متابعات اليوم' },
     { key: 'follow_ups_overdue', label: 'متابعات متأخرة' },
     { key: 'new_requirements_7d', label: 'طلبات جديدة (7 أيام)' },
@@ -60,7 +61,7 @@ export async function renderWork(root) {
         if (error) return void replace(stats, errorBox(error, 'تعذّر تحميل مؤشرات اليوم'));
 
         clear(stats);
-        for (const card of CARDS) {
+        for (const card of WORK_CARDS) {
             stats.appendChild(el('div', { class: 'stat-card' }, [
                 el('h3', { text: number(data ? data[card.key] : 0) }),
                 el('p', { text: card.label })

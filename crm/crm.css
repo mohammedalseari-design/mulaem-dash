@@ -459,3 +459,40 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
     background: var(--bg-light);
     border-top: 2px solid var(--border-light);
 }
+
+/* ===== قمع لوحة الإدارة (أشرطة بلا مكتبة رسوم) ===== */
+.funnel { display: flex; flex-direction: column; gap: 10px; }
+
+.funnel-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 70px 180px;
+    align-items: center;
+    gap: 12px;
+}
+
+.funnel-label { font-weight: 700; color: var(--text-primary); font-size: 0.93em; }
+
+.funnel-bar {
+    display: block;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--bg-light);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+}
+
+.funnel-fill {
+    display: block;
+    height: 100%;
+    min-width: 2px;
+    border-radius: 999px;
+    background: var(--gradient-primary);
+}
+
+.funnel-value { font-variant-numeric: tabular-nums; font-weight: 800; text-align: left; direction: ltr; }
+.funnel-rate { font-size: 0.85em; }
+
+@media (max-width: 700px) {
+    .funnel-row { grid-template-columns: 100px 1fr 60px; }
+    .funnel-rate { grid-column: 1 / -1; }
+}

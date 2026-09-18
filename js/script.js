@@ -11,6 +11,31 @@ let modelIndex = 0; // Index counter for unit models
 // Base API URL - relative path works since frontend and backend are on same domain
 const API_URL = 'api';
 
+// ── تهريب النصوص القادمة من قاعدة البيانات ───────────────────────────────────
+// هذه اللوحة تبني صفحاتها بـ innerHTML، فاسم مشروع فيه <img src=x onerror=...>
+// كان ينفَّذ عند كل من يفتح الشبكة (مجلد crm/ لا يتأثر: يبني بـ textContent).
+// القاعدة هنا: لا نص من القاعدة يدخل HTML بلا esc().
+function esc(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+// نص يوضع داخل سلسلة JS في سمة onclick: المتصفح يفكّ ترميز السمة قبل تنفيذها،
+// فـ esc() وحدها لا تمنع الخروج من السلسلة — يسبقها تهريب لـJS.
+function escJs(v) {
+    if (v === null || v === undefined) return '';
+    return esc(String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' '));
+}
+
+// رابط يأتي من القاعدة (صورة أو رابط خارجي): ما لم يبدأ بـ https:// فهو مرفوض،
+// لأن javascript: في حقل الصور هو الثغرة نفسها. الفارغ يعني: اعرض البديل.
+function safeUrl(v) {
+    const s = String(v === null || v === undefined ? '' : v).trim();
+    return s.slice(0, 8).toLowerCase() === 'https://' ? s : '';
+}
+
 // Helper to log employee activity
 async function logActivity(action, details) {
     if (!currentUser) return;
@@ -376,19 +401,21 @@ function addMarker(project) {
         
         let popupContent = `
             <div style="text-align: right; direction: rtl; min-width: 250px; font-family: 'Tajawal';">
-                <h3 style="color: #C9A961; margin-bottom: 10px;">${project.name}</h3>
-                <p><strong>النوع:</strong> ${project.type}</p>
+                <h3 style="color: #C9A961; margin-bottom: 10px;">${esc(project.name)}</h3>
+                <p><strong>النوع:</strong> ${esc(project.type)}</p>
                 <p><strong>السعر:</strong> ${formatNumber(project.price)} ريال</p>
                 <p><strong>التوفر:</strong> ${getAvailabilityBadgeHtml(project.availability)}</p>
                 <p><strong>الحالة:</strong> ${getStatusBadgeHtml(project.status)}</p>
         `;
-        
+
         if (project.status === 'rejected' && project.rejection_reason) {
-            popupContent += `<p style="color:#ef4444; margin-top:5px;"><strong>سبب الرفض:</strong> ${project.rejection_reason}</p>`;
+            popupContent += `<p style="color:#ef4444; margin-top:5px;"><strong>سبب الرفض:</strong> ${esc(project.rejection_reason)}</p>`;
         }
-        
+
+        // الإحداثيات عمودان رقميان في القاعدة (double precision)، ومع ذلك يمران على
+        // Number() فلا يدخل الرابط إلا رقم أو NaN
         popupContent += `
-                <a href="https://www.google.com/maps?q=${project.latitude},${project.longitude}" target="_blank" style="display:inline-flex; align-items:center; gap:5px; margin-top:10px; color:var(--primary-gold); text-decoration:none; font-weight:600;"><span>فتح في خرائط Google</span></a>
+                <a href="https://www.google.com/maps?q=${Number(project.latitude)},${Number(project.longitude)}" target="_blank" style="display:inline-flex; align-items:center; gap:5px; margin-top:10px; color:var(--primary-gold); text-decoration:none; font-weight:600;"><span>فتح في خرائط Google</span></a>
             </div>
         `;
 
@@ -987,10 +1014,10 @@ function loadApprovals() {
         const dateStr = p.date_added ? new Date(p.date_added).toLocaleDateString('ar-SA') : '--';
         card.innerHTML = `
             <div class="approval-card-info">
-                <h4>${p.name}</h4>
-                <p>${p.type} &mdash; ${formatNumber(p.price)} ريال &mdash; ${formatNumber(p.area)} م²</p>
-                <p>${p.address || 'بدون عنوان'}</p>
-                <p>رفعه: <strong>${p.employee}</strong> &mdash; ${dateStr}</p>
+                <h4>${esc(p.name)}</h4>
+                <p>${esc(p.type)} &mdash; ${formatNumber(p.price)} ريال &mdash; ${formatNumber(p.area)} م²</p>
+                <p>${esc(p.address || 'بدون عنوان')}</p>
+                <p>رفعه: <strong>${esc(p.employee)}</strong> &mdash; ${esc(dateStr)}</p>
             </div>
             <div class="approval-card-actions">
                 <button class="btn btn-approve btn-small" onclick="approveProject(${p.id})"><span>اعتماد</span></button>
@@ -1043,7 +1070,7 @@ function loadMyProjects() {
             rejectionHtml = `
                 <div class="rejection-note">
                     <strong>سبب الرفض من الإدارة:</strong>
-                    ${p.rejection_reason}
+                    ${esc(p.rejection_reason)}
                 </div>`;
         }
 
@@ -1058,10 +1085,10 @@ function loadMyProjects() {
 
         card.innerHTML = `
             <div class="my-project-card-info">
-                <h4>${p.name}</h4>
-                <p>${p.type} &mdash; ${formatNumber(p.price)} ريال</p>
-                <p>${p.address || 'بدون عنوان'} &mdash; <span style="color:${s.color}; font-weight:700;">${s.text}</span></p>
-                <p style="font-size:0.78em;">${dateStr}</p>
+                <h4>${esc(p.name)}</h4>
+                <p>${esc(p.type)} &mdash; ${formatNumber(p.price)} ريال</p>
+                <p>${esc(p.address || 'بدون عنوان')} &mdash; <span style="color:${s.color}; font-weight:700;">${s.text}</span></p>
+                <p style="font-size:0.78em;">${esc(dateStr)}</p>
                 ${rejectionHtml}
             </div>
             <div class="my-project-card-actions">
@@ -1107,18 +1134,18 @@ async function loadUsers() {
             const toggleBlockText = isBlocked ? 'تفعيل' : 'تعطيل';
             
             tr.innerHTML = `
-                <td>${user.username}</td>
-                <td>${user.fullname}</td>
-                <td><span class="role-badge ${user.role}">${getRoleName(user.role)}</span></td>
+                <td>${esc(user.username)}</td>
+                <td>${esc(user.fullname)}</td>
+                <td><span class="role-badge ${esc(user.role)}">${esc(getRoleName(user.role))}</span></td>
                 <td>${statusBadge}</td>
                 <td>
-                    <button class="btn-user-action change-pw" onclick="changeUserPassword(${user.id}, '${user.username}')">
+                    <button class="btn-user-action change-pw" onclick="changeUserPassword(${Number(user.id)}, '${escJs(user.username)}')">
                         <span>كلمة المرور</span>
                     </button>
-                    <button class="btn-user-action block-toggle" onclick="toggleUserBlock(${user.id}, ${isBlocked ? 0 : 1})">
+                    <button class="btn-user-action block-toggle" onclick="toggleUserBlock(${Number(user.id)}, ${isBlocked ? 0 : 1})">
                         <span>${toggleBlockText}</span>
                     </button>
-                    <button class="btn-user-action delete-user" onclick="deleteUser(${user.id})">
+                    <button class="btn-user-action delete-user" onclick="deleteUser(${Number(user.id)})">
                         <span>حذف</span>
                     </button>
                 </td>
@@ -1230,7 +1257,8 @@ window.toggleUserBlock = async function (id, blockState) {
 
 window.changeUserPassword = async function (id, username) {
     const { value: password } = await Swal.fire({
-        title: `تعديل كلمة مرور: ${username}`,
+        // titleText لا title: SweetAlert2 يضع title في innerHTML، واسم المستخدم من القاعدة
+        titleText: `تعديل كلمة مرور: ${username}`,
         input: 'password',
         inputLabel: 'كلمة المرور الجديدة',
         inputPlaceholder: 'أدخل كلمة المرور الجديدة',
@@ -1300,12 +1328,12 @@ async function loadActivity() {
                 <div class="timeline-dot" style="background:${color}; border-color:${color}; box-shadow:0 0 6px ${color}66;"></div>
                 <div class="timeline-card" style="border-right:3px solid ${color};">
                     <div class="timeline-card-header">
-                        <span class="timeline-action" style="color:${color};">${label}</span>
-                        <span class="timeline-time">${timeAgo}</span>
+                        <span class="timeline-action" style="color:${color};">${esc(label)}</span>
+                        <span class="timeline-time">${esc(timeAgo)}</span>
                     </div>
                     <div class="timeline-card-body">
-                        <strong class="timeline-user">${act.user_name || 'النظام'}</strong>
-                        <span class="timeline-details">${act.details}</span>
+                        <strong class="timeline-user">${esc(act.user_name || 'النظام')}</strong>
+                        <span class="timeline-details">${esc(act.details)}</span>
                     </div>
                 </div>
             `;
@@ -1357,25 +1385,28 @@ function formatActivityTime(timestamp) {
 
 // ── Image Slider Builder ──────────────────────────────────────────────────────
 function buildImageSlider(images, projectId) {
-    if (!images || images.length === 0) return '';
-    const sliderId = `slider-${projectId}`;
-    if (images.length === 1) {
+    // رابط غير https مرفوض: الصور مخزَّنة في مخزن Supabase، وأي شيء آخر في الحقل
+    // (javascript: مثلاً) لا يُعرض أصلاً
+    const safe = (images || []).map(safeUrl).filter(Boolean);
+    if (safe.length === 0) return '';
+    const sliderId = `slider-${Number(projectId)}`;
+    if (safe.length === 1) {
         return `<div style="margin-top:20px; border-radius:12px; overflow:hidden; max-height:300px;">
-            <img src="${images[0]}" style="width:100%; height:280px; object-fit:cover; cursor:zoom-in; display:block;" onclick="window.open(this.src)">
+            <img src="${esc(safe[0])}" style="width:100%; height:280px; object-fit:cover; cursor:zoom-in; display:block;" onclick="window.open(this.src)">
         </div>`;
     }
-    const slides = images.map((src, i) => `
+    const slides = safe.map((src, i) => `
         <div class="img-slider-slide">
-            <img src="${src}" alt="صورة ${i + 1}" onclick="window.open(this.src)">
+            <img src="${esc(src)}" alt="صورة ${i + 1}" onclick="window.open(this.src)">
         </div>`).join('');
-    const dots = images.map((_, i) => `<button class="img-slider-dot ${i === 0 ? 'active' : ''}" onclick="sliderGoTo('${sliderId}', ${i})"></button>`).join('');
+    const dots = safe.map((_, i) => `<button class="img-slider-dot ${i === 0 ? 'active' : ''}" onclick="sliderGoTo('${sliderId}', ${i})"></button>`).join('');
     return `
         <div style="margin-top:20px;">
             <div class="img-slider-wrap" id="${sliderId}-wrap">
                 <div class="img-slider-track" id="${sliderId}-track">${slides}</div>
                 <button class="img-slider-btn img-slider-prev" onclick="sliderStep('${sliderId}', -1)">&#8250;</button>
                 <button class="img-slider-btn img-slider-next" onclick="sliderStep('${sliderId}', 1)">&#8249;</button>
-                <div class="img-slider-counter" id="${sliderId}-counter">1 / ${images.length}</div>
+                <div class="img-slider-counter" id="${sliderId}-counter">1 / ${safe.length}</div>
             </div>
             <div class="img-slider-dots" id="${sliderId}-dots">${dots}</div>
         </div>`;
@@ -1459,20 +1490,20 @@ window.viewProject = async function (id) {
     const dateStr = p.date_added ? new Date(p.date_added).toLocaleString('ar-SA') : 'غير متوفر';
 
     body.innerHTML = `
-        <h2 style="font-family: 'Almarai'; font-weight: 800; color: var(--text-primary); margin-bottom: 25px; font-size: 2em;">${p.name}</h2>
-        <div class="project-detail"><span>النوع</span><span>${p.type}</span></div>
+        <h2 style="font-family: 'Almarai'; font-weight: 800; color: var(--text-primary); margin-bottom: 25px; font-size: 2em;">${esc(p.name)}</h2>
+        <div class="project-detail"><span>النوع</span><span>${esc(p.type)}</span></div>
         <div class="project-detail"><span>السعر</span><span>${formatNumber(p.price)} ريال</span></div>
         <div class="project-detail"><span>المساحة</span><span>${formatNumber(p.area)} م²</span></div>
-        <div class="project-detail"><span>الموقع</span><span>${p.address || 'غير محدد'}</span></div>
-        <div class="project-detail"><span>الموظف</span><span>${p.employee}</span></div>
-        <div class="project-detail"><span>التاريخ</span><span>${dateStr}</span></div>
+        <div class="project-detail"><span>الموقع</span><span>${esc(p.address || 'غير محدد')}</span></div>
+        <div class="project-detail"><span>الموظف</span><span>${esc(p.employee)}</span></div>
+        <div class="project-detail"><span>التاريخ</span><span>${esc(dateStr)}</span></div>
         <div class="project-detail"><span>حالة توفر الوحدات</span><span>${getAvailabilityBadgeHtml(p.availability)}</span></div>
         <div class="project-detail"><span>الحالة</span><span>${getStatusBadgeHtml(p.status)}</span></div>
         
         ${p.status === 'rejected' && p.rejection_reason ? `
             <div class="rejection-reason-box">
                 <strong>سبب الرفض من قبل الإدارة:</strong>
-                <p>${p.rejection_reason}</p>
+                <p>${esc(p.rejection_reason)}</p>
             </div>
         ` : ''}
 
@@ -1499,31 +1530,31 @@ window.viewProject = async function (id) {
                     <p><strong>حالة البناء:</strong> ${details.construction_status === 'تحت_الإنشاء' ? 'تحت الإنشاء' : 'جاهز'}</p>
                 ` : ''}
                 ${details.support_type ? `
-                    <p><strong>نوع الدعم:</strong> ${details.support_type === 'غير_مدعوم' ? 'غير مدعوم' : details.support_type === 'تمويل' ? 'تمويل لغير المدعومين' : details.support_type}</p>
+                    <p><strong>نوع الدعم:</strong> ${details.support_type === 'غير_مدعوم' ? 'غير مدعوم' : details.support_type === 'تمويل' ? 'تمويل لغير المدعومين' : esc(details.support_type)}</p>
                 ` : ''}
                 ${details.delivery_time ? `
                     <p style="background:rgba(184,150,46,0.08);border-right:3px solid var(--primary-gold);padding:8px 12px;border-radius:6px;margin:8px 0;">
-                        <strong>⏱ موعد التسليم:</strong> ${details.delivery_time}
+                        <strong>⏱ موعد التسليم:</strong> ${esc(details.delivery_time)}
                     </p>
                 ` : ''}
-                ${details.drive_link ? `
+                ${safeUrl(details.drive_link) ? `
                     <p style="margin:8px 0;">
                         <strong>🔗 رابط الدرايف:</strong>
-                        <a href="${details.drive_link}" target="_blank" rel="noopener"
+                        <a href="${esc(safeUrl(details.drive_link))}" target="_blank" rel="noopener"
                            style="color:var(--primary-gold);word-break:break-all;">فتح الرابط ↗</a>
                     </p>
                 ` : ''}
-                ${p.type === 'أرض' ? `<p><strong>واجهة:</strong> ${details.interface || '-'}</p><p><strong>أضلاع:</strong> ${details.sides || '-'}</p>` : ''}
+                ${p.type === 'أرض' ? `<p><strong>واجهة:</strong> ${esc(details.interface || '-')}</p><p><strong>أضلاع:</strong> ${esc(details.sides || '-')}</p>` : ''}
                 ${p.type === 'فيلا' ? `
-                    <p><strong>مساحة المباني:</strong> ${details.buildingArea} م²</p>
-                    <p><strong>الواجهة:</strong> ${details.interface || '-'}</p>
-                    <p><strong>النوع:</strong> ${details.villaType || '-'}</p>
-                    <p><strong>عدد الغرف:</strong> ${details.rooms || '-'}</p>
-                    <p><strong>العمر:</strong> ${details.age || '-'} سنة</p>
+                    <p><strong>مساحة المباني:</strong> ${esc(details.buildingArea)} م²</p>
+                    <p><strong>الواجهة:</strong> ${esc(details.interface || '-')}</p>
+                    <p><strong>النوع:</strong> ${esc(details.villaType || '-')}</p>
+                    <p><strong>عدد الغرف:</strong> ${esc(details.rooms || '-')}</p>
+                    <p><strong>العمر:</strong> ${esc(details.age || '-')} سنة</p>
                 ` : ''}
                  ${p.type === 'شقة' ? `
-                    <p><strong>عدد الشقق:</strong> ${details.aptCount || 0}</p>
-                    <p><strong>عدد الروفات:</strong> ${details.roofCount || 0}</p>
+                    <p><strong>عدد الشقق:</strong> ${esc(details.aptCount || 0)}</p>
+                    <p><strong>عدد الروفات:</strong> ${esc(details.roofCount || 0)}</p>
                     ${details.models && Array.isArray(details.models) && details.models.length > 0 ? `
                         <div style="margin-top: 15px;">
                             <h5 style="margin-bottom: 8px; color: var(--primary-gold); font-size: 1.1em;">نماذج الوحدات</h5>
@@ -1549,14 +1580,14 @@ window.viewProject = async function (id) {
                                             else if (m.status === 'sold') statusBadge = '<span style="color: #e74c3c; font-weight: bold;">مباع</span>';
                                             return `
                                                 <tr style="border-bottom: 1px solid #eee;">
-                                                    <td style="padding: 8px;">${m.name}</td>
-                                                    <td style="padding: 8px;">${m.type || 'شقة'}</td>
-                                                    <td style="padding: 8px;">${m.rooms}</td>
-                                                    <td style="padding: 8px;">${m.bathrooms}</td>
-                                                    <td style="padding: 8px;">${m.area} م²</td>
+                                                    <td style="padding: 8px;">${esc(m.name)}</td>
+                                                    <td style="padding: 8px;">${esc(m.type || 'شقة')}</td>
+                                                    <td style="padding: 8px;">${esc(m.rooms)}</td>
+                                                    <td style="padding: 8px;">${esc(m.bathrooms)}</td>
+                                                    <td style="padding: 8px;">${esc(m.area)} م²</td>
                                                     <td style="padding: 8px;">${formatNumber(m.price)} ر.س</td>
                                                     <td style="padding: 8px;">${statusBadge}</td>
-                                                    <td style="padding: 8px;">${m.count || 1}</td>
+                                                    <td style="padding: 8px;">${esc(m.count || 1)}</td>
                                                 </tr>
                                             `;
                                         }).join('')}
@@ -1569,7 +1600,7 @@ window.viewProject = async function (id) {
             </div>
         ` : ''}
 
-        ${p.notes ? `<div style="margin-top:20px; background:#f9f9f9; padding:15px; border-radius:10px;"><p><strong>ملاحظات:</strong> ${p.notes}</p></div>` : ''}
+        ${p.notes ? `<div style="margin-top:20px; background:#f9f9f9; padding:15px; border-radius:10px;"><p><strong>ملاحظات:</strong> ${esc(p.notes)}</p></div>` : ''}
 
         <div class="share-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border-light); display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})">
@@ -2145,7 +2176,7 @@ window.addUnitModel = function(modelData = null) {
         <div class="unit-model-grid">
             <div class="form-group">
                 <label>اسم/رقم النموذج *</label>
-                <input type="text" class="model-name" required value="${nameVal}" placeholder="مثال: نموذج B">
+                <input type="text" class="model-name" required value="${esc(nameVal)}" placeholder="مثال: نموذج B">
             </div>
             <div class="form-group">
                 <label>نوع الوحدة *</label>
@@ -2156,19 +2187,19 @@ window.addUnitModel = function(modelData = null) {
             </div>
             <div class="form-group">
                 <label>عدد الغرف *</label>
-                <input type="number" class="model-rooms" required value="${roomsVal}" placeholder="مثال: 4">
+                <input type="number" class="model-rooms" required value="${esc(roomsVal)}" placeholder="مثال: 4">
             </div>
             <div class="form-group">
                 <label>دورات المياه *</label>
-                <input type="number" class="model-bathrooms" required value="${bathroomsVal}" placeholder="مثال: 3">
+                <input type="number" class="model-bathrooms" required value="${esc(bathroomsVal)}" placeholder="مثال: 3">
             </div>
             <div class="form-group">
                 <label>المساحة (م²) *</label>
-                <input type="number" class="model-area" required value="${areaVal}" placeholder="مثال: 140">
+                <input type="number" class="model-area" required value="${esc(areaVal)}" placeholder="مثال: 140">
             </div>
             <div class="form-group">
                 <label>السعر (ريال) *</label>
-                <input type="number" class="model-price" required value="${priceVal}" placeholder="مثال: 480000">
+                <input type="number" class="model-price" required value="${esc(priceVal)}" placeholder="مثال: 480000">
             </div>
             <div class="form-group">
                 <label>الحالة *</label>
@@ -2180,7 +2211,7 @@ window.addUnitModel = function(modelData = null) {
             </div>
             <div class="form-group">
                 <label>عدد الوحدات *</label>
-                <input type="number" class="model-count" required value="${countVal}" min="1" placeholder="1">
+                <input type="number" class="model-count" required value="${esc(countVal)}" min="1" placeholder="1">
             </div>
         </div>
     `;
@@ -2225,8 +2256,10 @@ function renderGridView(filtered) {
 
         const canEdit = currentUser.role === 'admin' || (currentUser.role === 'field' && project.added_by === currentUser.username);
 
-        const imgHtml = firstImage
-            ? `<img src="${firstImage}" class="project-image" alt="${project.name}" onclick="viewProject(${project.id})" style="cursor:pointer;">`
+        // رابط الصورة يُرفض ما لم يكن https، وعندها يُعرض البديل بدلاً منه
+        const imgUrl = safeUrl(firstImage);
+        const imgHtml = imgUrl
+            ? `<img src="${esc(imgUrl)}" class="project-image" alt="${esc(project.name)}" onclick="viewProject(${project.id})" style="cursor:pointer;">`
             : `<div class="project-img-placeholder" onclick="viewProject(${project.id})" style="cursor:pointer;"></div>`;
 
         card.innerHTML = `
@@ -2234,19 +2267,19 @@ function renderGridView(filtered) {
             ${imgHtml}
             <div class="project-info">
                 <div class="project-card-header">
-                    <h3 onclick="viewProject(${project.id})" style="cursor:pointer;">${project.name}</h3>
+                    <h3 onclick="viewProject(${project.id})" style="cursor:pointer;">${esc(project.name)}</h3>
                     <div class="project-badges">
                         ${getCategoryBadgeHtml(project)}
                         ${getAvailabilityBadgeHtml(project.availability)}
                         ${getStatusBadgeHtml(project.status)}
                     </div>
                 </div>
-                ${project.address ? `<div class="project-address"><span>${project.address}</span></div>` : ''}
-                <div class="project-detail"><span>النوع</span><span style="color:${typeColor}; font-weight:700;">${project.type}</span></div>
+                ${project.address ? `<div class="project-address"><span>${esc(project.address)}</span></div>` : ''}
+                <div class="project-detail"><span>النوع</span><span style="color:${typeColor}; font-weight:700;">${esc(project.type)}</span></div>
                 <div class="project-detail"><span>السعر</span><span>${formatNumber(project.price)} ر.س</span></div>
                 <div class="project-detail"><span>المساحة</span><span>${formatNumber(project.area)} م²</span></div>
                 <div class="added-by-badge">
-                    <span>${project.employee}</span>
+                    <span>${esc(project.employee)}</span>
                 </div>
                 <div class="project-actions">
                     <button class="btn btn-outline btn-small" onclick="locateProject(${project.id})"><span>الموقع</span></button>
@@ -2407,7 +2440,7 @@ function renderKanbanBoard(filteredProjects) {
         header.className = `kanban-header ${g.class}`;
         header.innerHTML = `
             <div class="kanban-header-title">
-                <span>${g.title}</span>
+                <span>${esc(g.title)}</span>
                 <span class="count-badge">${g.totalCount} وحدة</span>
             </div>
             ${currentUser && currentUser.role === 'admin' ? `
@@ -2437,11 +2470,11 @@ function renderKanbanBoard(filteredProjects) {
                     <div class="kanban-card-bar" style="background:${barColor};"></div>
                     <div class="kanban-card-body">
                         <div class="kanban-card-header-row">
-                            <div class="kanban-card-title">${c.name}</div>
+                            <div class="kanban-card-title">${esc(c.name)}</div>
                             ${getAvailabilityBadgeHtml(c.projectAvailability)}
                         </div>
-                        <div class="kanban-card-project">${c.projectName}</div>
-                        <div class="kanban-card-detail">${c.address}</div>
+                        <div class="kanban-card-project">${esc(c.projectName)}</div>
+                        <div class="kanban-card-detail">${esc(c.address)}</div>
                         <div class="kanban-card-detail">
                             ${c.area > 0 ? `${formatNumber(c.area)} م²` : ''}${c.rooms > 0 ? ` | ${c.rooms} غرف` : ''}${c.bathrooms > 0 ? ` | ${c.bathrooms} دورات مياه` : ''}
                         </div>

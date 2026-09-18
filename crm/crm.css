@@ -143,6 +143,9 @@
 .crm-search { flex: 1; min-width: 220px; }
 .crm-spacer { flex: 1; }
 
+/* حقول الأرقام في شريط المرشّحات ضيّقة، ولا تنافس حقل البحث على العرض */
+.crm-toolbar .crm-filter-num { width: 120px; flex: 0 0 auto; }
+
 /* ===== الجداول ===== */
 .crm-table { font-size: 0.93em; }
 .crm-table th, .crm-table td { padding: 12px 14px; vertical-align: middle; }

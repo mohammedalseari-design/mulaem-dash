@@ -7,6 +7,7 @@ import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
+import { renderProperties } from './properties.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
 import { renderBoard } from './board.js';
@@ -23,6 +24,7 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
+    { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
     { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/commissions\/?$/, view: renderCommissions, nav: '#/commissions', admin: true },
@@ -36,6 +38,7 @@ const ROUTES = [
 const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
+    { hash: '#/properties', label: 'العقارات' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
     { hash: '#/commissions', label: 'العمولات', admin: true },
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true },

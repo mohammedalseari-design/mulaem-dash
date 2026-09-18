@@ -165,3 +165,21 @@ export const COMMISSION_STATUS_EDITABLE = {
     invoiced: 'صدرت فاتورة',
     waived: 'معفاة'
 };
+
+/* ===================== المخزون (v_units) ===================== */
+
+// حالة الوحدة: نماذج الشقق تخزّن available/reserved/sold في details.models،
+// وصفّ "كامل العقار" يأخذها من projects.availability (available/sold_out).
+export const UNIT_STATUS = {
+    available: 'متاحة',
+    reserved: 'محجوزة',
+    sold: 'مباعة',
+    sold_out: 'نفدت بالكامل'
+};
+
+export const UNIT_STATUS_TONE = {
+    available: 'green',
+    reserved: 'orange',
+    sold: 'red',
+    sold_out: 'red'
+};

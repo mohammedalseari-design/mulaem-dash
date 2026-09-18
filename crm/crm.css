@@ -152,6 +152,19 @@
 
 .crm-table-wrap { overflow-x: auto; }
 
+.crm-note {
+    width: 100%;
+    min-width: 150px;
+    padding: 7px 11px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    font-family: 'Tajawal', sans-serif;
+    font-size: 0.9em;
+    background: var(--bg-card);
+}
+
+.crm-note:focus { outline: none; border-color: var(--primary-gold); }
+
 /* ===== الشارات ===== */
 .badge {
     display: inline-block;

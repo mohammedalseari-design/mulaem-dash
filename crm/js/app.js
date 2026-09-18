@@ -5,12 +5,14 @@ import { state, loadSession, signIn, signOut, ROLE_AR, displayName } from './aut
 import { el, clear, append, notify, fail, errorText, initModal, closeModal } from './ui.js';
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
+import { renderRequirementMatches } from './matching.js';
 
 /* ===================== المسارات ===================== */
 
 const DEFAULT_ROUTE = '#/clients';
 
 const ROUTES = [
+    { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' }
 ];

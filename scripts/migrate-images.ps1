@@ -1,4 +1,4 @@
-# migrate-images.ps1 — نقل صور المشاريع من استضافة GoDaddy (dash.mulaem.sa) إلى مخزن Supabase وتحديث الروابط.
+﻿# migrate-images.ps1 - نقل صور المشاريع من استضافة GoDaddy (dash.mulaem.sa) إلى مخزن Supabase وتحديث الروابط.
 #
 # التشغيل من PowerShell داخل مجلد المشروع:
 #   .\scripts\migrate-images.ps1                 # ينقل كل الصور
@@ -81,9 +81,9 @@ foreach ($p in $todo) {
             $changed = $true
             Write-Host ("OK  project {0}: {1}" -f $p.id, $fileName)
         } catch {
-            $failed += ("project {0}: {1} — {2}" -f $p.id, $fileName, $_.Exception.Message)
+            $failed += ("project {0}: {1} - {2}" -f $p.id, $fileName, $_.Exception.Message)
             $newImages += $url          # نبقي الرابط القديم لهذه الصورة
-            Write-Host ("ERR project {0}: {1} — {2}" -f $p.id, $fileName, $_.Exception.Message)
+            Write-Host ("ERR project {0}: {1} - {2}" -f $p.id, $fileName, $_.Exception.Message)
         }
     }
     if ($changed -and -not $DryRun) {

@@ -69,10 +69,22 @@
                 </div>
                 <div class="user-info">
                     <span class="user-badge" id="currentUser"></span>
-                    <a href="crm/" class="logout-btn" style="text-decoration:none">إدارة العملاء</a>
                     <button class="logout-btn" id="logoutBtn">خروج</button>
                 </div>
             </div>
+
+            <!-- شريط التنقل المشترك (نفس بنود /crm/). روابط الأدوار مخفية حتى يقرأ js/nav.js الدور -->
+            <nav class="crm-nav" id="mainNav">
+                <a href="index.html" class="active">المشاريع والخريطة</a>
+                <a href="crm/#/work">عملي اليوم</a>
+                <a href="crm/#/clients">العملاء</a>
+                <a href="crm/#/properties">العقارات</a>
+                <a href="crm/#/deals" data-deny="callcenter">الصفقات</a>
+                <a href="crm/#/commissions" data-admin="1">العمولات</a>
+                <a href="crm/#/dashboard" data-admin="1">لوحة الإدارة</a>
+                <a href="crm/#/inventory" data-admin="1">جودة المخزون</a>
+                <a href="crm/#/settings" data-admin="1">الإعدادات</a>
+            </nav>
 
             <!-- Admin Dashboard -->
             <div class="admin-dashboard" id="adminDashboard">
@@ -491,6 +503,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="js/config.js"></script>
     <script src="js/supabase-shim.js"></script>
+    <script src="js/nav.js"></script>
     <script src="js/script.js"></script>
 </body>
 </html>

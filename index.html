@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام ملائم العقاري - نظام المشاريع العقارية</title>
+    <link rel="icon" type="image/jpeg" href="images/logo.jpg">
+
+    <!-- Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&family=Tajawal:wght@200;300;400;500;700;800;900&display=swap"
+        rel="stylesheet">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <!-- Login Screen -->
+    <div class="login-container" id="loginScreen">
+        <div class="login-box">
+            <img src="images/logo.jpg" class="login-logo" alt="شعار النظام">
+            <h1>نظام ملائم العقاري</h1>
+            <p>نظام المشاريع العقارية</p>
+
+            <div class="login-error" id="loginError">اسم المستخدم أو كلمة المرور غير صحيحة</div>
+
+            <form class="login-form" id="loginForm">
+                <div class="form-group">
+                    <label>اسم المستخدم</label>
+                    <input type="text" id="username" required placeholder="أدخل اسم المستخدم" autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label>كلمة المرور</label>
+                    <input type="password" id="password" required placeholder="أدخل كلمة المرور"
+                        autocomplete="current-password">
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="loginBtn">
+                    <span>تسجيل الدخول</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div class="app-container" id="appContainer">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-content">
+                    <div class="header-brand">
+                        <img src="images/logo.jpg" class="header-logo" alt="شعار النظام">
+                        <div>
+                            <h1>نظام ملائم العقاري</h1>
+                            <p>نظام المشاريع العقارية</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="user-info">
+                    <span class="user-badge" id="currentUser"></span>
+                    <button class="logout-btn" id="logoutBtn">خروج</button>
+                </div>
+            </div>
+
+            <!-- Admin Dashboard -->
+            <div class="admin-dashboard" id="adminDashboard">
+                <div class="admin-top-bar">
+                    <span class="admin-title">لوحة التحكم</span>
+                    <div class="admin-tabs">
+                        <button class="admin-tab active" onclick="switchAdminTab('overview')">نظرة عامة</button>
+                        <button class="admin-tab" id="approvalsTab" onclick="switchAdminTab('approvals')">الموافقات <span id="approvalsBadge" class="tab-count-badge"></span></button>
+                        <button class="admin-tab" onclick="switchAdminTab('users')">المستخدمين</button>
+                        <button class="admin-tab" onclick="switchAdminTab('activity')">النشاطات</button>
+                    </div>
+                </div>
+
+                <div class="admin-content active" id="overview-content">
+                    <div class="stats-bar admin-stats">
+                        <div class="stat-card">
+                            <h3 id="adminTotalProjects">0</h3>
+                            <p>إجمالي المشاريع</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="adminThisMonth">0</h3>
+                            <p>هذا الشهر</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="adminActiveUsers">0</h3>
+                            <p>المستخدمين</p>
+                        </div>
+                        <div class="stat-card pending-card" id="adminPendingCard">
+                            <h3 id="adminPendingCount">0</h3>
+                            <p>بانتظار الموافقة</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-content" id="users-content">
+                    <div class="add-user-section">
+                        <h3 class="section-subheading">إضافة مستخدم جديد</h3>
+                        <form id="addUserForm" class="add-user-form">
+                            <input type="text" id="newUsername" placeholder="اسم المستخدم" required class="user-field-input">
+                            <input type="text" id="newFullname" placeholder="الاسم الكامل" required class="user-field-input">
+                            <input type="password" id="newPassword" placeholder="كلمة المرور" required class="user-field-input">
+                            <select id="newRole" required class="user-field-input">
+                                <option value="field">موظف ميداني</option>
+                                <option value="callcenter">كول سنتر</option>
+                                <option value="admin">مدير (Admin)</option>
+                            </select>
+                            <button type="submit" class="btn btn-primary btn-add-user">إضافة</button>
+                        </form>
+                    </div>
+
+                    <p class="users-count-label">عدد المستخدمين: <strong id="userCount">4</strong></p>
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>اسم المستخدم</th>
+                                <th>الاسم الكامل</th>
+                                <th>الدور</th>
+                                <th>حالة الحساب</th>
+                                <th>العمليات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr>
+                                <td colspan="5" class="loading">جاري التحميل</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="admin-content" id="approvals-content">
+                    <div id="approvalsList" class="approvals-list">
+                        <div class="loading">جاري التحميل...</div>
+                    </div>
+                </div>
+
+                <div class="admin-content" id="activity-content">
+                    <div id="activityLog">
+                        <div class="loading">جاري تحميل سجل النشاطات</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main-content">
+                <!-- Form Section -->
+                <div class="form-section" id="formSection">
+                    <h2 id="formTitle" class="section-heading-flex">
+                        <span>إضافة مشروع جديد</span>
+                    </h2>
+                    <form id="projectForm">
+                        <input type="hidden" id="editProjectId">
+
+                        <div class="form-group">
+                            <label>اسم المشروع *</label>
+                            <input type="text" id="projectName" required placeholder="مثال: فيلا في حي الياسمين">
+                        </div>
+
+                        <div class="form-group">
+                            <label>نوع العقار *</label>
+                            <select id="propertyType" required>
+                                <option value="">اختر نوع العقار</option>
+                                <option value="فيلا">فيلا</option>
+                                <option value="شقة">شقة</option>
+                                <option value="أرض">أرض</option>
+                                <option value="عمارة">عمارة</option>
+                                <option value="محل تجاري">محل تجاري</option>
+                                <option value="مكتب">مكتب</option>
+                                <option value="مستودع">مستودع</option>
+                                <option value="مزرعة">مزرعة</option>
+                                <option value="استراحة">استراحة</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>حالة توفر الوحدات *</label>
+                            <select id="availability" required>
+                                <option value="available">متاحة (Available)</option>
+                                <option value="sold_out">نفدت بالكامل (Sold Out)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>حالة البناء *</label>
+                            <select id="constructionStatus" required>
+                                <option value="">اختر حالة البناء</option>
+                                <option value="جاهز">جاهز</option>
+                                <option value="تحت_الإنشاء">تحت الإنشاء</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="supportTypeGroup" style="display:none;">
+                            <label>نوع الدعم *</label>
+                            <select id="supportType">
+                                <option value="">اختر نوع الدعم</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="deliveryTimeGroup" style="display:none;">
+                            <label>موعد التسليم</label>
+                            <input type="text" id="deliveryTime" placeholder="مثال: بعد 16 شهر، منتصف 2026، السنة القادمة...">
+                        </div>
+
+                        <!-- Generic Fields (Default) -->
+                        <div class="form-group" id="genericFields">
+                            <label>السعر (ريال)</label>
+                            <input type="number" id="price" placeholder="850000">
+                            <label class="label-top-gap">المساحة (م²)</label>
+                            <input type="number" id="area" placeholder="350">
+                        </div>
+
+                        <!-- Land Section -->
+                        <div id="landSection" class="dynamic-section" style="display: none;">
+                            <h3 class="dynamic-section-title">تفاصيل الأرض</h3>
+                            <div class="form-group">
+                                <label>مساحة الأرض (م²) *</label>
+                                <input type="number" id="landArea">
+                            </div>
+                            <div class="form-group">
+                                <label>أضلاع الأرض</label>
+                                <input type="text" id="landSides" placeholder="مثال: 20x30">
+                            </div>
+                            <div class="form-group">
+                                <label>الواجهة</label>
+                                <select id="landInterface">
+                                    <option value="">اختر الواجهة</option>
+                                    <option value="شمالية">شمالية</option>
+                                    <option value="جنوبية">جنوبية</option>
+                                    <option value="شرقية">شرقية</option>
+                                    <option value="غربية">غربية</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>سعر المتر / السعر الإجمالي</label>
+                                <input type="number" id="landPrice" placeholder="السعر بالريال">
+                            </div>
+                        </div>
+
+                        <!-- Villa Section -->
+                        <div id="villaSection" class="dynamic-section" style="display: none;">
+                            <h3 class="dynamic-section-title">تفاصيل الفيلا</h3>
+                            <div class="form-group">
+                                <label>مساحة الأرض (م²) *</label>
+                                <input type="number" id="villaLandArea">
+                            </div>
+                            <div class="form-group">
+                                <label>مساحة المباني (م²) *</label>
+                                <input type="number" id="villaBuildingArea">
+                            </div>
+                            <div class="form-group">
+                                <label>عدد الغرف</label>
+                                <input type="number" id="villaRooms">
+                            </div>
+                            <div class="form-group">
+                                <label>الواجهة</label>
+                                <select id="villaInterface">
+                                    <option value="">اختر الواجهة</option>
+                                    <option value="شمالية">شمالية</option>
+                                    <option value="جنوبية">جنوبية</option>
+                                    <option value="شرقية">شرقية</option>
+                                    <option value="غربية">غربية</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>نوع الفيلا</label>
+                                <select id="villaType">
+                                    <option value="">اختر النوع</option>
+                                    <option value="منفصلة">منفصلة</option>
+                                    <option value="ملتصقة">ملتصقة</option>
+                                    <option value="تاون هاوس">تاون هاوس</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>عمر العقار (سنة)</label>
+                                <input type="number" id="villaAge">
+                            </div>
+                            <div class="form-group">
+                                <label>سعر الفيلا (ريال) *</label>
+                                <input type="number" id="villaPrice">
+                            </div>
+                        </div>
+
+                        <!-- Apartment Section -->
+                        <div id="apartmentSection" class="dynamic-section" style="display: none;">
+                            <h3 class="dynamic-section-title">تفاصيل الشقق</h3>
+                            <div class="form-group">
+                                <label>عدد الشقق</label>
+                                <input type="number" id="aptCount" placeholder="مثال: 4">
+                            </div>
+                            <div class="form-group">
+                                <label>عدد الروفات</label>
+                                <input type="number" id="roofCount" placeholder="مثال: 1">
+                            </div>
+
+                            <div id="unitModelsContainer">
+                                <!-- Dynamic Units will be added here -->
+                            </div>
+
+                            <button type="button" class="btn btn-outline btn-full-top" onclick="addUnitModel()">
+                                <span>إضافة نموذج وحدة (شقة/روف)</span>
+                            </button>
+                        </div>
+
+                        <div class="form-group">
+                            <label>العنوان / الموقع</label>
+                            <input type="text" id="address" placeholder="الرياض، حي الياسمين">
+                        </div>
+
+                        <div class="form-group">
+                            <label>الموقع الجغرافي (خط العرض، خط الطول) *</label>
+                            <input type="text" id="coordinates" placeholder="مثال: 24.7136, 46.6753">
+                            <small class="form-hint">
+                                يمكنك كتابة الإحداثيات يدوياً أو النقر على الخريطة لتحديد الموقع أو سحب العلامة.
+                            </small>
+                            <button type="button" class="btn btn-success btn-top-gap" id="getLocationBtn">
+                                <span>الحصول على موقعي</span>
+                            </button>
+                        </div>
+
+                        <div class="form-group">
+                            <label>الصور *</label>
+                            <input type="file" id="images" multiple accept="image/*">
+                            <div class="image-preview" id="imagePreview"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>رابط الدرايف (Drive)</label>
+                            <input type="url" id="driveLink" placeholder="https://drive.google.com/...">
+                        </div>
+
+                        <div class="form-group">
+                            <label>ملاحظات إضافية</label>
+                            <textarea id="notes" placeholder="أي معلومات إضافية..."></textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <span>إضافة المشروع</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-top-gap" id="cancelEditBtn" style="display:none;">
+                            <span>إلغاء التعديل</span>
+                        </button>
+                        <button type="button" class="btn btn-outline btn-top-gap" id="resetBtn">
+                            <span>مسح النموذج</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Map Section -->
+                <div class="map-section">
+                    <h2 class="section-heading-flex">
+                        <span>خريطة المشاريع</span>
+                    </h2>
+                    <div id="map"></div>
+                </div>
+            </div>
+
+            <!-- My Projects Section — shown only for field employees -->
+            <div class="my-projects-section" id="myProjectsSection" style="display:none;">
+                <h2 class="section-heading-flex">
+                    <span>مشاريعي</span>
+                    <span id="myProjectsCount" class="my-projects-header-count"></span>
+                </h2>
+                <div id="myProjectsList" class="my-projects-list">
+                    <div class="loading">جاري التحميل...</div>
+                </div>
+            </div>
+
+            <!-- Projects Section -->
+            <div class="projects-section">
+                <h2 class="section-heading-flex">
+                    <span>المشاريع المسجلة</span>
+                </h2>
+
+                <div class="stats-bar">
+                    <div class="stat-card">
+                        <h3 id="totalProjects">0</h3>
+                        <p>إجمالي المشاريع</p>
+                    </div>
+                    <div class="stat-card" id="totalValueCard">
+                        <h3 id="totalValue">0</h3>
+                        <p>إجمالي القيمة (ريال)</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="totalArea">0</h3>
+                        <p>إجمالي المساحة (م²)</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="lastAdded">-</h3>
+                        <p>آخر إضافة</p>
+                    </div>
+                </div>
+
+                <!-- Category Tabs -->
+                <div class="category-tabs-bar">
+                    <button class="cat-tab active" id="catTabAll">كل المشاريع</button>
+
+                    <div class="cat-tab-group">
+                        <button class="cat-tab" id="catTabReady">جاهزة <span class="cat-arrow">▾</span></button>
+                        <div class="cat-dropdown" id="catDropReady">
+                            <button class="cat-sub" data-c="جاهز" data-s="مدعوم">مدعومة</button>
+                            <button class="cat-sub" data-c="جاهز" data-s="غير_مدعوم">غير مدعومة</button>
+                        </div>
+                    </div>
+
+                    <div class="cat-tab-group">
+                        <button class="cat-tab" id="catTabConstruction">تحت الإنشاء <span class="cat-arrow">▾</span></button>
+                        <div class="cat-dropdown" id="catDropConstruction">
+                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="مدعوم">مدعومة</button>
+                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="غير_مدعوم">غير مدعومة</button>
+                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="تمويل">تمويل لغير المدعومين</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-section">
+                    <select id="filterType" class="filter-select">
+                        <option value="">كل الأنواع</option>
+                        <option value="فيلا">فيلا</option>
+                        <option value="شقة">شقة</option>
+                        <option value="أرض">أرض</option>
+                        <option value="عمارة">عمارة</option>
+                        <option value="محل تجاري">محل تجاري</option>
+                        <option value="مكتب">مكتب</option>
+                        <option value="مستودع">مستودع</option>
+                        <option value="مزرعة">مزرعة</option>
+                        <option value="استراحة">استراحة</option>
+                    </select>
+
+                    <select id="filterAvailability" class="filter-select">
+                        <option value="">كل الحالات</option>
+                        <option value="available">متاحة</option>
+                        <option value="sold_out">نفدت بالكامل</option>
+                    </select>
+
+                    <input type="number" id="filterMinPrice" placeholder="السعر الأدنى" class="filter-price">
+                    <input type="number" id="filterMaxPrice" placeholder="السعر الأعلى" class="filter-price">
+
+                    <div class="filter-search">
+                        <input type="text" id="searchBox" placeholder="ابحث بالحي أو اسم المشروع...">
+                    </div>
+                    <button class="btn btn-primary btn-export" id="exportBtn">
+                        <span>تصدير</span>
+                    </button>
+                </div>
+
+                <!-- شريط التبديل بين طرق العرض -->
+                <div class="view-toggle-bar">
+                    <button type="button" class="btn btn-outline btn-small active" id="viewModeGrid" onclick="setViewMode('grid')">
+                        <span>عرض المشاريع</span>
+                    </button>
+                    <button type="button" class="btn btn-outline btn-small" id="viewModeKanban" onclick="setViewMode('kanban')">
+                        <span>عرض الوحدات (أعمدة الغرف)</span>
+                    </button>
+                </div>
+
+                <div class="projects-grid" id="projectsGrid">
+                    <div class="loading">جاري تحميل المشاريع</div>
+                </div>
+
+                <div class="kanban-board" id="kanbanBoard" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal" id="projectModal">
+        <div class="modal-content">
+            <span class="modal-close" id="modalClose">×</span>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <!-- Custom JS -->
+    <!-- Supabase backend (replaces the old PHP API) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/supabase-shim.js"></script>
+    <script src="js/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# بيانات العمل والصور لا تُرفع للمستودع
+data/
+uploads/
+*.zip
+*.csv
+supabase/migrations/002_import_data.sql
+
+# أسرار وإعدادات محلية (مفتاح الخدمة لا يدخل المستودع أبداً)
+.env
+.env.*
+supabase/.env
+supabase/.temp/
+
+# نظام التشغيل والمحررات
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+node_modules/

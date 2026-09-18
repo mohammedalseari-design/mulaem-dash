@@ -16,9 +16,16 @@ export function append(parent, children) {
     return parent;
 }
 
+// مفاتيح تكتب HTML خاماً. el() يرفضها رفضاً صريحاً حتى لا يُفتح هذا الباب سهواً
+// لاحقاً: القاعدة أعلاه تبقى قاعدة لأن الأداة نفسها لا تعرف كيف تخالفها.
+const FORBIDDEN_KEYS = ['innerHTML', 'outerHTML', 'srcdoc'];
+
 export function el(tag, attrs = {}, children = null) {
     const node = document.createElement(tag);
     for (const key of Object.keys(attrs)) {
+        if (FORBIDDEN_KEYS.indexOf(key) !== -1) {
+            throw new Error('el(): ' + key + ' ممنوع — استعمل text أو عناصر أبناء');
+        }
         const value = attrs[key];
         if (value === null || value === undefined || value === false) continue;
         if (key === 'class') node.className = value;
@@ -55,8 +62,18 @@ export function errorBox(error, prefix = 'تعذّر تحميل البيانات
     return el('div', { class: 'crm-error', text: prefix + ': ' + errorText(error) });
 }
 
+// رموز Postgres/PostgREST الشائعة: رسالة الخادم بالإنجليزية ولا تفيد المستخدم،
+// وهذه أربعة رموز تتكرر فعلاً في هذه الشاشات.
+const CODE_AR = {
+    '42501': 'لا تملك صلاحية',
+    'PGRST116': 'السجل غير موجود أو غير مرئي لك',
+    '23503': 'مرجع غير صحيح',
+    '22P02': 'قيمة غير صالحة'
+};
+
 export function errorText(error) {
     if (!error) return 'خطأ غير معروف';
+    if (error.code && CODE_AR[error.code]) return CODE_AR[error.code];
     return error.message || error.error_description || error.details || error.hint || String(error);
 }
 

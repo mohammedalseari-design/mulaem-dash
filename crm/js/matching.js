@@ -91,7 +91,10 @@ export async function renderRequirementMatches(root, clientId, requirementId) {
         searchBtn.textContent = 'جارٍ البحث…';
         replace(resultsBody, loading('جارٍ مطابقة الطلب بالمخزون'));
 
-        const { data, error: rpcError } = await supabase.rpc('match_requirement', { p_requirement: requirementId });
+        // الدالة نفسها تقف عند 50 صفاً؛ ‎.limit(50)‎ هنا لتصريح السقف في موضع القراءة
+        const { data, error: rpcError } = await supabase
+            .rpc('match_requirement', { p_requirement: requirementId })
+            .limit(50);
 
         searchBtn.disabled = false;
         searchBtn.textContent = 'ابحث عن مطابقات';

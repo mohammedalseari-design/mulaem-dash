@@ -27,8 +27,12 @@ const NAV = [
 /* ===================== الموجّه ===================== */
 
 let routeToken = 0;
+// الموجّه لا يعمل قبل اكتمال الهوية: تغيير الهاش وشاشة الدخول ظاهرة كان يبني
+// الصفحة خلفها ويطلق استعلاماتها بلا جلسة صالحة.
+let appReady = false;
 
 async function route() {
+    if (!appReady) return;
     const hash = location.hash || DEFAULT_ROUTE;
     const container = document.getElementById('view');
 
@@ -79,6 +83,7 @@ function hideBoot() {
 }
 
 function showLogin(message) {
+    appReady = false;
     hideBoot();
     document.getElementById('appScreen').classList.remove('active');
     document.getElementById('loginScreen').classList.remove('crm-hidden');
@@ -105,6 +110,7 @@ function showApp() {
     ]);
 
     renderNav();
+    appReady = true;
     route();
 }
 
@@ -123,9 +129,10 @@ function wireLogin() {
         try {
             const profile = await signIn(username, password);
             if (!profile) {
+                await endSession();
                 showLogin('لا يوجد ملف مستخدم مرتبط بهذا الحساب. راجع المدير.');
             } else if (profile.is_blocked) {
-                await signOut();
+                await endSession();
                 showLogin('هذا الحساب موقوف. راجع المدير.');
             } else {
                 document.getElementById('password').value = '';
@@ -153,15 +160,25 @@ function wireLogout() {
 
 /* ===================== الإقلاع ===================== */
 
+// إنهاء جلسة نصف صالحة (بلا صف profiles، أو لحساب موقوف) قبل عرض سبب المنع.
+// بدونه تبقى الجلسة في mulaem-auth فترثها اللوحة القديمة في /index.html.
+let selfSignOut = false;
+
+async function endSession() {
+    selfSignOut = true;
+    await signOut().catch(() => {});
+}
+
 async function boot() {
     initModal();
     wireLogin();
     wireLogout();
     window.addEventListener('hashchange', route);
 
-    // خروج من تبويب آخر يشارك نفس التخزين (mulaem-auth)
+    // خروج من تبويب آخر يشارك نفس التخزين (mulaem-auth). أما خروج بدأناه نحن
+    // لعرض سبب المنع فلا يُعاد التحميل معه، وإلا ضاعت الرسالة قبل أن تُقرأ.
     supabase.auth.onAuthStateChange((event) => {
-        if (event === 'SIGNED_OUT') location.reload();
+        if (event === 'SIGNED_OUT' && !selfSignOut) location.reload();
     });
 
     let profile;
@@ -173,9 +190,12 @@ async function boot() {
     }
 
     if (!state.session) return showLogin();
-    if (!profile) return showLogin('لا يوجد ملف مستخدم مرتبط بهذا الحساب. راجع المدير.');
+    if (!profile) {
+        await endSession();
+        return showLogin('لا يوجد ملف مستخدم مرتبط بهذا الحساب. راجع المدير.');
+    }
     if (profile.is_blocked) {
-        await signOut().catch(() => {});
+        await endSession();
         return showLogin('هذا الحساب موقوف. راجع المدير.');
     }
     showApp();

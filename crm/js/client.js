@@ -3,7 +3,7 @@
 import { supabase } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
-import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash } from './ui.js';
+import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail } from './ui.js';
 import { openClientForm } from './client-form.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
@@ -20,7 +20,12 @@ export async function renderClient(root, clientId) {
 
     const [{ data: client, error }, names] = await Promise.all([
         supabase.from('clients').select('*').eq('id', clientId).maybeSingle(),
-        staffMap().catch(() => new Map())
+        // فشل دليل الموظفين لا يمنع عرض الملف، لكنه يُعلن مرة واحدة بدل أن تظهر
+        // الأسماء كلها "مستخدم غير معروف" بلا سبب ظاهر
+        staffMap().catch((staffError) => {
+            fail(staffError, 'تعذّر تحميل أسماء الموظفين');
+            return new Map();
+        })
     ]);
     if (!root.isConnected) return;
 

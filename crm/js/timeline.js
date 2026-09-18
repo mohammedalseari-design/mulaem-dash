@@ -126,6 +126,44 @@ function eventDetail(event) {
             return p.outcome ? String(p.outcome) : label(FOLLOW_UP_STATUS, event.event_type.replace('follow_up_', ''));
         case 'client_reassigned':
             return '';
+        case 'deal_opened': {
+            const parts = [];
+            if (p.stage) parts.push('المرحلة: ' + String(p.stage));
+            if (p.unit_key) parts.push('الوحدة: ' + String(p.unit_key));
+            if (p.project_id) parts.push('العقار رقم ' + p.project_id);
+            if (p.amount) parts.push(money(p.amount) + ' ريال');
+            return parts.join(' · ');
+        }
+        case 'deal_stage_changed': {
+            const parts = [];
+            if (p.stage) parts.push('إلى: ' + String(p.stage));
+            if (p.amount) parts.push(money(p.amount) + ' ريال');
+            return parts.join(' · ');
+        }
+        // تنبيه للمدير يكتبه المشغّل عند إتمام صفقة على عقار: اللوحة القديمة لا
+        // تعرف بالإتمام، فحالة العقار فيها تبقى كما هي حتى يغيّرها المدير بنفسه.
+        case 'property_sold_flag': {
+            const parts = ['العقار بيع فعلياً — راجع حالته في اللوحة'];
+            if (p.unit_key) parts.push('الوحدة: ' + String(p.unit_key));
+            if (event.entity_id) parts.push('العقار رقم ' + String(event.entity_id));
+            return parts.join(' · ');
+        }
+        case 'commission_recorded': {
+            const parts = [];
+            if (p.gross !== null && p.gross !== undefined) parts.push('الإجمالي ' + money(p.gross) + ' ريال');
+            if (p.vat !== null && p.vat !== undefined) parts.push('الضريبة ' + money(p.vat) + ' ريال');
+            return parts.join(' · ');
+        }
+        case 'commission_due':
+        case 'commission_invoiced':
+        case 'commission_partial':
+        case 'commission_collected':
+        case 'commission_waived': {
+            const parts = [];
+            if (p.collected !== null && p.collected !== undefined) parts.push('المحصَّل ' + money(p.collected) + ' ريال');
+            if (p.gross !== null && p.gross !== undefined) parts.push('من ' + money(p.gross) + ' ريال');
+            return parts.join(' · ');
+        }
         default:
             return '';
     }

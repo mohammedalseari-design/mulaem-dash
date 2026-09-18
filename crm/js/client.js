@@ -1,6 +1,7 @@
 // ‎#/clients/:id‎ — ملف العميل: بطاقة بياناته وثلاثة ألسنة (الطلبات، المتابعات، السجل).
 
 import { supabase } from './supabase.js';
+import { myRole } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
 import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail } from './ui.js';
@@ -8,12 +9,20 @@ import { openClientForm } from './client-form.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
 import { renderTimeline } from './timeline.js';
+import { renderDeals } from './deals.js';
 
+// deny: دور لا يُبنى له اللسان. مركز الاتصال لا يرى الصفقات، والقاعدة ترفضها له
+// أصلاً (سياسات deals في 007_deals_commissions.sql).
 const TABS = [
     { key: 'requirements', label: 'الطلبات', render: renderRequirements },
     { key: 'followups', label: 'المتابعات', render: renderFollowUps },
+    { key: 'deals', label: 'الصفقات', render: renderDeals, deny: 'callcenter' },
     { key: 'timeline', label: 'السجل', render: renderTimeline }
 ];
+
+function visibleTabs() {
+    return TABS.filter((tab) => !tab.deny || tab.deny !== myRole());
+}
 
 export async function renderClient(root, clientId) {
     replace(root, loading());
@@ -46,8 +55,9 @@ export async function renderClient(root, clientId) {
     const context = { client: client, names: names, reload: () => renderClient(root, clientId) };
     renderHeader(header, context);
 
-    let active = TABS[0].key;
-    for (const tab of TABS) {
+    const tabs = visibleTabs();
+    let active = tabs[0].key;
+    for (const tab of tabs) {
         tabsBar.appendChild(el('button', {
             type: 'button', class: 'admin-tab', text: tab.label,
             dataset: { tab: tab.key },
@@ -63,7 +73,7 @@ export async function renderClient(root, clientId) {
         clear(tabBody);
         const panel = el('div');
         tabBody.appendChild(panel);
-        const tab = TABS.find((t) => t.key === key);
+        const tab = tabs.find((t) => t.key === key);
         Promise.resolve(tab.render(panel, context)).catch((err) => {
             if (panel.isConnected) replace(panel, errorBox(err, 'تعذّر تحميل المحتوى'));
         });

@@ -1,7 +1,7 @@
 // نقطة الدخول: التحقق من الجلسة، هيكل الصفحة، وموجّه المسارات (hash router).
 
 import { supabase } from './supabase.js';
-import { state, loadSession, signIn, signOut, isAdmin, ROLE_AR, displayName } from './auth.js';
+import { state, loadSession, signIn, signOut, isAdmin, myRole, ROLE_AR, displayName } from './auth.js';
 import { el, clear, append, notify, fail, errorText, initModal, closeModal } from './ui.js';
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
@@ -9,6 +9,8 @@ import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
+import { renderBoard } from './board.js';
+import { renderDeal } from './deal.js';
 
 /* ===================== المسارات ===================== */
 
@@ -19,14 +21,18 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
+    { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
+    { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true }
 ];
 
-// admin: بند للمدير وحده — يُخفى من القائمة ويُرفض مساره إن كُتب بالعنوان
+// admin: بند للمدير وحده. deny: دور محروم من الباب (مركز الاتصال لا صفقات له).
+// في الحالتين يُخفى البند من القائمة ويُرفض المسار إن كُتب بالعنوان.
 const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
+    { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
     { hash: '#/inventory', label: 'جودة المخزون', admin: true },
     { hash: '#/settings', label: 'الإعدادات', admin: true }
 ];
@@ -59,6 +65,10 @@ async function route() {
             root.appendChild(el('div', { class: 'crm-error', text: 'هذه الصفحة للمدير فقط.' }));
             return;
         }
+        if (entry.deny && myRole() === entry.deny) {
+            root.appendChild(el('div', { class: 'crm-error', text: 'هذه الصفحة غير متاحة لدورك.' }));
+            return;
+        }
 
         try {
             await entry.view(root, ...match.slice(1));
@@ -79,6 +89,7 @@ function renderNav() {
     clear(nav);
     for (const item of NAV) {
         if (item.admin && !isAdmin()) continue;
+        if (item.deny && myRole() === item.deny) continue;
         nav.appendChild(el('a', { href: item.hash, text: item.label, dataset: { hash: item.hash } }));
     }
 }

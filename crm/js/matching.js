@@ -10,10 +10,12 @@ import {
     PRIORITY, PRIORITY_TONE, label, scoreLabel
 } from './labels.js';
 import {
-    el, replace, clear, loading, empty, errorBox, badge, pager, money, number,
+    el, append, replace, clear, loading, empty, errorBox, badge, pager, money, number,
     fmtDate, dash, notify, fail, input, EM_DASH
 } from './ui.js';
 import { districtsText, budgetText, rangeText, deliveryText } from './requirements.js';
+import { myRole } from './auth.js';
+import { openDealForm } from './deal-form.js';
 
 const BREAKDOWN_AR = {
     district: 'الحي',
@@ -61,6 +63,13 @@ export async function renderRequirementMatches(root, clientId, requirementId) {
     ]);
 
     const savedView = { page: 0 };
+    // سياق فتح صفقة من صف مطابقة: العميل نفسه، والطلب والعقار والوحدة تُملأ مسبقاً.
+    // مركز الاتصال لا صفقات له، فالزر لا يُبنى له أصلاً.
+    const dealContext = {
+        client: client || { id: clientId, full_name: 'العميل' },
+        requirementId: requirementId,
+        allowed: myRole() !== 'callcenter'
+    };
 
     async function loadSaved() {
         replace(savedBody, loading());
@@ -81,7 +90,7 @@ export async function renderRequirementMatches(root, clientId, requirementId) {
         }
 
         replace(savedBody, [
-            el('div', { class: 'crm-table-wrap' }, savedTable(data, refreshAll)),
+            el('div', { class: 'crm-table-wrap' }, savedTable(data, dealContext, refreshAll)),
             pager(savedView.page, count || data.length, (p) => { savedView.page = p; loadSaved(); }, PAGE_SIZE)
         ]);
     }
@@ -106,7 +115,7 @@ export async function renderRequirementMatches(root, clientId, requirementId) {
 
         replace(resultsBody, [
             el('div', { class: 'crm-subtle', style: 'margin-bottom:12px', text: data.length + ' نتيجة، مرتبة تنازلياً حسب الدرجة' }),
-            el('div', { class: 'crm-table-wrap' }, resultsTable(data, requirementId, refreshAll))
+            el('div', { class: 'crm-table-wrap' }, resultsTable(data, dealContext, refreshAll))
         ]);
     }
 
@@ -159,7 +168,8 @@ function summaryCard(requirement, client, clientId) {
 
 /* ===================== نتائج المطابقة ===================== */
 
-function resultsTable(rows, requirementId, onChanged) {
+function resultsTable(rows, dealContext, onChanged) {
+    const requirementId = dealContext.requirementId;
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'العقار' }),
         el('th', { text: 'الوحدة' }),
@@ -179,6 +189,8 @@ function resultsTable(rows, requirementId, onChanged) {
         });
         shareBtn.addEventListener('click', () => shareMatch(shareBtn, requirementId, row, onChanged));
 
+        const actions = el('div', { class: 'btn-row' }, [shareBtn, dealButton(dealContext, row)]);
+
         body.appendChild(el('tr', {}, [
             el('td', {}, el('strong', { text: dash(row.project_name) })),
             el('td', { text: dash(row.unit_key) }),
@@ -192,7 +204,7 @@ function resultsTable(rows, requirementId, onChanged) {
             el('td', { class: 'num', text: number(row.rooms) }),
             el('td', { text: dash(row.construction_status) }),
             el('td', {}, scoreBadge(row.score, row.breakdown)),
-            el('td', { class: 'cell-actions' }, shareBtn)
+            el('td', { class: 'cell-actions' }, actions)
         ]));
     }
 
@@ -264,7 +276,20 @@ const STATE_BUTTONS = [
     { state: 'viewing', label: 'معاينة' }
 ];
 
-function savedTable(rows, onChanged) {
+// "فتح صفقة" من صف مطابقة: يفتح نموذج الصفقة نفسه، مملوءاً بالطلب والعقار والوحدة.
+function dealButton(dealContext, row) {
+    if (!dealContext.allowed) return null;
+    return el('button', {
+        type: 'button', class: 'btn btn-outline btn-xs', text: 'فتح صفقة',
+        onclick: () => openDealForm(dealContext.client, {
+            requirement_id: dealContext.requirementId,
+            project_id: row.project_id,
+            unit_key: row.unit_key
+        }, (deal) => { location.hash = '#/deals/' + deal.id; })
+    });
+}
+
+function savedTable(rows, dealContext, onChanged) {
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'العقار' }),
         el('th', { text: 'الوحدة' }),
@@ -288,6 +313,7 @@ function savedTable(rows, onChanged) {
             button.addEventListener('click', () => setState(button, row, option.state, noteBox.value, onChanged));
             buttons.appendChild(button);
         }
+        append(buttons, dealButton(dealContext, row));
 
         body.appendChild(el('tr', {}, [
             el('td', {}, el('strong', { text: row.project ? dash(row.project.name) : 'عقار رقم ' + row.project_id })),

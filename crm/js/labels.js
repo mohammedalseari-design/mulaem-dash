@@ -103,7 +103,17 @@ export const EVENT_TYPE = {
     follow_up_scheduled: 'جُدولت متابعة',
     follow_up_done: 'أُنجزت متابعة',
     follow_up_cancelled: 'أُلغيت متابعة',
-    note: 'ملاحظة'
+    note: 'ملاحظة',
+    // أحداث الصفقات والعمولات (مشغّلات 007_deals_commissions.sql)
+    deal_opened: 'فُتحت صفقة',
+    deal_stage_changed: 'تغيّرت مرحلة الصفقة',
+    property_sold_flag: 'العقار بيع فعلياً — راجع حالته في اللوحة',
+    commission_recorded: 'سُجّلت عمولة',
+    commission_due: 'العمولة مستحقة',
+    commission_invoiced: 'صدرت فاتورة العمولة',
+    commission_partial: 'تحصيل جزئي للعمولة',
+    commission_collected: 'حُصّلت العمولة',
+    commission_waived: 'أُعفيت العمولة'
 };
 
 // درجات المطابقة كما في وصف المرحلة 3
@@ -118,3 +128,40 @@ export function label(map, key, fallback = '—') {
     if (key === null || key === undefined || key === '') return fallback;
     return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : String(key);
 }
+
+/* ===================== الصفقات والعمولات (007_deals_commissions.sql) ===================== */
+
+// أسماء المراحل تأتي من جدول deal_stages نفسه (name_ar)، فلا تُكرَّر هنا.
+// هذه ألوان العرض فقط، مفتاحها معرّف المرحلة الثابت 1..7.
+export const DEAL_STAGE_TONE = {
+    1: 'blue',
+    2: 'gold',
+    3: 'orange',
+    4: 'gold',
+    5: 'blue',
+    6: 'green',
+    7: 'red'
+};
+
+export const COMMISSION_STATUS = {
+    due: 'مستحقة',
+    invoiced: 'صدرت فاتورة',
+    partial: 'محصّلة جزئياً',
+    collected: 'محصّلة',
+    waived: 'معفاة'
+};
+
+export const COMMISSION_STATUS_TONE = {
+    due: 'orange',
+    invoiced: 'blue',
+    partial: 'gold',
+    collected: 'green',
+    waived: 'neutral'
+};
+
+// الحالتان اللتان يكتبهما المدير؛ partial و collected يشتقّهما المشغّل من المحصَّل
+export const COMMISSION_STATUS_EDITABLE = {
+    due: 'مشتقة من التحصيل',
+    invoiced: 'صدرت فاتورة',
+    waived: 'معفاة'
+};

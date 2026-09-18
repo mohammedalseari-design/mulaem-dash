@@ -136,3 +136,62 @@ export function phoneNeedle(text) {
     if (digits.length < 6) return null;
     return digits.slice(-9);
 }
+
+/* ===================== مراحل الصفقة وأسباب الخسارة ===================== */
+// جدولان مرجعيان صغيران يقرأهما كل الموظفين (سياسات 007_deals_commissions.sql)،
+// فيُقرآن مرة واحدة لكل جلسة: المراحل بترتيب sort_order كما تُعرض في المسار،
+// وأسباب الخسارة النشطة وحدها لأن القديمة تبقى في الصفقات المغلقة ولا تُقترح.
+
+let stagesPromise = null;
+
+export function dealStages() {
+    if (!stagesPromise) {
+        stagesPromise = supabase
+            .from('deal_stages')
+            .select('id, key, name_ar, sort_order, is_terminal, is_won')
+            .order('sort_order', { ascending: true })
+            .then(({ data, error }) => {
+                if (error) { stagesPromise = null; throw error; }
+                return data || [];
+            });
+    }
+    return stagesPromise;
+}
+
+export async function stageMap() {
+    const map = new Map();
+    for (const stage of await dealStages()) map.set(stage.id, stage);
+    return map;
+}
+
+export function stageName(map, id) {
+    const stage = map.get(Number(id));
+    return stage ? stage.name_ar : 'مرحلة ' + dashOrId(id);
+}
+
+function dashOrId(id) {
+    return id === null || id === undefined ? '—' : String(id);
+}
+
+let reasonsPromise = null;
+
+export function lostReasons() {
+    if (!reasonsPromise) {
+        reasonsPromise = supabase
+            .from('lost_reasons')
+            .select('id, key, name_ar, is_active')
+            .eq('is_active', true)
+            .order('id', { ascending: true })
+            .then(({ data, error }) => {
+                if (error) { reasonsPromise = null; throw error; }
+                return data || [];
+            });
+    }
+    return reasonsPromise;
+}
+
+// وسطاء الصفقات: الوسيط الميداني والمدير — وهما الدوران اللذان يظهران في
+// v_broker_performance، ومركز الاتصال لا صفقات له أصلاً.
+export async function brokerStaff() {
+    return (await staff()).filter((p) => p.role === 'field' || p.role === 'admin');
+}

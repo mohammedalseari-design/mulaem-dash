@@ -355,3 +355,100 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
     .modal-content { padding: 22px; }
     .crm-tabs { display: flex; width: 100%; }
 }
+
+/* ===== مسار مراحل الصفقة ===== */
+.deal-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.deal-step {
+    padding: 8px 16px;
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+    background: var(--bg-light);
+    color: var(--text-muted);
+    font-size: 0.88em;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.deal-step.done { color: #047857; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); }
+.deal-step.on { background: var(--gradient-primary); color: #fff; border-color: transparent; }
+.deal-step-end { border-style: dashed; }
+.deal-step-end.won { background: rgba(16, 185, 129, 0.14); color: #047857; border-style: solid; border-color: rgba(16, 185, 129, 0.35); }
+.deal-step-end.lost { background: rgba(239, 68, 68, 0.12); color: #b91c1c; border-style: solid; border-color: rgba(239, 68, 68, 0.3); }
+
+/* ===== لوحة الصفقات ===== */
+.deal-board {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    align-items: flex-start;
+}
+
+.deal-col {
+    flex: 1 0 250px;
+    min-width: 250px;
+    background: var(--bg-light);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.deal-col-full { flex: 1 1 auto; width: 100%; min-width: 0; }
+
+.deal-col-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.deal-col-count { font-variant-numeric: tabular-nums; font-weight: 700; }
+.deal-col-body { display: flex; flex-direction: column; gap: 10px; }
+.deal-col-wide { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+
+.deal-card {
+    display: block;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 12px 14px;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: all 0.15s;
+}
+
+.deal-card:hover { border-color: var(--primary-gold); box-shadow: var(--shadow-sm); }
+.deal-card strong { display: block; margin-bottom: 4px; }
+
+.deal-card-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 0.88em;
+}
+
+.deal-card-foot .num { font-variant-numeric: tabular-nums; direction: ltr; font-weight: 700; }
+
+.deal-closed summary {
+    cursor: pointer;
+    font-family: 'Almarai', sans-serif;
+    font-weight: 800;
+    font-size: 1.1em;
+    color: var(--text-primary);
+    padding: 4px 0;
+}
+
+.deal-closed[open] summary { margin-bottom: 16px; }
+
+/* منتقي العقار: بحث على الخادم ثم قائمة بنتائج صفحة واحدة */
+.crm-picker { display: flex; gap: 10px; flex-wrap: wrap; }
+.crm-picker input { flex: 1 1 180px; }
+.crm-picker select { flex: 1 1 220px; }

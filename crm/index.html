@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ملائم — إدارة العملاء</title>
+    <link rel="icon" type="image/jpeg" href="../images/logo.jpg">
+
+    <!-- نفس خطوط اللوحة القديمة -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&family=Tajawal:wght@200;300;400;500;700;800;900&display=swap"
+        rel="stylesheet">
+
+    <!-- crm.css يستورد ../css/style.css أولاً ثم يضيف فروق /crm/ فقط -->
+    <link rel="stylesheet" href="crm.css">
+</head>
+
+<body>
+    <!-- تظهر حتى تُقرأ الجلسة، ثم تُخفى -->
+    <div class="loading" id="bootScreen" style="padding-top:90px">جارٍ التحقق من الجلسة</div>
+
+    <!-- شاشة الدخول: لا تظهر إلا إذا لم تكن هناك جلسة -->
+    <div class="login-container crm-hidden" id="loginScreen">
+        <div class="login-box">
+            <img src="../images/logo.jpg" class="login-logo" alt="شعار النظام">
+            <h1>نظام ملائم العقاري</h1>
+            <p>إدارة العملاء</p>
+
+            <div class="login-error crm-hidden" id="loginError"></div>
+
+            <form class="login-form" id="loginForm">
+                <div class="form-group">
+                    <label for="username">اسم المستخدم</label>
+                    <input type="text" id="username" required placeholder="أدخل اسم المستخدم" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="password">كلمة المرور</label>
+                    <input type="password" id="password" required placeholder="أدخل كلمة المرور"
+                        autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary" id="loginBtn">دخول</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- هيكل التطبيق -->
+    <div class="app-container" id="appScreen">
+        <div class="container">
+            <header class="header">
+                <div class="crm-brand">
+                    <img src="../images/logo.jpg" class="crm-logo" alt="ملائم">
+                    <div class="header-content">
+                        <h1>إدارة العملاء</h1>
+                        <p>نظام ملائم العقاري</p>
+                    </div>
+                </div>
+                <div class="user-info">
+                    <span class="user-badge" id="userBadge"></span>
+                    <button class="logout-btn" id="logoutBtn" type="button">تسجيل الخروج</button>
+                </div>
+            </header>
+
+            <nav class="crm-nav" id="crmNav"></nav>
+
+            <main id="view"></main>
+        </div>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-content" id="modalContent"></div>
+    </div>
+    <div class="notification" id="notification"></div>
+
+    <!-- نفس شبكة التوزيع المستخدمة في اللوحة القديمة -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../js/config.js"></script>
+    <!-- بدون supabase-shim.js وبدون script.js: هذه الصفحة تتحدث إلى Supabase مباشرة -->
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

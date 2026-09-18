@@ -1,0 +1,134 @@
+// استعلامات مساعدة مشتركة، كل واحد منها يُنفَّذ مرة واحدة لكل جلسة ويُخزَّن في الذاكرة.
+
+import { supabase } from './supabase.js';
+
+/* ===================== طاقم العمل ===================== */
+// crm_staff() دالة security definer تُرجع الموظفين غير الموقوفين، وهي الطريقة
+// الوحيدة لتحويل owner_id / actor_id / assigned_to إلى اسم: سياسات profiles
+// لا تسمح للوسيط بقراءة صف غيره.
+
+let staffPromise = null;
+
+export function staff() {
+    if (!staffPromise) {
+        staffPromise = supabase.rpc('crm_staff').then(({ data, error }) => {
+            if (error) { staffPromise = null; throw error; }
+            return data || [];
+        });
+    }
+    return staffPromise;
+}
+
+export async function staffMap() {
+    const list = await staff();
+    const map = new Map();
+    for (const person of list) map.set(person.id, person.fullname || person.username);
+    return map;
+}
+
+export function staffName(map, id) {
+    if (!id) return 'غير مُسند';
+    return map.get(id) || 'مستخدم غير معروف';
+}
+
+export async function fieldStaff() {
+    return (await staff()).filter((p) => p.role === 'field');
+}
+
+/* ===================== إعدادات الـ CRM ===================== */
+
+let settingsPromise = null;
+
+export function settings() {
+    if (!settingsPromise) {
+        settingsPromise = supabase.from('crm_settings').select('key, value').then(({ data, error }) => {
+            if (error) { settingsPromise = null; throw error; }
+            const map = {};
+            for (const row of data || []) map[row.key] = row.value;
+            return map;
+        });
+    }
+    return settingsPromise;
+}
+
+export async function defaultCity() {
+    const all = await settings();
+    const city = all.default_city;
+    return typeof city === 'string' ? city : '';
+}
+
+/* ===================== مفردات المخزون ===================== */
+// استعلام واحد على عمودين من جدول العقارات (110 صفوف اليوم) لبناء قوائم
+// "نوع العقار" و"الحي". هذا استعلام مفردات لا قائمة عرض، ولذلك بلا ترقيم،
+// لكنه مسقوف بحد أعلى صريح حتى لا يكبر بلا حساب مع نمو المخزون.
+
+const VOCAB_LIMIT = 3000;
+let inventoryPromise = null;
+
+export function inventoryVocabulary() {
+    if (!inventoryPromise) {
+        inventoryPromise = supabase
+            .from('projects')
+            .select('type, district')
+            .limit(VOCAB_LIMIT)
+            .then(({ data, error }) => {
+                if (error) { inventoryPromise = null; throw error; }
+                return {
+                    propertyTypes: byFrequency(data, 'type'),
+                    districts: byFrequency(data, 'district')
+                };
+            });
+    }
+    return inventoryPromise;
+}
+
+// قيم مميزة مرتبة تنازلياً حسب التكرار (الأكثر شيوعاً أولاً) ثم أبجدياً
+function byFrequency(rows, column) {
+    const counts = new Map();
+    for (const row of rows || []) {
+        const value = row[column];
+        if (value === null || value === undefined) continue;
+        const key = String(value).trim();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return [...counts.entries()]
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], 'ar'))
+        .map((entry) => entry[0]);
+}
+
+/* ===================== أرقام الجوال ===================== */
+
+// النسخة المطابقة لدالة public.normalize_phone في 005_crm_core.sql.
+// تُستخدم احتياطاً فقط: المصدر الموثوق هو الخادم عبر normalizePhone().
+function normalizePhoneLocal(value) {
+    if (value === null || value === undefined) return null;
+    let d = String(value).replace(/[^0-9+]/g, '');
+    if (d.startsWith('00')) d = '+' + d.slice(2);
+    if (d.startsWith('+')) return '+' + d.replace(/[^0-9]/g, '');
+    if (/^966\d{9}$/.test(d)) return '+' + d;
+    if (/^05\d{8}$/.test(d)) return '+966' + d.slice(1);
+    if (/^5\d{8}$/.test(d)) return '+966' + d;
+    return d || null;
+}
+
+// يطلب التطبيع من نفس الدالة التي يستخدمها المشغّل، حتى لا يختلف تطبيعان.
+export async function normalizePhone(value) {
+    const { data, error } = await supabase.rpc('normalize_phone', { p: value });
+    if (error) return normalizePhoneLocal(value);
+    return data;
+}
+
+/* ===================== البحث ===================== */
+
+// PostgREST يفسّر الفاصلة والقوسين والاقتباس داخل ‎.or()‎ كقواعد نحوية، فتُزال.
+export function sanitizeSearch(text) {
+    return String(text || '').trim().replace(/[,()"\\]/g, ' ').replace(/\s+/g, ' ');
+}
+
+// الجوال مخزَّن بصيغة ‎+966…‎، فالبحث عن "0501234567" يجب أن يطابق آخر تسع خانات.
+export function phoneNeedle(text) {
+    const digits = String(text || '').replace(/\D/g, '');
+    if (digits.length < 6) return null;
+    return digits.slice(-9);
+}

@@ -6,13 +6,20 @@ import { CHANNEL, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_TONE, label } from './label
 import {
     el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, dash
 } from './ui.js';
+import { openFollowUpForm, openDoneForm } from './followup-form.js';
 
 export async function renderFollowUps(host, context) {
     const view = { page: 0 };
     const body = el('div');
 
     replace(host, el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'المتابعات' })]),
+        el('div', { class: 'crm-card-head' }, [
+            el('h2', { text: 'المتابعات' }),
+            el('button', {
+                type: 'button', class: 'btn btn-primary btn-sm', text: 'متابعة جديدة',
+                onclick: () => openFollowUpForm(context.client, () => { view.page = 0; load(); })
+            })
+        ]),
         body
     ]));
 
@@ -31,7 +38,7 @@ export async function renderFollowUps(host, context) {
         if (!data || data.length === 0) return void replace(body, empty('لا توجد متابعات لهذا العميل بعد'));
 
         replace(body, [
-            el('div', { class: 'crm-table-wrap' }, table(data, context)),
+            el('div', { class: 'crm-table-wrap' }, table(data, context, load)),
             pager(view.page, count || data.length, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
     }
@@ -39,13 +46,15 @@ export async function renderFollowUps(host, context) {
     await load();
 }
 
-function table(rows, context) {
+function table(rows, context, reload) {
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'الموعد' }),
         el('th', { text: 'القناة' }),
         el('th', { text: 'الغرض' }),
         el('th', { text: 'المكلَّف' }),
-        el('th', { text: 'الحالة' })
+        el('th', { text: 'الحالة' }),
+        el('th', { text: 'النتيجة' }),
+        el('th', { text: '' })
     ]));
 
     const body = el('tbody');
@@ -55,7 +64,14 @@ function table(rows, context) {
             el('td', { text: label(CHANNEL, row.channel) }),
             el('td', { text: dash(row.purpose) }),
             el('td', { text: staffName(context.names, row.assigned_to) }),
-            el('td', {}, badge(label(FOLLOW_UP_STATUS, row.status), FOLLOW_UP_STATUS_TONE[row.status] || 'neutral'))
+            el('td', {}, badge(label(FOLLOW_UP_STATUS, row.status), FOLLOW_UP_STATUS_TONE[row.status] || 'neutral')),
+            el('td', { class: 'crm-subtle', text: dash(row.outcome) }),
+            el('td', { class: 'cell-actions' }, row.status === 'pending'
+                ? el('button', {
+                    type: 'button', class: 'btn btn-success btn-xs', text: 'تم',
+                    onclick: () => openDoneForm(row, reload)
+                })
+                : null)
         ]));
     }
 

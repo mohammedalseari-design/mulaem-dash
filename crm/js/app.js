@@ -6,18 +6,21 @@ import { el, clear, append, notify, fail, errorText, initModal, closeModal } fro
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
+import { renderWork } from './work.js';
 
 /* ===================== المسارات ===================== */
 
-const DEFAULT_ROUTE = '#/clients';
+const DEFAULT_ROUTE = '#/work';
 
 const ROUTES = [
+    { pattern: /^#\/work\/?$/, view: renderWork, nav: '#/work' },
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' }
 ];
 
 const NAV = [
+    { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' }
 ];
 

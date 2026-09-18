@@ -450,3 +450,84 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
     .funnel-row { grid-template-columns: 100px 1fr 60px; }
     .funnel-rate { grid-column: 1 / -1; }
 }
+
+/* ===== المساعد الذكي وشاشة الاعتماد (011_agent_core.sql) ===== */
+.agent-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.agent-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    text-align: right;
+    padding: 18px;
+    border-radius: 14px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.agent-tile:hover:not(:disabled) { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.agent-tile strong { font-size: 1.02em; color: var(--text-primary); }
+.agent-tile-soon { cursor: not-allowed; opacity: .6; }
+
+.crm-warn-box {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 12px;
+    padding: 14px 18px;
+    color: #92400e;
+    font-weight: 600;
+    margin: 14px 0;
+}
+
+/* نص مصدر أو قيمة مركّبة: يُعرض كما هو بلا تفسير، ودائماً عبر textContent */
+.agent-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg-light);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-height: 340px;
+    overflow: auto;
+    line-height: 1.9;
+}
+
+.agent-image { max-width: 100%; border-radius: 10px; border: 1px solid var(--border-light); margin-top: 10px; }
+
+.agent-source, .agent-draft {
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-top: 12px;
+    background: var(--bg-card);
+}
+
+.agent-source-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.agent-source-head strong { color: var(--text-primary); }
+
+.agent-block { margin-top: 14px; }
+.agent-block h4 { margin: 0 0 6px; font-size: 0.95em; color: var(--text-secondary); }
+
+.agent-list { margin: 0; padding-inline-start: 18px; }
+.agent-list li { margin-bottom: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.agent-quote { color: var(--text-secondary); font-style: italic; }
+.agent-row-same td { opacity: .55; }
+.agent-decisions:empty { display: none; }

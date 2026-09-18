@@ -117,7 +117,9 @@ export const EVENT_TYPE = {
     // 009_hardening.sql: تعديل قيمة صفقة لها عمولة
     commission_base_updated: 'تحدّث أساس احتساب العمولة',
     commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة',
-    commission_payment_added: 'سُجّلت دفعة عمولة'
+    commission_payment_added: 'سُجّلت دفعة عمولة',
+    // 011_agent_core.sql: اعتماد مسودة من المساعد الذكي
+    agent_draft_applied: 'اعتُمدت مسودة من المساعد الذكي'
 };
 
 // طرق السداد في commission_payments (قيد CHECK في 009_hardening.sql)
@@ -126,6 +128,110 @@ export const PAYMENT_METHOD = {
     cash: 'نقداً',
     cheque: 'شيك',
     other: 'أخرى'
+};
+
+/* ===================== المساعد الذكي (011_agent_core.sql) ===================== */
+
+export const AGENT_KIND = {
+    client: 'إضافة عميل',
+    project: 'إضافة مشروع أو عرض',
+    update: 'تحديث مشروع أو وحدة',
+    external: 'استيراد عرض من مصدر خارجي'
+};
+
+// حالة الطلب كما يعرضها المسار في الوصف: استلام، قراءة، استخراج، تحقق، جاهز، تعذّر
+export const AGENT_REQUEST_STATUS = {
+    queued: 'استلام',
+    running: 'قراءة واستخراج وتحقق',
+    ready: 'جاهز للمراجعة',
+    failed: 'تعذّر التنفيذ',
+    cancelled: 'أُلغي'
+};
+
+export const AGENT_REQUEST_STATUS_TONE = {
+    queued: 'blue',
+    running: 'gold',
+    ready: 'green',
+    failed: 'red',
+    cancelled: 'neutral'
+};
+
+export const DRAFT_STATUS = {
+    draft: 'مسودة',
+    submitted: 'بانتظار الاعتماد',
+    approved: 'معتمدة',
+    rejected: 'مرفوضة',
+    returned: 'أُعيدت للموظف',
+    applied: 'طُبّقت على السجل',
+    stale: 'قديمة — تغيّر السجل الهدف'
+};
+
+export const DRAFT_STATUS_TONE = {
+    draft: 'neutral',
+    submitted: 'orange',
+    approved: 'blue',
+    rejected: 'red',
+    returned: 'gold',
+    applied: 'green',
+    stale: 'red'
+};
+
+export const DRAFT_TARGET = {
+    project: 'مشروع',
+    unit: 'وحدة',
+    client: 'عميل',
+    requirement: 'طلب عميل'
+};
+
+export const AGENT_DECISION = {
+    submit: 'أُرسلت للاعتماد',
+    approve: 'اعتماد',
+    reject: 'رفض',
+    return: 'إعادة للموظف',
+    edit: 'تعديل المسودة'
+};
+
+export const AGENT_SOURCE_KIND = {
+    text: 'نص ملصوق',
+    pdf: 'ملف PDF',
+    image: 'صورة',
+    sheet: 'جدول',
+    url: 'رابط'
+};
+
+// رموز agent_apply_draft الثابتة. لا يخرج من الدالة نص SQL، والواجهة تترجم الرمز.
+export const AGENT_APPLY_ERROR = {
+    not_found: 'المسودة غير موجودة',
+    forbidden: 'الاعتماد للمدير فقط',
+    not_submitted: 'المسودة ليست بانتظار الاعتماد',
+    stale_draft: 'تغيّرت المسودة بعد فتح الصفحة — أعد قراءتها ثم اعتمدها',
+    record_changed: 'السجل الهدف تغيّر بعد بناء الفرق — لم يُكتب شيء، أعد بناء المقارنة',
+    target_missing: 'السجل الهدف غير موجود',
+    missing_required: 'المقترح ينقصه حقل إلزامي',
+    unsupported_target: 'هذا النوع لا يُطبَّق بعد',
+    apply_failed: 'تعذّر تطبيق المسودة — راجع القيم المقترحة'
+};
+
+// أسماء الحقول بالعربية في جداول المسودة
+export const AGENT_FIELD = {
+    full_name: 'الاسم الكامل', phone: 'الجوال', phone_alt: 'جوال إضافي', email: 'البريد الإلكتروني',
+    source: 'المصدر', client_type: 'نوع العميل', city: 'المدينة', notes: 'ملاحظات', status: 'الحالة',
+    name: 'اسم المشروع', type: 'النوع', price: 'السعر', area: 'المساحة', address: 'العنوان',
+    latitude: 'خط العرض', longitude: 'خط الطول', details: 'التفاصيل', images: 'الصور',
+    client_id: 'العميل', purpose: 'الغرض', property_type: 'نوع العقار', districts: 'الأحياء',
+    budget_min: 'أقل ميزانية', budget_max: 'أعلى ميزانية', area_min: 'أقل مساحة', area_max: 'أعلى مساحة',
+    rooms_min: 'أقل عدد غرف', delivery_before: 'التسليم قبل', financing_type: 'طريقة التمويل',
+    priority: 'الأولوية', rooms: 'الغرف', bathrooms: 'دورات المياه', unit_key: 'رمز الوحدة'
+};
+
+// الأعمدة التي تكتبها agent_apply_draft فعلاً. ما في المقترح خارج هذه القائمة
+// يُعرض للمدير معلَّماً بأنه لن يُكتب، فلا يعتمد شيئاً يظنه سيُحفظ.
+export const AGENT_APPLIED_FIELDS = {
+    client: ['full_name', 'phone', 'phone_alt', 'email', 'source', 'client_type', 'city', 'notes'],
+    project: ['name', 'type', 'price', 'area', 'address', 'latitude', 'longitude', 'notes', 'details'],
+    requirement: ['client_id', 'purpose', 'property_type', 'city', 'districts', 'budget_min', 'budget_max',
+                  'area_min', 'area_max', 'rooms_min', 'delivery_before', 'financing_type', 'notes'],
+    unit: []
 };
 
 // درجات المطابقة كما في وصف المرحلة 3

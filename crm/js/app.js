@@ -14,6 +14,8 @@ import { renderBoard } from './board.js';
 import { renderDeal } from './deal.js';
 import { renderCommissions } from './commissions.js';
 import { renderDashboard } from './dashboard.js';
+import { renderAssistant, renderAgentRequest } from './assistant.js';
+import { renderApprovals, renderApproval } from './approvals.js';
 
 /* ===================== المسارات ===================== */
 
@@ -25,6 +27,10 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
     { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
+    { pattern: /^#\/assistant\/?$/, view: renderAssistant, nav: '#/assistant' },
+    { pattern: /^#\/assistant\/([^/]+)$/, view: renderAgentRequest, nav: '#/assistant' },
+    { pattern: /^#\/approvals\/?$/, view: renderApprovals, nav: '#/approvals', admin: true },
+    { pattern: /^#\/approvals\/([^/]+)$/, view: renderApproval, nav: '#/approvals', admin: true },
     { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/commissions\/?$/, view: renderCommissions, nav: '#/commissions', admin: true },
@@ -41,7 +47,9 @@ const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
+    { hash: '#/assistant', label: 'المساعد الذكي' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
+    { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
     { hash: '#/commissions', label: 'العمولات', admin: true },
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true },
     { hash: '#/inventory', label: 'جودة المخزون', admin: true },

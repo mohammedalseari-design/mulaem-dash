@@ -8,13 +8,14 @@
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { COMMISSION_STATUS, COMMISSION_STATUS_TONE, label } from './labels.js';
+import { REVIEW_BADGE } from './commission.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, select, optionList,
     money, fmtDate, dash
 } from './ui.js';
 
 const FIELDS = 'id, deal_id, base_amount, rate_percent, gross_amount, vat_amount, collected_amount,'
-    + ' collected_at, status, invoice_no, updated_at,'
+    + ' collected_at, status, invoice_no, needs_review, updated_at,'
     + ' deal:deals(id, broker_id, closed_at, unit_key, client:clients(id, full_name))';
 
 export async function renderCommissions(root) {
@@ -109,7 +110,11 @@ function table(rows, names) {
             el('td', { class: 'num', text: money(gross) }),
             el('td', { class: 'num', text: money(collected) }),
             el('td', { class: 'num', text: money(outstanding) }),
-            el('td', {}, badge(label(COMMISSION_STATUS, row.status), COMMISSION_STATUS_TONE[row.status] || 'neutral')),
+            el('td', {}, [
+                badge(label(COMMISSION_STATUS, row.status), COMMISSION_STATUS_TONE[row.status] || 'neutral'),
+                // العلم يرفعه المشغّل عند تعديل قيمة صفقة عمولتها عليها مال (009_hardening.sql)
+                row.needs_review ? badge(REVIEW_BADGE, 'orange') : null
+            ]),
             el('td', { class: 'crm-subtle', text: dash(row.invoice_no) }),
             el('td', { class: 'cell-actions' }, el('a', {
                 class: 'btn btn-secondary btn-xs', href: '#/deals/' + row.deal_id, text: 'الصفقة'

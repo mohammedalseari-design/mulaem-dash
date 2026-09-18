@@ -164,6 +164,15 @@ function eventDetail(event) {
             if (p.gross !== null && p.gross !== undefined) parts.push('من ' + money(p.gross) + ' ريال');
             return parts.join(' · ');
         }
+        // أساس الاحتساب هو قيمة الصفقة: يتبعها ما دامت العمولة بلا مال، وإلا عُلِّم للمراجعة
+        case 'commission_base_updated':
+        case 'commission_base_mismatch': {
+            const parts = ['من ' + money(p.old) + ' ريال إلى ' + money(p.new) + ' ريال'];
+            if (event.event_type === 'commission_base_mismatch') {
+                parts.push('السجل المالي لم يُمسّ — راجع العمولة');
+            }
+            return parts.join(' · ');
+        }
         default:
             return '';
     }

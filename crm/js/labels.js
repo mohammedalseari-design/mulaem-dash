@@ -113,7 +113,10 @@ export const EVENT_TYPE = {
     commission_invoiced: 'صدرت فاتورة العمولة',
     commission_partial: 'تحصيل جزئي للعمولة',
     commission_collected: 'حُصّلت العمولة',
-    commission_waived: 'أُعفيت العمولة'
+    commission_waived: 'أُعفيت العمولة',
+    // 009_hardening.sql: تعديل قيمة صفقة لها عمولة
+    commission_base_updated: 'تحدّث أساس احتساب العمولة',
+    commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة'
 };
 
 // درجات المطابقة كما في وصف المرحلة 3

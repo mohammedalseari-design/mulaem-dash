@@ -9,6 +9,10 @@
 //
 // القراءة متاحة لوسيط الصفقة (سياسة commissions_select عبر crm_can_see_deal)،
 // والكتابة للمدير وحده — وإن حاول غيره ردّت القاعدة ولم نُظهر "تم".
+//
+// needs_review: تعديل قيمة صفقة عمولتها عليها مال محصَّل لا يغيّر السجل المالي،
+// بل يرفع هذا العلم ويُسجَّل commission_base_mismatch (009_hardening.sql). المدير
+// هو من يقرّر: يعدّل الأرقام يدوياً ثم يُنهي المراجعة.
 
 import { supabase } from './supabase.js';
 import { isAdmin } from './auth.js';
@@ -44,6 +48,32 @@ export async function renderCommission(host, deal) {
     await load();
 }
 
+export const REVIEW_BADGE = 'الأساس تغيّر — يحتاج مراجعة';
+const REVIEW_WHY = 'قيمة الصفقة عُدِّلت بعد تسجيل مال على هذه العمولة، فلم يُمسّ السجل المالي.';
+const REVIEW_HINT_ADMIN = REVIEW_WHY + ' راجع الأرقام ثم أنهِ المراجعة.';
+const REVIEW_HINT_READER = REVIEW_WHY + ' المراجعة على المدير.';
+
+// الزر للمدير وحده، ولا يظهر إلا والعلم مرفوع
+function reviewedButton(commission, reload) {
+    const button = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تمت المراجعة' });
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        const { data, error } = await supabase
+            .from('commissions')
+            .update({ needs_review: false })
+            .eq('id', commission.id)
+            .select('id');
+        button.disabled = false;
+
+        if (error) return void fail(error, 'تعذّر إنهاء المراجعة');
+        // صفر صفوف بلا خطأ = RLS رشّحت الصف (الكتابة للمدير وحده)
+        if (!data || data.length === 0) return void notify('لا تملك صلاحية تعديل العمولات', 'error', 8000);
+        notify('تمت المراجعة', 'success');
+        reload();
+    });
+    return button;
+}
+
 function card(commission, deal, reload) {
     const outstanding = Math.max(0, Number(commission.gross_amount || 0) - Number(commission.collected_amount || 0));
 
@@ -69,11 +99,23 @@ function card(commission, deal, reload) {
     ];
 
     return [
+        commission.needs_review
+            ? el('div', { class: 'crm-error', style: 'margin-bottom:12px' }, [
+                badge(REVIEW_BADGE, 'orange'),
+                el('div', {
+                    class: 'tl-body', style: 'margin-top:8px',
+                    text: isAdmin() ? REVIEW_HINT_ADMIN : REVIEW_HINT_READER
+                })
+            ])
+            : null,
         isAdmin()
-            ? el('div', { class: 'btn-row btn-row-end', style: 'margin-bottom:10px' }, el('button', {
-                type: 'button', class: 'btn btn-secondary btn-sm', text: 'تعديل العمولة',
-                onclick: () => openCommissionForm(deal, commission, reload)
-            }))
+            ? el('div', { class: 'btn-row btn-row-end', style: 'margin-bottom:10px' }, [
+                commission.needs_review ? reviewedButton(commission, reload) : null,
+                el('button', {
+                    type: 'button', class: 'btn btn-secondary btn-sm', text: 'تعديل العمولة',
+                    onclick: () => openCommissionForm(deal, commission, reload)
+                })
+            ])
             : el('div', { class: 'crm-subtle', style: 'margin-bottom:10px', text: 'العرض للقراءة فقط — تحرير العمولة للمدير.' }),
         el('div', { class: 'kv-grid', style: 'margin-top:0;padding-top:0;border-top:0' }, rows),
         commission.notes

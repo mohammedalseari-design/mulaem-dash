@@ -1,12 +1,13 @@
 // نقطة الدخول: التحقق من الجلسة، هيكل الصفحة، وموجّه المسارات (hash router).
 
 import { supabase } from './supabase.js';
-import { state, loadSession, signIn, signOut, ROLE_AR, displayName } from './auth.js';
+import { state, loadSession, signIn, signOut, isAdmin, ROLE_AR, displayName } from './auth.js';
 import { el, clear, append, notify, fail, errorText, initModal, closeModal } from './ui.js';
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
+import { renderInventory } from './inventory.js';
 
 /* ===================== المسارات ===================== */
 
@@ -16,12 +17,15 @@ const ROUTES = [
     { pattern: /^#\/work\/?$/, view: renderWork, nav: '#/work' },
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
-    { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' }
+    { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
+    { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true }
 ];
 
+// admin: بند للمدير وحده — يُخفى من القائمة ويُرفض مساره إن كُتب بالعنوان
 const NAV = [
     { hash: '#/work', label: 'عملي اليوم' },
-    { hash: '#/clients', label: 'العملاء' }
+    { hash: '#/clients', label: 'العملاء' },
+    { hash: '#/inventory', label: 'جودة المخزون', admin: true }
 ];
 
 /* ===================== الموجّه ===================== */
@@ -47,6 +51,12 @@ async function route() {
         const root = el('div', { class: 'crm-view' });
         container.appendChild(root);
 
+        // الحماية الفعلية في قاعدة البيانات؛ هذا منع مبكر حتى لا تُفتح صفحة فارغة
+        if (entry.admin && !isAdmin()) {
+            root.appendChild(el('div', { class: 'crm-error', text: 'هذه الصفحة للمدير فقط.' }));
+            return;
+        }
+
         try {
             await entry.view(root, ...match.slice(1));
         } catch (error) {
@@ -65,6 +75,7 @@ function renderNav() {
     const nav = document.getElementById('crmNav');
     clear(nav);
     for (const item of NAV) {
+        if (item.admin && !isAdmin()) continue;
         nav.appendChild(el('a', { href: item.hash, text: item.label, dataset: { hash: item.hash } }));
     }
 }

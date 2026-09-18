@@ -245,6 +245,18 @@
 .chip input { accent-color: var(--primary-gold); cursor: pointer; margin: 0; }
 .chip.on { background: rgba(197, 168, 128, 0.16); border-color: var(--primary-gold); color: #8a6d3b; }
 
+/* شرائح مرشّح: أزرار لا صناديق اختيار، وبلا صندوق الأحياء المحيط */
+button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); }
+
+.crm-chip-filter {
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    background: none;
+    margin-bottom: 12px;
+}
+
 /* ===== رأس صفحة العميل ===== */
 .client-head {
     display: flex;

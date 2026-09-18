@@ -68,9 +68,11 @@ export async function openRequirementForm(client, requirement, onSaved) {
 
     const budgetMin = moneyInput({ value: requirement && requirement.budget_min ? requirement.budget_min : '' });
     const budgetMax = moneyInput({ value: requirement && requirement.budget_max ? requirement.budget_max : '' });
-    const areaMin = input({ type: 'number', min: '0', step: '0.5', value: requirement && requirement.area_min ? requirement.area_min : '' });
-    const areaMax = input({ type: 'number', min: '0', step: '0.5', value: requirement && requirement.area_max ? requirement.area_max : '' });
-    const roomsMin = input({ type: 'number', min: '0', step: '1', value: requirement && requirement.rooms_min !== null && requirement.rooms_min !== undefined ? requirement.rooms_min : '' });
+    // ‎type="number"‎ يرفض الأرقام العربية ويُفرغ القيمة بلا إنذار، فالحقول العددية
+    // كلها نصّية و inputMode وحده يستدعي لوحة الأرقام، و parseNumber يتولّى التحويل.
+    const areaMin = input({ inputMode: 'decimal', autocomplete: 'off', value: requirement && requirement.area_min ? requirement.area_min : '' });
+    const areaMax = input({ inputMode: 'decimal', autocomplete: 'off', value: requirement && requirement.area_max ? requirement.area_max : '' });
+    const roomsMin = input({ inputMode: 'numeric', autocomplete: 'off', value: requirement && requirement.rooms_min !== null && requirement.rooms_min !== undefined ? requirement.rooms_min : '' });
     const deliveryBefore = input({ type: 'date', value: requirement && requirement.delivery_before ? requirement.delivery_before : '' });
     const financing = select(
         [{ value: '', label: 'غير محدد' }].concat(FINANCING.map((f) => ({ value: f, label: f }))),
@@ -81,6 +83,21 @@ export async function openRequirementForm(client, requirement, onSaved) {
     const closedReason = input({ value: requirement && requirement.closed_reason ? requirement.closed_reason : '' });
     const notes = el('textarea', { value: requirement && requirement.notes ? requirement.notes : '', rows: 3 });
 
+    // تنبيه لا يمنع الحفظ: مبلغ بيع أقل من 50,000 غالباً كُتب بالألوف سهواً
+    const budgetWarn = el('small', { class: 'hint crm-warn crm-hidden', text: 'هل تقصد بالريال؟ المبلغ صغير جداً' });
+    const budgetMaxField = field('الميزانية إلى (ريال)', budgetMax);
+    budgetMaxField.appendChild(budgetWarn);
+
+    function checkBudget() {
+        const max = parseNumber(budgetMax.value);
+        const tooSmall = purpose.value === 'sale' && max !== null && max < 50000;
+        budgetWarn.className = 'hint crm-warn' + (tooSmall ? '' : ' crm-hidden');
+    }
+    budgetMax.addEventListener('input', checkBudget);
+    budgetMax.addEventListener('blur', checkBudget);
+    purpose.addEventListener('change', checkBudget);
+    checkBudget();
+
     const grid = el('div', { class: 'form-grid' }, [
         field('الغرض', purpose, { required: true }),
         field('نوع العقار', propertyType, { required: true }),
@@ -89,7 +106,7 @@ export async function openRequirementForm(client, requirement, onSaved) {
         field('الأحياء المطلوبة', districtsFree ? districtsInput : districtsBox,
             { span2: true, hint: 'اتركها فارغة لقبول كل الأحياء' }),
         field('الميزانية من (ريال)', budgetMin),
-        field('الميزانية إلى (ريال)', budgetMax),
+        budgetMaxField,
         field('المساحة من (م²)', areaMin),
         field('المساحة إلى (م²)', areaMax),
         field('أقل عدد غرف', roomsMin),

@@ -1,6 +1,7 @@
 // استعلامات مساعدة مشتركة، كل واحد منها يُنفَّذ مرة واحدة لكل جلسة ويُخزَّن في الذاكرة.
 
 import { supabase } from './supabase.js';
+import { toAsciiDigits } from './ui.js';
 
 /* ===================== طاقم العمل ===================== */
 // crm_staff() دالة security definer تُرجع الموظفين غير الموقوفين، وهي الطريقة
@@ -129,8 +130,9 @@ export function sanitizeSearch(text) {
 }
 
 // الجوال مخزَّن بصيغة ‎+966…‎، فالبحث عن "0501234567" يجب أن يطابق آخر تسع خانات.
+// الأرقام العربية تُحوَّل أولاً، وإلا مسحها ‎\D‎ وعاد البحث بلا نتائج بلا سبب ظاهر.
 export function phoneNeedle(text) {
-    const digits = String(text || '').replace(/\D/g, '');
+    const digits = toAsciiDigits(text).replace(/\D/g, '');
     if (digits.length < 6) return null;
     return digits.slice(-9);
 }

@@ -9,7 +9,7 @@ import { defaultCity, fieldStaff, normalizePhone, staffMap } from './data.js';
 import { CLIENT_SOURCES, CLIENT_STATUS, CLIENT_TYPE } from './labels.js';
 import {
     el, append, clear, field, input, select, optionList, openModal, closeModal,
-    notify, fail, errorText
+    notify, fail, errorText, toAsciiDigits
 } from './ui.js';
 
 export async function openClientForm(client, onSaved) {
@@ -89,15 +89,21 @@ export async function openClientForm(client, onSaved) {
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        if (!fullName.value.trim() || !phone.value.trim()) {
+        // الأرقام العربية تُحوَّل هنا قبل الإرسال؛ بقية التطبيع (‎+966…‎) على الخادم
+        const phoneValue = toAsciiDigits(phone.value).trim();
+        const phoneAltValue = toAsciiDigits(phoneAlt.value).trim();
+        phone.value = phoneValue;
+        phoneAlt.value = phoneAltValue;
+
+        if (!fullName.value.trim() || !phoneValue) {
             notify('الاسم ورقم الجوال مطلوبان', 'error');
             return;
         }
 
         const payload = {
             full_name: fullName.value.trim(),
-            phone: phone.value.trim(),
-            phone_alt: phoneAlt.value.trim() || null,
+            phone: phoneValue,
+            phone_alt: phoneAltValue || null,
             email: email.value.trim() || null,
             source: source.value || null,
             client_type: clientType.value || null,

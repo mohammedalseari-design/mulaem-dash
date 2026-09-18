@@ -196,9 +196,22 @@ export function number(value) {
     return Number.isFinite(n) ? NUM.format(n) : DASH;
 }
 
+// لوحة المفاتيح العربية تكتب ٠١٢٣٤٥٦٧٨٩ (والفارسية ۰۱۲۳۴۵۶۷۸۹)، و Number() لا يقرأ
+// إلا اللاتينية، فكانت "٥٠٠٠٠٠" تصل إلى الخادم null. الفاصلة العشرية العربية ٫ تصير نقطة.
+const AR_DIGITS = /[٠-٩۰-۹٫]/g;
+
+export function toAsciiDigits(text) {
+    if (text === null || text === undefined) return '';
+    return String(text).replace(AR_DIGITS, (ch) => {
+        if (ch === '٫') return '.';
+        const code = ch.charCodeAt(0);
+        return String(code >= 0x06F0 ? code - 0x06F0 : code - 0x0660);
+    });
+}
+
 export function parseNumber(text) {
     if (text === null || text === undefined) return null;
-    const cleaned = String(text).replace(/[^\d.]/g, '');
+    const cleaned = toAsciiDigits(text).replace(/[^\d.]/g, '');
     if (cleaned === '' || cleaned === '.') return null;
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : null;

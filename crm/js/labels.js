@@ -116,7 +116,16 @@ export const EVENT_TYPE = {
     commission_waived: 'أُعفيت العمولة',
     // 009_hardening.sql: تعديل قيمة صفقة لها عمولة
     commission_base_updated: 'تحدّث أساس احتساب العمولة',
-    commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة'
+    commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة',
+    commission_payment_added: 'سُجّلت دفعة عمولة'
+};
+
+// طرق السداد في commission_payments (قيد CHECK في 009_hardening.sql)
+export const PAYMENT_METHOD = {
+    bank: 'تحويل بنكي',
+    cash: 'نقداً',
+    cheque: 'شيك',
+    other: 'أخرى'
 };
 
 // درجات المطابقة كما في وصف المرحلة 3

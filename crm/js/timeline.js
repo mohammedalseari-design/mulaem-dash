@@ -7,7 +7,7 @@ import {
     CHANNEL, CLIENT_STATUS, EVENT_TYPE, FOLLOW_UP_STATUS, PURPOSE, REQ_STATUS, label
 } from './labels.js';
 import {
-    el, replace, loading, empty, errorBox, pager, fmtDateTime, money, notify, fail
+    el, replace, loading, empty, errorBox, pager, fmtDate, fmtDateTime, money, notify, fail
 } from './ui.js';
 
 export async function renderTimeline(host, context) {
@@ -171,6 +171,12 @@ function eventDetail(event) {
             if (event.event_type === 'commission_base_mismatch') {
                 parts.push('السجل المالي لم يُمسّ — راجع العمولة');
             }
+            return parts.join(' · ');
+        }
+        case 'commission_payment_added': {
+            const parts = [];
+            if (p.amount !== null && p.amount !== undefined) parts.push(money(p.amount) + ' ريال');
+            if (p.paid_on) parts.push('بتاريخ ' + fmtDate(p.paid_on));
             return parts.join(' · ');
         }
         default:

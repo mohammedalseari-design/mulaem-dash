@@ -35,7 +35,9 @@ const ROUTES = [
 
 // admin: بند للمدير وحده. deny: دور محروم من الباب (مركز الاتصال لا صفقات له).
 // في الحالتين يُخفى البند من القائمة ويُرفض المسار إن كُتب بالعنوان.
+// external: رابط يغادر الصفحة (اللوحة القديمة) — لا يمر على موجّه الهاش ولا يُضاء أبداً.
 const NAV = [
+    { href: '../index.html', label: 'المشاريع والخريطة', external: true },
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
@@ -99,6 +101,10 @@ function renderNav() {
     for (const item of NAV) {
         if (item.admin && !isAdmin()) continue;
         if (item.deny && myRole() === item.deny) continue;
+        if (item.external) {
+            nav.appendChild(el('a', { href: item.href, class: 'nav-ext', text: item.label }));
+            continue;
+        }
         nav.appendChild(el('a', { href: item.hash, text: item.label, dataset: { hash: item.hash } }));
     }
 }

@@ -1740,6 +1740,9 @@ async function fetchFullProject(id) {
             } else {
                 expires = new Date(raw);
             }
+            if (!Number.isNaN(expires.getTime())) {
+                expires.setHours(0, 0, 0, 0);
+            }
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             if (!Number.isNaN(expires.getTime()) && expires < today) {

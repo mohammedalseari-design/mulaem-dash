@@ -1731,25 +1731,30 @@ async function fetchFullProject(id) {
         if (!String(project.rega_ad_license || '').trim()) {
             return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
         }
-        if (project.listing_expires_at) {
-            const raw = String(project.listing_expires_at).trim();
-            let expires;
-            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-                const [y, m, d] = raw.split('-').map((v) => Number(v));
-                expires = new Date(y, m - 1, d);
-            } else {
-                expires = new Date(raw);
-            }
-            if (!Number.isNaN(expires.getTime())) {
-                expires.setHours(0, 0, 0, 0);
-            }
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (!Number.isNaN(expires.getTime()) && expires < today) {
+        const expiresKey = dateKey(project.listing_expires_at);
+        if (expiresKey) {
+            if (expiresKey < dateKey(new Date())) {
                 return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
             }
         }
         return { ok: true, message: '' };
+    }
+
+    function dateKey(value) {
+        if (!value) return '';
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            return [
+                String(value.getFullYear()).padStart(4, '0'),
+                String(value.getMonth() + 1).padStart(2, '0'),
+                String(value.getDate()).padStart(2, '0')
+            ].join('-');
+        }
+        const raw = String(value).trim();
+        const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) return '';
+        return dateKey(d);
     }
 
     function ensureListingShareable(id) {
@@ -1812,7 +1817,7 @@ window.viewProject = async function (id) {
     const shareCheck = listingShareValidation(p);
     const shareDisabledAttrs = shareCheck.ok
         ? ''
-        : `disabled aria-disabled="true" title="${esc(shareCheck.message || 'يتطلب رقم ترخيص إعلان ساري')}"`;
+        : `aria-disabled="true" data-share-blocked="1" title="${esc(shareCheck.message || 'يتطلب رقم ترخيص إعلان ساري')}"`;
 
     // Helper for date
     const dateStr = p.date_added ? new Date(p.date_added).toLocaleString('ar-SA') : 'غير متوفر';

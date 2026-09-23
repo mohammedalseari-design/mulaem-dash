@@ -418,7 +418,8 @@ function featuredCardHtml(project) {
 
 function featuredNumber(value) {
     if (value === null || value === undefined || value === '') return 0;
-    const parsed = Number(String(value).replace(/,/g, '').replace(/\s/g, ''));
+    const text = normalizeNumericValue(value).replace(/,/g, '').replace(/\s/g, '');
+    const parsed = Number(text);
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -898,9 +899,21 @@ function showNotification(msg, type) {
     setTimeout(() => notif.style.display = 'none', 3000);
 }
 
+function normalizeNumericValue(value) {
+    if (value === null || value === undefined || value === '') return '0';
+    let text = String(value).trim();
+    text = text.replace(/٬/g, ',').replace(/٫/g, '.');
+    text = text.replace(/[٠-٩۰-۹]/g, (ch) => {
+        const code = ch.charCodeAt(0);
+        if (code >= 0x06F0) return String(code - 0x06F0 + 48);
+        return String(code - 0x0660 + 48);
+    });
+    return text;
+}
+
 function formatNumber(num) {
-    const normalized = typeof num === 'string' ? num.replace(/,/g, '').replace(/\s/g, '') : num;
-    const value = Number(normalized);
+    const normalized = normalizeNumericValue(num);
+    const value = Number(normalized.replace(/,/g, '').replace(/\s/g, ''));
     return Number.isFinite(value) ? new Intl.NumberFormat('en-US').format(value) : '—';
 }
 

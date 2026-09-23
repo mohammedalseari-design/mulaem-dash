@@ -326,7 +326,12 @@ async function loadProjects() {
         const msg = error.message === 'invalid_json'
             ? 'خطأ في البيانات القادمة من السيرفر — تواصل مع الدعم'
             : 'فشل تحميل البيانات — تحقق من الاتصال وأعد المحاولة';
-        grid.innerHTML = `<div class="loading" style="color:#ef4444;">${msg}</div>`;
+        grid.innerHTML = '';
+        const err = document.createElement('div');
+        err.className = 'loading';
+        err.style.color = '#ef4444';
+        err.textContent = msg;
+        grid.appendChild(err);
     }
 }
 
@@ -1720,6 +1725,35 @@ async function fetchFullProject(id) {
     } catch (e) {
         console.error('fetchFullProject failed:', e);
     }
+
+    function listingShareValidation(project) {
+        if (!project) return { ok: false, message: 'العقار غير موجود' };
+        if (!String(project.rega_ad_license || '').trim()) {
+            return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
+        }
+        if (project.listing_expires_at) {
+            const expires = new Date(project.listing_expires_at + 'T00:00:00');
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (!Number.isNaN(expires.getTime()) && expires < today) {
+                return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
+            }
+        }
+        return { ok: true, message: '' };
+    }
+
+    function ensureListingShareable(id) {
+        const p = projects.find(x => x.id == id);
+        const check = listingShareValidation(p);
+        if (check.ok) return p;
+        Swal.fire({
+            title: 'المشاركة غير متاحة',
+            text: check.message || 'هذا العقار غير مؤهل للمشاركة حالياً.',
+            icon: 'warning',
+            confirmButtonColor: '#C9A961'
+        });
+        return null;
+    }
     return null;
 }
 
@@ -1761,7 +1795,8 @@ window.viewProject = async function (id) {
     const unitCommissions = Array.isArray(details?.models)
         ? details.models.map((model) => Number(model.commission)).filter((value) => Number.isFinite(value) && value > 0)
         : [];
-    const commissionSummary = unitCommissions.length
+    const showCommission = currentUser && currentUser.role !== 'callcenter';
+    const commissionSummary = (showCommission && unitCommissions.length)
         ? `<div class="project-detail"><span>أعلى عمولة للوحدة</span><span>${formatNumber(Math.max(...unitCommissions))} ريال</span></div>`
         : '';
 
@@ -1849,7 +1884,7 @@ window.viewProject = async function (id) {
                                             <th style="padding: 8px;">حمامات</th>
                                             <th style="padding: 8px;">المساحة</th>
                                             <th style="padding: 8px;">السعر</th>
-                                            <th style="padding: 8px;">العمولة</th>
+                                            ${showCommission ? '<th style="padding: 8px;">العمولة</th>' : ''}
                                             <th style="padding: 8px;">الحالة</th>
                                             <th style="padding: 8px;">العدد</th>
                                         </tr>
@@ -1868,7 +1903,7 @@ window.viewProject = async function (id) {
                                                     <td style="padding: 8px;">${esc(m.bathrooms)}</td>
                                                     <td style="padding: 8px;">${esc(m.area)} م²</td>
                                                     <td style="padding: 8px;">${formatNumber(m.price)} ر.س</td>
-                                                    <td style="padding: 8px;">${formatNumber(m.commission)} ر.س</td>
+                                                    ${showCommission ? `<td style="padding: 8px;">${formatNumber(m.commission)} ر.س</td>` : ''}
                                                     <td style="padding: 8px;">${statusBadge}</td>
                                                     <td style="padding: 8px;">${esc(m.count || 1)}</td>
                                                 </tr>
@@ -1886,16 +1921,16 @@ window.viewProject = async function (id) {
         ${p.notes ? `<div style="margin-top:20px; background:#f9f9f9; padding:15px; border-radius:10px;"><p><strong>ملاحظات:</strong> ${esc(p.notes)}</p></div>` : ''}
 
         <div class="share-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border-light); display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})">
+            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
                 <span>نسخ للنشر (كامل)</span>
             </button>
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetailsShort(${p.id})">
+            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetailsShort(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
                 <span>نسخ للعميل (مختصر)</span>
             </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsApp(${p.id})">
+            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsApp(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
                 <span>واتساب (كامل)</span>
             </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsAppShort(${p.id})">
+            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsAppShort(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
                 <span>واتساب (مختصر)</span>
             </button>
         </div>
@@ -1983,6 +2018,7 @@ window.getWhatsAppMessage = function(id) {
 };
 
 window.copyProjectDetails = function(id) {
+    if (!ensureListingShareable(id)) return;
     const msg = window.getWhatsAppMessage(id);
     if (!msg) return;
 
@@ -2012,6 +2048,7 @@ window.copyProjectDetails = function(id) {
 };
 
 window.shareProjectWhatsApp = function(id) {
+    if (!ensureListingShareable(id)) return;
     const msg = window.getWhatsAppMessage(id);
     if (!msg) return;
 
@@ -2039,6 +2076,7 @@ window.getWhatsAppMessageShort = function(id) {
 };
 
 window.copyProjectDetailsShort = function(id) {
+    if (!ensureListingShareable(id)) return;
     const msg = window.getWhatsAppMessageShort(id);
     if (!msg) return;
 
@@ -2068,6 +2106,7 @@ window.copyProjectDetailsShort = function(id) {
 };
 
 window.shareProjectWhatsAppShort = function(id) {
+    if (!ensureListingShareable(id)) return;
     const msg = window.getWhatsAppMessageShort(id);
     if (!msg) return;
 

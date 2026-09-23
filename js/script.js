@@ -1725,50 +1725,50 @@ async function fetchFullProject(id) {
     } catch (e) {
         console.error('fetchFullProject failed:', e);
     }
+    return null;
+}
 
-    function listingShareValidation(project) {
-        if (!project) return { ok: false, message: 'العقار غير موجود' };
-        if (!String(project.rega_ad_license || '').trim()) {
-            return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
-        }
-        const expiresKey = dateKey(project.listing_expires_at);
-        if (expiresKey) {
-            if (expiresKey < dateKey(new Date())) {
-                return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
-            }
-        }
-        return { ok: true, message: '' };
+function listingShareValidation(project) {
+    if (!project) return { ok: false, message: 'العقار غير موجود' };
+    if (!String(project.rega_ad_license || '').trim()) {
+        return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
     }
+    const expiresKey = dateKey(project.listing_expires_at);
+    if (expiresKey) {
+        if (expiresKey < dateKey(new Date())) {
+            return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
+        }
+    }
+    return { ok: true, message: '' };
+}
 
-    function dateKey(value) {
-        if (!value) return '';
-        if (value instanceof Date && !Number.isNaN(value.getTime())) {
-            return [
-                String(value.getFullYear()).padStart(4, '0'),
-                String(value.getMonth() + 1).padStart(2, '0'),
-                String(value.getDate()).padStart(2, '0')
-            ].join('-');
-        }
-        const raw = String(value).trim();
-        const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (m) return m[1];
-        const d = new Date(raw);
-        if (Number.isNaN(d.getTime())) return '';
-        return dateKey(d);
+function dateKey(value) {
+    if (!value) return '';
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return [
+            String(value.getFullYear()).padStart(4, '0'),
+            String(value.getMonth() + 1).padStart(2, '0'),
+            String(value.getDate()).padStart(2, '0')
+        ].join('-');
     }
+    const raw = String(value).trim();
+    const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    return dateKey(d);
+}
 
-    function ensureListingShareable(id) {
-        const p = projects.find(x => x.id == id);
-        const check = listingShareValidation(p);
-        if (check.ok) return p;
-        Swal.fire({
-            title: 'المشاركة غير متاحة',
-            text: check.message || 'هذا العقار غير مؤهل للمشاركة حالياً.',
-            icon: 'warning',
-            confirmButtonColor: '#C9A961'
-        });
-        return null;
-    }
+function ensureListingShareable(id) {
+    const p = projects.find(x => x.id == id);
+    const check = listingShareValidation(p);
+    if (check.ok) return p;
+    Swal.fire({
+        title: 'المشاركة غير متاحة',
+        text: check.message || 'هذا العقار غير مؤهل للمشاركة حالياً.',
+        icon: 'warning',
+        confirmButtonColor: '#C9A961'
+    });
     return null;
 }
 

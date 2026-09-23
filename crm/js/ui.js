@@ -230,7 +230,10 @@ export function moneyInput(attrs = {}) {
         const n = parseNumber(node.value);
         node.value = n === null ? '' : NUM.format(n);
     });
-    if (node.value) node.value = NUM.format(parseNumber(node.value));
+    if (node.value) {
+        const initial = parseNumber(node.value);
+        node.value = initial === null ? '' : NUM.format(initial);
+    }
     return node;
 }
 

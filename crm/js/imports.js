@@ -4,6 +4,16 @@ import { el, replace, notify, fail, parseNumber } from './ui.js';
 const PROJECT_FIELDS = ['project_ref', 'name', 'type', 'city', 'district', 'address', 'purpose', 'availability', 'construction_status', 'price', 'area', 'rooms', 'units_count', 'buildings_count', 'developer', 'contact_phone', 'contact_email', 'contact_url', 'source_url', 'brochure_url', 'image_url', 'latitude', 'longitude', 'notes'];
 const UNIT_FIELDS = ['project_ref', 'unit_ref', 'unit_type', 'rooms', 'bathrooms', 'area', 'price', 'commission', 'status', 'count', 'developer'];
 
+function hasValue(value) {
+    return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function parsedOr(raw, fallback = null) {
+    if (!hasValue(raw)) return fallback;
+    const parsed = parseNumber(raw);
+    return parsed === null ? fallback : parsed;
+}
+
 function parseCsv(text) {
     const rows = [];
     let row = [], cell = '', quoted = false;
@@ -168,8 +178,8 @@ export async function renderImports(root) {
                     const enrichment = Object.assign({}, currentDetails, {
                         developer: row.developer || currentDetails.developer || null,
                         construction_status: row.construction_status || currentDetails.construction_status || null,
-                        units_count: parseNumber(row.units_count) || currentDetails.units_count || null,
-                        buildings_count: parseNumber(row.buildings_count) || currentDetails.buildings_count || null,
+                        units_count: parsedOr(row.units_count, currentDetails.units_count ?? null),
+                        buildings_count: parsedOr(row.buildings_count, currentDetails.buildings_count ?? null),
                         contact_phone: row.contact_phone || currentDetails.contact_phone || null,
                         contact_email: row.contact_email || currentDetails.contact_email || null,
                         contact_url: row.contact_url || currentDetails.contact_url || null,
@@ -187,9 +197,9 @@ export async function renderImports(root) {
                         address: row.address || existingRow.address || null,
                         purpose: row.purpose ? cleanPurpose(row.purpose) : existingRow.purpose,
                         availability: row.availability === 'sold_out' ? 'sold_out' : (existingRow.availability || 'available'),
-                        price: row.price ? parseNumber(row.price) : existingRow.price,
-                        area: row.area ? parseNumber(row.area) : existingRow.area,
-                        rooms: row.rooms ? parseNumber(row.rooms) : existingRow.rooms,
+                        price: parsedOr(row.price, existingRow.price),
+                        area: parsedOr(row.area, existingRow.area),
+                        rooms: parsedOr(row.rooms, existingRow.rooms),
                         notes: row.notes || existingRow.notes || null
                     };
                     if (row.price === '0') patch.price = null;

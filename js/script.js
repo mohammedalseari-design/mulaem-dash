@@ -1799,6 +1799,10 @@ window.viewProject = async function (id) {
     const commissionSummary = (showCommission && unitCommissions.length)
         ? `<div class="project-detail"><span>أعلى عمولة للوحدة</span><span>${formatNumber(Math.max(...unitCommissions))} ريال</span></div>`
         : '';
+    const shareCheck = listingShareValidation(p);
+    const shareDisabledAttrs = shareCheck.ok
+        ? ''
+        : `disabled aria-disabled="true" title="${esc(shareCheck.message || 'يتطلب رقم ترخيص إعلان ساري')}"`;
 
     // Helper for date
     const dateStr = p.date_added ? new Date(p.date_added).toLocaleString('ar-SA') : 'غير متوفر';
@@ -1921,16 +1925,16 @@ window.viewProject = async function (id) {
         ${p.notes ? `<div style="margin-top:20px; background:#f9f9f9; padding:15px; border-radius:10px;"><p><strong>ملاحظات:</strong> ${esc(p.notes)}</p></div>` : ''}
 
         <div class="share-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border-light); display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
+            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})" ${shareDisabledAttrs}>
                 <span>نسخ للنشر (كامل)</span>
             </button>
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetailsShort(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
+            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetailsShort(${p.id})" ${shareDisabledAttrs}>
                 <span>نسخ للعميل (مختصر)</span>
             </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsApp(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
+            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsApp(${p.id})" ${shareDisabledAttrs}>
                 <span>واتساب (كامل)</span>
             </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsAppShort(${p.id})" ${listingShareValidation(p).ok ? '' : 'title="يتطلب رقم ترخيص إعلان ساري"'} >
+            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsAppShort(${p.id})" ${shareDisabledAttrs}>
                 <span>واتساب (مختصر)</span>
             </button>
         </div>

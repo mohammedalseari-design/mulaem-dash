@@ -1763,7 +1763,16 @@ function dateKey(value) {
     }
     const raw = String(value).trim();
     const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
+    if (m) {
+        const ymd = m[1];
+        const parts = ymd.split('-').map((n) => Number(n));
+        const y = parts[0], mon = parts[1], day = parts[2];
+        if (!Number.isInteger(y) || !Number.isInteger(mon) || !Number.isInteger(day)) return '';
+        if (mon < 1 || mon > 12 || day < 1 || day > 31) return '';
+        const d = new Date(Date.UTC(y, mon - 1, day));
+        if (d.getUTCFullYear() !== y || (d.getUTCMonth() + 1) !== mon || d.getUTCDate() !== day) return '';
+        return ymd;
+    }
     return '';
 }
 
@@ -1971,13 +1980,13 @@ window.viewProject = async function (id) {
         body.innerHTML = '';
     }
 
-    // Close on outside click
-    window.onclick = function (event) {
+    // Close on outside click (without overriding global window handlers)
+    modal.onclick = function (event) {
         if (event.target == modal) {
             modal.style.display = 'none';
             body.innerHTML = '';
         }
-    }
+    };
 
     modal.style.display = 'block';
 };

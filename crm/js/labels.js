@@ -1,0 +1,325 @@
+// مفردات عقد البيانات بالعربية. القيم هنا هي القيم المخزَّنة حرفياً في قاعدة البيانات
+// (قيود CHECK في 005_crm_core.sql)، والنص المقابل هو ما يراه المستخدم فقط.
+
+export const CLIENT_STATUS = {
+    active: 'نشط',
+    inactive: 'غير نشط',
+    blacklist: 'قائمة سوداء'
+};
+
+export const CLIENT_STATUS_TONE = {
+    active: 'green',
+    inactive: 'neutral',
+    blacklist: 'red'
+};
+
+export const CLIENT_TYPE = {
+    buy: 'شراء',
+    rent: 'استئجار',
+    sell: 'بيع',
+    invest: 'استثمار'
+};
+
+// source نص حر في قاعدة البيانات؛ هذه القيم المقترحة في التصميم
+export const CLIENT_SOURCES = ['إعلان', 'توصية', 'اتصال', 'معرض', 'موقع', 'واتساب', 'أخرى'];
+
+export const PURPOSE = {
+    sale: 'بيع',
+    rent: 'إيجار'
+};
+
+export const REQ_STATUS = {
+    open: 'مفتوح',
+    matched: 'تمت المطابقة',
+    won: 'مُنجز',
+    closed: 'مغلق'
+};
+
+export const REQ_STATUS_TONE = {
+    open: 'blue',
+    matched: 'gold',
+    won: 'green',
+    closed: 'neutral'
+};
+
+export const PRIORITY = {
+    1: 'عالية',
+    2: 'متوسطة',
+    3: 'منخفضة'
+};
+
+export const PRIORITY_TONE = {
+    1: 'red',
+    2: 'gold',
+    3: 'neutral'
+};
+
+export const FINANCING = ['نقد', 'تمويل', 'مدعوم'];
+
+export const MATCH_STATE = {
+    shared: 'شورك مع العميل',
+    interested: 'مهتم',
+    not_interested: 'غير مهتم',
+    viewing: 'معاينة'
+};
+
+export const MATCH_STATE_TONE = {
+    shared: 'blue',
+    interested: 'green',
+    not_interested: 'red',
+    viewing: 'gold'
+};
+
+export const CHANNEL = {
+    call: 'مكالمة',
+    whatsapp: 'واتساب',
+    visit: 'زيارة',
+    other: 'أخرى'
+};
+
+export const FOLLOW_UP_STATUS = {
+    pending: 'قيد الانتظار',
+    done: 'تمت',
+    cancelled: 'ملغاة'
+};
+
+export const FOLLOW_UP_STATUS_TONE = {
+    pending: 'orange',
+    done: 'green',
+    cancelled: 'neutral'
+};
+
+// أنواع الأحداث في crm_events (تُكتب آلياً من مشغّل crm_log_event)
+export const EVENT_TYPE = {
+    client_created: 'أُنشئ العميل',
+    client_reassigned: 'أُعيد إسناد العميل',
+    client_status_changed: 'تغيّرت حالة العميل',
+    requirement_created: 'طلب جديد',
+    requirement_status_changed: 'تغيّرت حالة الطلب',
+    match_shared: 'شورك عرض مع العميل',
+    match_interested: 'العميل مهتم بعرض',
+    match_not_interested: 'العميل غير مهتم بعرض',
+    match_viewing: 'معاينة عرض',
+    follow_up_scheduled: 'جُدولت متابعة',
+    follow_up_done: 'أُنجزت متابعة',
+    follow_up_cancelled: 'أُلغيت متابعة',
+    note: 'ملاحظة',
+    // أحداث الصفقات والعمولات (مشغّلات 007_deals_commissions.sql)
+    deal_opened: 'فُتحت صفقة',
+    deal_stage_changed: 'تغيّرت مرحلة الصفقة',
+    property_sold_flag: 'العقار بيع فعلياً — راجع حالته في اللوحة',
+    commission_recorded: 'سُجّلت عمولة',
+    commission_due: 'العمولة مستحقة',
+    commission_invoiced: 'صدرت فاتورة العمولة',
+    commission_partial: 'تحصيل جزئي للعمولة',
+    commission_collected: 'حُصّلت العمولة',
+    commission_waived: 'أُعفيت العمولة',
+    // 009_hardening.sql: تعديل قيمة صفقة لها عمولة
+    commission_base_updated: 'تحدّث أساس احتساب العمولة',
+    commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة',
+    commission_payment_added: 'سُجّلت دفعة عمولة',
+    // 011_agent_core.sql: اعتماد مسودة من المساعد الذكي
+    agent_draft_applied: 'اعتُمدت مسودة من المساعد الذكي'
+};
+
+// طرق السداد في commission_payments (قيد CHECK في 009_hardening.sql)
+export const PAYMENT_METHOD = {
+    bank: 'تحويل بنكي',
+    cash: 'نقداً',
+    cheque: 'شيك',
+    other: 'أخرى'
+};
+
+/* ===================== المساعد الذكي (011_agent_core.sql) ===================== */
+
+export const AGENT_KIND = {
+    client: 'إضافة عميل',
+    project: 'إضافة مشروع أو عرض',
+    update: 'تحديث مشروع أو وحدة',
+    external: 'استيراد عرض من مصدر خارجي'
+};
+
+// حالة الطلب كما يعرضها المسار في الوصف: استلام، قراءة، استخراج، تحقق، جاهز، تعذّر
+export const AGENT_REQUEST_STATUS = {
+    queued: 'استلام',
+    running: 'قراءة واستخراج وتحقق',
+    ready: 'جاهز للمراجعة',
+    failed: 'تعذّر التنفيذ',
+    cancelled: 'أُلغي'
+};
+
+export const AGENT_REQUEST_STATUS_TONE = {
+    queued: 'blue',
+    running: 'gold',
+    ready: 'green',
+    failed: 'red',
+    cancelled: 'neutral'
+};
+
+// مرحلة التنفيذ (020_agent_run.sql) تفصّل حالة "قيد التنفيذ": قراءة، استخراج، تحقق
+export const AGENT_STAGE = {
+    reading: 'قراءة',
+    extracting: 'استخراج',
+    validating: 'تحقق'
+};
+
+// رموز agent_pick_target
+export const AGENT_PICK_ERROR = {
+    forbidden: 'غير مصرح',
+    not_found: 'الطلب غير موجود',
+    not_waiting: 'الطلب لا ينتظر اختياراً الآن',
+    not_a_candidate: 'الخيار ليس من المرشّحين'
+};
+
+export const DRAFT_STATUS = {
+    draft: 'مسودة',
+    submitted: 'بانتظار الاعتماد',
+    approved: 'معتمدة',
+    rejected: 'مرفوضة',
+    returned: 'أُعيدت للموظف',
+    applied: 'طُبّقت على السجل',
+    stale: 'قديمة — تغيّر السجل الهدف'
+};
+
+export const DRAFT_STATUS_TONE = {
+    draft: 'neutral',
+    submitted: 'orange',
+    approved: 'blue',
+    rejected: 'red',
+    returned: 'gold',
+    applied: 'green',
+    stale: 'red'
+};
+
+export const DRAFT_TARGET = {
+    project: 'مشروع',
+    unit: 'وحدة',
+    client: 'عميل',
+    requirement: 'طلب عميل'
+};
+
+export const AGENT_DECISION = {
+    submit: 'أُرسلت للاعتماد',
+    approve: 'اعتماد',
+    reject: 'رفض',
+    return: 'إعادة للموظف',
+    edit: 'تعديل المسودة'
+};
+
+export const AGENT_SOURCE_KIND = {
+    text: 'نص ملصوق',
+    pdf: 'ملف PDF',
+    image: 'صورة',
+    sheet: 'جدول',
+    url: 'رابط'
+};
+
+// رموز agent_apply_draft الثابتة. لا يخرج من الدالة نص SQL، والواجهة تترجم الرمز.
+export const AGENT_APPLY_ERROR = {
+    not_found: 'المسودة غير موجودة',
+    forbidden: 'الاعتماد للمدير فقط',
+    not_submitted: 'المسودة ليست بانتظار الاعتماد',
+    stale_draft: 'تغيّرت المسودة بعد فتح الصفحة — أعد قراءتها ثم اعتمدها',
+    record_changed: 'السجل الهدف تغيّر بعد بناء الفرق — لم يُكتب شيء، أعد بناء المقارنة',
+    target_missing: 'السجل الهدف غير موجود',
+    missing_required: 'المقترح ينقصه حقل إلزامي',
+    unsupported_target: 'هذا النوع لا يُطبَّق بعد',
+    apply_failed: 'تعذّر تطبيق المسودة — راجع القيم المقترحة'
+};
+
+// أسماء الحقول بالعربية في جداول المسودة
+export const AGENT_FIELD = {
+    full_name: 'الاسم الكامل', phone: 'الجوال', phone_alt: 'جوال إضافي', email: 'البريد الإلكتروني',
+    source: 'المصدر', client_type: 'نوع العميل', city: 'المدينة', notes: 'ملاحظات', status: 'الحالة',
+    name: 'اسم المشروع', type: 'النوع', price: 'السعر', area: 'المساحة', address: 'العنوان',
+    latitude: 'خط العرض', longitude: 'خط الطول', details: 'التفاصيل', images: 'الصور',
+    client_id: 'العميل', purpose: 'الغرض', property_type: 'نوع العقار', districts: 'الأحياء',
+    budget_min: 'أقل ميزانية', budget_max: 'أعلى ميزانية', area_min: 'أقل مساحة', area_max: 'أعلى مساحة',
+    rooms_min: 'أقل عدد غرف', delivery_before: 'التسليم قبل', financing_type: 'طريقة التمويل',
+    priority: 'الأولوية', rooms: 'الغرف', bathrooms: 'دورات المياه', unit_key: 'رمز الوحدة',
+    // الجولة B: حقول المشروع والوحدة والطلب المرفق كما تكتبها وظيفة الاستخراج
+    district: 'الحي', availability: 'التوفر', delivery_date: 'تاريخ التسليم', requirement: 'الطلب العقاري',
+    developer: 'المطوّر', construction_status: 'الحالة الإنشائية', units_count: 'عدد الوحدات',
+    description: 'الوصف', models: 'الوحدات', count: 'العدد', project_id: 'المشروع',
+    quote: 'الاقتباس', page: 'الصفحة', source_id: 'المصدر', reason: 'السبب', note: 'ملاحظة',
+    value: 'القيمة', field: 'الحقل', kind: 'النوع', id: 'المعرّف', label: 'الاسم', units: 'الوحدات', rank: 'الترتيب'
+};
+
+// الأعمدة التي تكتبها agent_apply_draft فعلاً. ما في المقترح خارج هذه القائمة
+// يُعرض للمدير معلَّماً بأنه لن يُكتب، فلا يعتمد شيئاً يظنه سيُحفظ.
+export const AGENT_APPLIED_FIELDS = {
+    client: ['full_name', 'phone', 'phone_alt', 'email', 'source', 'client_type', 'city', 'notes', 'requirement'],
+    project: ['name', 'type', 'price', 'area', 'address', 'latitude', 'longitude', 'notes', 'details',
+              'city', 'district', 'purpose', 'availability', 'rooms', 'delivery_date'],
+    requirement: ['client_id', 'purpose', 'property_type', 'city', 'districts', 'budget_min', 'budget_max',
+                  'area_min', 'area_max', 'rooms_min', 'delivery_before', 'financing_type', 'notes'],
+    unit: ['project_id', 'name', 'type', 'rooms', 'bathrooms', 'area', 'price', 'count', 'status']
+};
+
+// درجات المطابقة كما في وصف المرحلة 3
+export function scoreLabel(score) {
+    const n = Number(score);
+    if (n >= 85) return { text: 'مطابقة ممتازة', tone: 'green' };
+    if (n >= 70) return { text: 'مطابقة جيدة', tone: 'gold' };
+    return { text: 'مطابقة محتملة', tone: 'neutral' };
+}
+
+export function label(map, key, fallback = '—') {
+    if (key === null || key === undefined || key === '') return fallback;
+    return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : String(key);
+}
+
+/* ===================== الصفقات والعمولات (007_deals_commissions.sql) ===================== */
+
+// أسماء المراحل تأتي من جدول deal_stages نفسه (name_ar)، فلا تُكرَّر هنا.
+// هذه ألوان العرض فقط، مفتاحها معرّف المرحلة الثابت 1..7.
+export const DEAL_STAGE_TONE = {
+    1: 'blue',
+    2: 'gold',
+    3: 'orange',
+    4: 'gold',
+    5: 'blue',
+    6: 'green',
+    7: 'red'
+};
+
+export const COMMISSION_STATUS = {
+    due: 'مستحقة',
+    invoiced: 'صدرت فاتورة',
+    partial: 'محصّلة جزئياً',
+    collected: 'محصّلة',
+    waived: 'معفاة'
+};
+
+export const COMMISSION_STATUS_TONE = {
+    due: 'orange',
+    invoiced: 'blue',
+    partial: 'gold',
+    collected: 'green',
+    waived: 'neutral'
+};
+
+// الحالتان اللتان يكتبهما المدير؛ partial و collected يشتقّهما المشغّل من المحصَّل
+export const COMMISSION_STATUS_EDITABLE = {
+    due: 'مشتقة من التحصيل',
+    invoiced: 'صدرت فاتورة',
+    waived: 'معفاة'
+};
+
+/* ===================== المخزون (v_units) ===================== */
+
+// حالة الوحدة: نماذج الشقق تخزّن available/reserved/sold في details.models،
+// وصفّ "كامل العقار" يأخذها من projects.availability (available/sold_out).
+export const UNIT_STATUS = {
+    available: 'متاحة',
+    reserved: 'محجوزة',
+    sold: 'مباعة',
+    sold_out: 'نفدت بالكامل'
+};
+
+export const UNIT_STATUS_TONE = {
+    available: 'green',
+    reserved: 'orange',
+    sold: 'red',
+    sold_out: 'red'
+};

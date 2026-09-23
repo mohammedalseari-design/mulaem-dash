@@ -332,88 +332,259 @@ async function loadProjects() {
 
 function updateUI() {
     updateStats();
-    renderFeaturedProjects();
+    renderSalesOverview();
     displayProjects();
     loadMyProjects();
 }
 
-function renderFeaturedProjects(filter = {}) {
-    const grid = document.getElementById('featuredGrid');
-    if (!grid) return;
-    if (!grid.dataset.wired) {
-        grid.dataset.wired = '1';
-        document.querySelectorAll('[data-featured-city], [data-featured-availability]').forEach((button) => {
-            button.addEventListener('click', () => {
-                document.querySelectorAll('.featured-filter').forEach((item) => item.classList.remove('active'));
-                button.classList.add('active');
-                renderFeaturedProjects({
-                    city: button.dataset.featuredCity || 'all',
-                    availability: button.dataset.featuredAvailability || ''
-                });
-            });
-        });
-        document.getElementById('featuredShowAll')?.addEventListener('click', () => {
+/* ── نظرة سريعة للمسوقين (القسم الأعلى في اللوحة) ─────────────────────────────
+   كل ما يظهر هنا حقيقي، لا أرقام ثابتة: العدّادات والمدن وأبرز المشاريع من قائمة المشاريع
+   المحمّلة (نفس بيانات الشبكة والخريطة)، وفرص اليوم من متابعات وطلبات الـCRM عبر جلسة
+   Supabase نفسها (window.mulaemSupabase) — فسياسات RLS تحدّ ما يراه كل موظف.
+   القاعدة كما في بقية الملف: أي نص من القاعدة يمرّ على esc() قبل innerHTML. */
+const salesView = { city: 'all', availableOnly: false };
+// أقل من هذا ليس سعر بيع حقيقياً (بعض النماذج فيها قيم مؤقتة مثل «1») فلا يتصدّر «أرخص شقة»
+const SALES_MIN_PRICE = 50000;
+
+function setSalesText(id, value) {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+}
+
+function projectDetailsOf(project) {
+    let details = project.details;
+    if (typeof details === 'string') { try { details = JSON.parse(details); } catch (error) { details = {}; } }
+    return details || {};
+}
+
+function salesPriceTag(value) {
+    const n = featuredNumber(value);
+    if (!n || n < 1000) return '—';
+    if (n >= 1000000) return 'SAR ' + (Math.round(n / 100000) / 10).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1000) return 'SAR ' + Math.round(n / 1000) + 'K';
+    return 'SAR ' + formatNumber(n);
+}
+
+function renderSalesOverview() {
+    const shell = document.getElementById('salesShell');
+    if (!shell) return;
+    if (!shell.dataset.wired) {
+        shell.dataset.wired = '1';
+        document.getElementById('salesShowAll')?.addEventListener('click', () => {
             document.querySelector('.projects-section')?.scrollIntoView({ behavior: 'smooth' });
         });
+        document.getElementById('salesAddOffer')?.addEventListener('click', () => {
+            const formSection = document.getElementById('formSection');
+            if (!formSection) return;
+            formSection.scrollIntoView({ behavior: 'smooth' });
+            setTimeout(() => document.getElementById('projectName')?.focus(), 450);
+        });
+        document.getElementById('salesRefresh')?.addEventListener('click', () => loadSalesOpportunities());
+        loadSalesOpportunities();
     }
-    const approved = projects.filter((project) => project.status === 'approved' && !project.deleted_at);
-    document.getElementById('featuredTotal').textContent = formatNumber(approved.length);
-    document.getElementById('featuredAvailable').textContent = formatNumber(approved.filter((project) => project.availability === 'available').length);
-    document.getElementById('featuredNew').textContent = formatNumber(approved.filter((project) => isRecentProject(project)).length);
-    document.getElementById('featuredPending').textContent = formatNumber(projects.filter((project) => project.status === 'pending').length);
 
-    const filtered = approved.filter((project) => filter.city === 'all' || !filter.city || project.city === filter.city || project.address?.includes(filter.city));
+    // «إضافة عرض» يظهر لمن يملك نموذج الإضافة أصلاً (مركز الاتصال لا يضيف عروضاً)
+    const addBtn = document.getElementById('salesAddOffer');
+    const formSection = document.getElementById('formSection');
+    if (addBtn) addBtn.style.display = formSection && formSection.offsetParent !== null ? '' : 'none';
+
+    const approved = projects.filter((project) => project.status === 'approved' && !project.deleted_at);
+    setSalesText('salesTotal', formatNumber(approved.length));
+    setSalesText('salesAvailable', formatNumber(approved.filter((project) => project.availability === 'available').length));
+    setSalesText('salesPending', formatNumber(projects.filter((project) => project.status === 'pending').length));
+    renderSalesToolbar(approved);
+    renderSalesProjects(approved);
+}
+
+// الشرائح من المدن الموجودة فعلاً في المخزون (لا قائمة ثابتة)، و«متاحة الآن» مفتاح تبديل
+function renderSalesToolbar(approved) {
+    const bar = document.getElementById('salesToolbar');
+    if (!bar) return;
+    const counts = new Map();
+    approved.forEach((project) => {
+        const city = String(project.city || '').trim();
+        if (city) counts.set(city, (counts.get(city) || 0) + 1);
+    });
+    const cities = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map((entry) => entry[0]);
+    if (salesView.city !== 'all' && !cities.includes(salesView.city)) salesView.city = 'all';
+
+    const chip = (label, active, onClick) => {
+        const node = document.createElement('button');
+        node.type = 'button';
+        node.className = 'toolbar-chip' + (active ? ' active' : '');
+        node.textContent = label;
+        node.addEventListener('click', onClick);
+        return node;
+    };
+    bar.innerHTML = '';
+    bar.appendChild(chip('الكل', salesView.city === 'all', () => { salesView.city = 'all'; renderSalesOverview(); }));
+    cities.forEach((city) => bar.appendChild(chip(city, salesView.city === city, () => { salesView.city = city; renderSalesOverview(); })));
+    bar.appendChild(chip('متاحة الآن', salesView.availableOnly, () => { salesView.availableOnly = !salesView.availableOnly; renderSalesOverview(); }));
+}
+
+// أبرز المشاريع: أرخص شقة، أصغر شقة، أعلى عمولة، وأحدث عرض — من المعتمد ضمن الشريحة المختارة
+function renderSalesProjects(approved) {
+    const list = document.getElementById('salesProjectList');
+    if (!list) return;
+    const filtered = approved.filter((project) => {
+        if (salesView.city !== 'all' && String(project.city || '').trim() !== salesView.city) return false;
+        if (salesView.availableOnly && project.availability !== 'available') return false;
+        return true;
+    });
+
     const units = [];
     filtered.forEach((project) => {
-        let details = project.details;
-        if (typeof details === 'string') { try { details = JSON.parse(details); } catch (error) { details = {}; } }
-        (Array.isArray(details?.models) ? details.models : []).forEach((model) => {
-            if (model.type !== 'شقة' || (filter.availability && model.status !== filter.availability)) return;
+        const models = projectDetailsOf(project).models;
+        (Array.isArray(models) ? models : []).forEach((model) => {
+            if (salesView.availableOnly && model.status && model.status !== 'available') return;
             units.push({ project, model });
         });
     });
-    const cheapest = units.filter((row) => featuredNumber(row.model.price) > 0).sort((a, b) => featuredNumber(a.model.price) - featuredNumber(b.model.price))[0];
-    const smallest = units.filter((row) => featuredNumber(row.model.area) > 0).sort((a, b) => featuredNumber(a.model.area) - featuredNumber(b.model.area))[0];
+    const byPrice = units.filter((row) => featuredNumber(row.model.price) >= SALES_MIN_PRICE).sort((a, b) => featuredNumber(a.model.price) - featuredNumber(b.model.price));
+    const byArea = units.filter((row) => featuredNumber(row.model.area) > 0).sort((a, b) => featuredNumber(a.model.area) - featuredNumber(b.model.area));
+    const byCommission = units.filter((row) => featuredNumber(row.model.commission) > 0).sort((a, b) => featuredNumber(b.model.commission) - featuredNumber(a.model.commission));
+    const newest = filtered.slice().sort((a, b) => new Date(b.date_added || 0) - new Date(a.date_added || 0))[0];
+
     const rows = [];
-    if (cheapest) rows.push({ ...cheapest, highlight: 'أرخص شقة' });
-    if (smallest && (!cheapest || smallest.project.id !== cheapest.project.id || smallest.model.name !== cheapest.model.name)) rows.push({ ...smallest, highlight: 'أصغر شقة' });
+    const seen = new Set();
+    const push = (row, highlight) => {
+        if (!row) return;
+        const key = row.project.id + '|' + (row.model ? row.model.name : '');
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({ project: row.project, model: row.model, highlight });
+    };
+    push(byPrice[0], 'أرخص شقة');
+    push(byArea[0], 'أصغر شقة');
+    push(byCommission[0], 'أعلى عمولة');
+    if (newest) push({ project: newest, model: null }, 'أحدث عرض');
     if (!rows.length) {
-        const fallback = filtered.filter((project) => featuredNumber(project.price) > 0).sort((a, b) => featuredNumber(a.price) - featuredNumber(b.price)).slice(0, 2);
-        fallback.forEach((project, index) => rows.push({ project, model: { name: project.name, type: 'شقة', price: project.price, area: project.area, rooms: project.rooms, status: project.availability }, highlight: index === 0 ? 'أرخص شقة' : 'أصغر شقة' }));
+        filtered.filter((project) => featuredNumber(project.price) >= SALES_MIN_PRICE)
+            .sort((a, b) => featuredNumber(a.price) - featuredNumber(b.price)).slice(0, 3)
+            .forEach((project) => push({ project, model: null }, 'عرض'));
     }
-    grid.innerHTML = rows.length ? rows.map(featuredCardHtml).join('') : '<div class="featured-empty">لا توجد شقق مطابقة لهذا الفلتر</div>';
+    list.innerHTML = rows.length ? rows.map(salesDealCardHtml).join('') : '<div class="sales-empty">لا توجد عروض مطابقة لهذا الفلتر</div>';
+}
+
+function salesDealCardHtml(row) {
+    const project = row.project;
+    const unit = row.model || {};
+    const details = projectDetailsOf(project);
+    let images = project.images;
+    if (typeof images === 'string') { try { images = JSON.parse(images); } catch (error) { images = []; } }
+    // الرابط يمرّ على safeUrl (https فقط) ثم تُنزع منه علامات الاقتباس والأقواس حتى لا يخرج من url()
+    const image = Array.isArray(images) && images[0] ? safeUrl(images[0]).replace(/["'()\s\\]/g, '') : '';
+
+    const available = row.model ? (unit.status || 'available') === 'available' : project.availability === 'available';
+    let status;
+    if (!available) status = { text: 'غير متاحة', cls: 'neutral' };
+    else if (details.construction_status === 'تحت_الإنشاء') status = { text: 'قريب', cls: 'warning' };
+    else if (isRecentProject(project)) status = { text: 'جديد', cls: 'neutral' };
+    else status = { text: 'متاحة', cls: 'success' };
+
+    const rooms = featuredNumber(unit.rooms) || featuredNumber(project.rooms) || featuredNumber(details.rooms);
+    const area = featuredNumber(unit.area) || featuredNumber(project.area);
+    const price = featuredNumber(unit.price) || featuredNumber(project.price);
+    const commission = featuredNumber(unit.commission);
+    const facts = [];
+    if (row.highlight) facts.push(row.highlight);
+    if (rooms) facts.push(rooms + ' غرف');
+    if (area) facts.push(formatNumber(area) + ' م²');
+    const place = project.district || project.city || '';
+    if (place) facts.push(place);
+    if (commission) facts.push('عمولة ' + formatNumber(commission) + ' ر.س');
+    const title = row.model && unit.name ? project.name + ' — ' + unit.name : (project.name || 'عرض بلا اسم');
+    const id = Number(project.id);
+    const thumb = image
+        ? `<div class="deal-thumb" style="background-image:url('${esc(image)}')"></div>`
+        : '<div class="deal-thumb thumb-one"></div>';
+
+    return `<article class="deal-card" role="button" tabindex="0" onclick="viewProject(${id})" onkeydown="if(event.key==='Enter'){viewProject(${id})}">
+        ${thumb}
+        <div class="deal-body">
+            <div class="deal-meta"><span class="price-tag">${esc(salesPriceTag(price))}</span><span class="status-dot ${status.cls}">${esc(status.text)}</span></div>
+            <h4>${esc(title)}</h4>
+            <p>${facts.map(esc).join(' • ')}</p>
+        </div>
+    </article>`;
+}
+
+// فرص اليوم: متابعات مستحقة (اليوم أو متأخرة) ثم الطلبات المفتوحة الجديدة خلال 7 أيام.
+// القراءة بجلسة المستخدم نفسها فلا يرى الوسيط إلا عملاءه ومتابعاته.
+async function loadSalesOpportunities() {
+    const host = document.getElementById('salesOpportunities');
+    if (!host) return;
+    host.innerHTML = '<div class="sales-empty">جاري التحديث...</div>';
+    const sb = window.mulaemSupabase;
+    if (!sb) { host.innerHTML = '<div class="sales-empty">تعذّر الاتصال بقاعدة البيانات</div>'; return; }
+
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(); dayEnd.setHours(23, 59, 59, 999);
+    const since = new Date(Date.now() - 7 * 86400000).toISOString();
+    try {
+        const [followUps, requests, newCount] = await Promise.all([
+            sb.from('follow_ups').select('id, client_id, due_at, purpose, client:clients(full_name)')
+                .eq('status', 'pending').lte('due_at', dayEnd.toISOString())
+                .order('due_at', { ascending: true }).range(0, 5),
+            sb.from('client_requirements').select('id, client_id, property_type, purpose, priority, created_at, client:clients(full_name)')
+                .eq('status', 'open').gte('created_at', since)
+                .order('created_at', { ascending: false }).range(0, 5),
+            sb.from('client_requirements').select('id', { count: 'exact', head: true })
+                .eq('status', 'open').gte('created_at', since)
+        ]);
+        if (followUps.error) throw followUps.error;
+        if (requests.error) throw requests.error;
+        setSalesText('salesNewRequests', formatNumber(newCount.error ? 0 : (newCount.count || 0)));
+
+        const items = [];
+        (followUps.data || []).forEach((row) => {
+            const due = row.due_at ? new Date(row.due_at) : null;
+            const overdue = Boolean(due && due < dayStart);
+            items.push({
+                href: 'crm/#/clients/' + row.client_id,
+                tag: overdue ? 'متابعة متأخرة' : 'متابعة اليوم',
+                title: (row.client && row.client.full_name) || 'عميل',
+                sub: row.purpose || '',
+                score: overdue ? 'متأخرة' : (due ? due.toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }) : ''),
+                order: overdue ? 0 : 1
+            });
+        });
+        const priorityText = { 1: 'أولوية عالية', 2: 'أولوية متوسطة', 3: 'أولوية منخفضة' };
+        (requests.data || []).forEach((row) => {
+            items.push({
+                href: 'crm/#/clients/' + row.client_id,
+                tag: 'طلب جديد',
+                title: ((row.client && row.client.full_name) || 'عميل') + (row.property_type ? ' — ' + row.property_type : ''),
+                sub: row.purpose === 'rent' ? 'إيجار' : 'شراء',
+                score: priorityText[row.priority] || '',
+                order: 2
+            });
+        });
+        items.sort((a, b) => a.order - b.order);
+        const shown = items.slice(0, 6);
+        host.innerHTML = shown.length
+            ? shown.map(salesOpportunityHtml).join('')
+            : '<div class="sales-empty">لا فرص اليوم — لا متابعات مستحقة ولا طلبات جديدة خلال 7 أيام</div>';
+    } catch (error) {
+        console.error('فرص اليوم:', error);
+        host.innerHTML = '<div class="sales-empty">تعذّر تحميل فرص اليوم: ' + esc(error && error.message ? error.message : error) + '</div>';
+    }
+}
+
+function salesOpportunityHtml(item) {
+    return `<a class="opportunity-item" href="${esc(item.href)}">
+        <div>
+            <span class="opportunity-tag">${esc(item.tag)}</span>
+            <h4>${esc(item.title)}</h4>
+            ${item.sub ? `<small class="opportunity-sub">${esc(item.sub)}</small>` : ''}
+        </div>
+        <span class="opportunity-score">${esc(item.score)}</span>
+    </a>`;
 }
 
 function isRecentProject(project) {
     const value = project.updated_at || project.date_added;
     return value ? Date.now() - new Date(value).getTime() < 30 * 86400000 : false;
-}
-
-function featuredCardHtml(project) {
-    const highlight = project.highlight || 'شقة مميزة';
-    const unit = project.model || {};
-    const projectData = project.project || project;
-    let images = projectData.images;
-    if (typeof images === 'string') { try { images = JSON.parse(images); } catch (error) { images = []; } }
-    const image = Array.isArray(images) && images[0] ? safeUrl(images[0]) : '';
-    const imageMarkup = image ? `<img src="${esc(image)}" alt="${esc(projectData.name)}">` : '<div class="featured-image-empty">ملائم</div>';
-    const details = typeof projectData.details === 'string' ? (() => { try { return JSON.parse(projectData.details); } catch (error) { return {}; } })() : (projectData.details || {});
-    const rooms = unit.rooms || projectData.rooms || details.rooms || '—';
-    const area = featuredNumber(unit.area) || '—';
-    const price = featuredNumber(unit.price) || featuredNumber(projectData.price);
-    const commission = featuredNumber(unit.commission);
-    const developer = details.developer || details.developer_name || details.developerName || 'المطور غير محدد';
-    return `<article class="featured-card" onclick="viewProject(${projectData.id})">
-        <div class="featured-image">${imageMarkup}</div>
-        <div class="featured-card-body">
-            <span class="featured-label">${esc(highlight)}</span>
-            <div class="featured-title-row"><h3>${esc(unit.name || projectData.name || 'شقة بدون اسم')}</h3><span class="featured-status">${unit.status === 'available' ? 'متاحة' : 'غير متاحة'}</span></div>
-            <small class="featured-location">${esc(projectData.district || projectData.city || projectData.address || 'الموقع غير محدد')}</small>
-            <p class="featured-specs"><span>النوع</span> شقة <i>•</i> <span>الغرف</span> ${esc(String(rooms))} <i>•</i> <span>المساحة</span> ${formatNumber(area)} م²</p>
-            <div class="featured-price"><span>السعر</span><strong>${formatNumber(price)} ر.س</strong></div>
-            <div class="featured-meta"><span><b>العمولة</b>${formatNumber(commission)} ر.س</span><span><b>المطور</b>${esc(developer)}</span></div>
-        </div>
-    </article>`;
 }
 
 function featuredNumber(value) {

@@ -167,118 +167,56 @@
                 </div>
             </div>
 
-            <section class="sales-shell">
+            <!-- نظرة سريعة للمسوقين: كل ما فيها من بيانات حقيقية — العدّادات والمدن وأبرز المشاريع من
+                 قائمة المشاريع، وفرص اليوم من متابعات وطلبات الـCRM (js/script.js: renderSalesOverview) -->
+            <section class="sales-shell" id="salesShell">
                 <div class="sales-header">
                     <div>
                         <p class="sales-kicker">لوحة المبيعات</p>
                         <h2>نظرة سريعة للمسوقين</h2>
                     </div>
-                    <button class="btn btn-primary small-btn">إضافة عرض</button>
+                    <button type="button" class="btn btn-primary small-btn" id="salesAddOffer">إضافة عرض</button>
                 </div>
 
                 <div class="mini-stats">
                     <div class="mini-stat">
-                        <strong>284</strong>
+                        <strong id="salesTotal">0</strong>
                         <span>عقارات</span>
                     </div>
                     <div class="mini-stat">
-                        <strong>42</strong>
+                        <strong id="salesAvailable">0</strong>
                         <span>متاحة</span>
                     </div>
                     <div class="mini-stat">
-                        <strong>19</strong>
-                        <span>طلبات جديدة</span>
+                        <strong id="salesNewRequests">0</strong>
+                        <span>طلبات جديدة (7 أيام)</span>
                     </div>
                     <div class="mini-stat accent">
-                        <strong>08</strong>
+                        <strong id="salesPending">0</strong>
                         <span>في الانتظار</span>
                     </div>
                 </div>
 
-                <div class="sales-toolbar">
-                    <div class="toolbar-chip active">الكل</div>
-                    <div class="toolbar-chip">الرياض</div>
-                    <div class="toolbar-chip">جدة</div>
-                    <div class="toolbar-chip">الخبر</div>
-                    <div class="toolbar-chip">متاحة الآن</div>
-                </div>
+                <div class="sales-toolbar" id="salesToolbar"></div>
 
                 <div class="sales-grid">
                     <div class="sales-panel">
                         <div class="panel-head">
                             <h3>أبرز المشاريع</h3>
-                            <button class="ghost-link">عرض الكل</button>
+                            <button type="button" class="ghost-link" id="salesShowAll">عرض الكل</button>
                         </div>
-
-                        <div class="project-list">
-                            <article class="deal-card">
-                                <div class="deal-thumb thumb-one"></div>
-                                <div class="deal-body">
-                                    <div class="deal-meta">
-                                        <span class="price-tag">SAR 2.9M</span>
-                                        <span class="status-dot success">متاحة</span>
-                                    </div>
-                                    <h4>فيلا ريفية في السليمانية</h4>
-                                    <p>4 غرف • 540 م² • حي هادئ</p>
-                                </div>
-                            </article>
-
-                            <article class="deal-card">
-                                <div class="deal-thumb thumb-two"></div>
-                                <div class="deal-body">
-                                    <div class="deal-meta">
-                                        <span class="price-tag">SAR 1.4M</span>
-                                        <span class="status-dot warning">قريب</span>
-                                    </div>
-                                    <h4>شقة عصرية في الخبر</h4>
-                                    <p>3 غرف • 182 م² • موقع مميز</p>
-                                </div>
-                            </article>
-
-                            <article class="deal-card">
-                                <div class="deal-thumb thumb-three"></div>
-                                <div class="deal-body">
-                                    <div class="deal-meta">
-                                        <span class="price-tag">SAR 3.8M</span>
-                                        <span class="status-dot neutral">جديد</span>
-                                    </div>
-                                    <h4>مجمع سكني فاخر</h4>
-                                    <p>فلل • مرافق كاملة • تسليم 2026</p>
-                                </div>
-                            </article>
+                        <div class="project-list" id="salesProjectList">
+                            <div class="sales-empty">جاري التحميل...</div>
                         </div>
                     </div>
 
                     <div class="sales-panel right-panel">
                         <div class="panel-head">
                             <h3>فرص اليوم</h3>
-                            <button class="ghost-link">تحديث</button>
+                            <button type="button" class="ghost-link" id="salesRefresh">تحديث</button>
                         </div>
-
-                        <div class="opportunity-list">
-                            <div class="opportunity-item">
-                                <div>
-                                    <span class="opportunity-tag">عميل جديد</span>
-                                    <h4>طلب شقة في الرياض</h4>
-                                </div>
-                                <span class="opportunity-score">7/10</span>
-                            </div>
-
-                            <div class="opportunity-item">
-                                <div>
-                                    <span class="opportunity-tag">عرض خاص</span>
-                                    <h4>فيلا في جدة</h4>
-                                </div>
-                                <span class="opportunity-score">9/10</span>
-                            </div>
-
-                            <div class="opportunity-item">
-                                <div>
-                                    <span class="opportunity-tag">متابعة</span>
-                                    <h4>عميل سابق في الخبر</h4>
-                                </div>
-                                <span class="opportunity-score">6/10</span>
-                            </div>
+                        <div class="opportunity-list" id="salesOpportunities">
+                            <div class="sales-empty">جاري التحميل...</div>
                         </div>
                     </div>
                 </div>
@@ -519,30 +457,6 @@
                     <div class="loading">جاري التحميل...</div>
                 </div>
             </div>
-
-            <section class="featured-section" id="featuredSection">
-                <div class="featured-head">
-                    <div>
-                        <span class="featured-kicker">ملخص السوق</span>
-                        <h2>أبرز المشاريع</h2>
-                    </div>
-                    <button type="button" class="featured-link" id="featuredShowAll">عرض الكل</button>
-                </div>
-                <div class="featured-stats">
-                    <div><strong id="featuredTotal">0</strong><span>عقارات</span></div>
-                    <div><strong id="featuredAvailable">0</strong><span>متاحة</span></div>
-                    <div><strong id="featuredNew">0</strong><span>طلبات جديدة</span></div>
-                    <div><strong id="featuredPending">0</strong><span>في الانتظار</span></div>
-                </div>
-                <div class="featured-filters">
-                    <button type="button" class="featured-filter active" data-featured-city="all">الكل</button>
-                    <button type="button" class="featured-filter" data-featured-city="الرياض">الرياض</button>
-                    <button type="button" class="featured-filter" data-featured-city="جدة">جدة</button>
-                    <button type="button" class="featured-filter" data-featured-city="الخبر">الخبر</button>
-                    <button type="button" class="featured-filter" data-featured-availability="available">متاحة الآن</button>
-                </div>
-                <div class="featured-grid" id="featuredGrid"></div>
-            </section>
 
             <!-- Projects Section -->
             <div class="projects-section">

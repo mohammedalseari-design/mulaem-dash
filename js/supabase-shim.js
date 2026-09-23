@@ -52,7 +52,8 @@
         return {
             id: str(p.id), name: p.name, type: p.type,
             price: money(p.price), area: money(p.area),
-            address: p.address || '', latitude: str(p.latitude), longitude: str(p.longitude),
+            address: p.address || '', city: p.city || '', district: p.district || '',
+            latitude: str(p.latitude), longitude: str(p.longitude),
             notes: p.notes || '', employee: p.employee, added_by: p.added_by,
             images: Array.isArray(p.images) ? p.images : [],
             details: p.details && typeof p.details === 'object' ? p.details : {},

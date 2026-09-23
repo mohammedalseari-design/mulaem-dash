@@ -431,6 +431,7 @@ function renderSalesToolbar(approved) {
 function renderSalesProjects(approved) {
     const list = document.getElementById('salesProjectList');
     if (!list) return;
+    const canSeeCommission = currentUser && currentUser.role !== 'callcenter';
     const filtered = approved.filter((project) => {
         if (salesView.city !== 'all' && String(project.city || '').trim() !== salesView.city) return false;
         if (salesView.availableOnly && project.availability !== 'available') return false;
@@ -447,7 +448,9 @@ function renderSalesProjects(approved) {
     });
     const byPrice = units.filter((row) => featuredNumber(row.model.price) >= SALES_MIN_PRICE).sort((a, b) => featuredNumber(a.model.price) - featuredNumber(b.model.price));
     const byArea = units.filter((row) => featuredNumber(row.model.area) > 0).sort((a, b) => featuredNumber(a.model.area) - featuredNumber(b.model.area));
-    const byCommission = units.filter((row) => featuredNumber(row.model.commission) > 0).sort((a, b) => featuredNumber(b.model.commission) - featuredNumber(a.model.commission));
+    const byCommission = canSeeCommission
+        ? units.filter((row) => featuredNumber(row.model.commission) > 0).sort((a, b) => featuredNumber(b.model.commission) - featuredNumber(a.model.commission))
+        : [];
     const newest = filtered.slice().sort((a, b) => new Date(b.date_added || 0) - new Date(a.date_added || 0))[0];
 
     const rows = [];
@@ -461,17 +464,19 @@ function renderSalesProjects(approved) {
     };
     push(byPrice[0], 'أرخص شقة');
     push(byArea[0], 'أصغر شقة');
-    push(byCommission[0], 'أعلى عمولة');
+    if (canSeeCommission) push(byCommission[0], 'أعلى عمولة');
     if (newest) push({ project: newest, model: null }, 'أحدث عرض');
     if (!rows.length) {
         filtered.filter((project) => featuredNumber(project.price) >= SALES_MIN_PRICE)
             .sort((a, b) => featuredNumber(a.price) - featuredNumber(b.price)).slice(0, 3)
             .forEach((project) => push({ project, model: null }, 'عرض'));
     }
-    list.innerHTML = rows.length ? rows.map(salesDealCardHtml).join('') : '<div class="sales-empty">لا توجد عروض مطابقة لهذا الفلتر</div>';
+    list.innerHTML = rows.length
+        ? rows.map((row) => salesDealCardHtml(row, canSeeCommission)).join('')
+        : '<div class="sales-empty">لا توجد عروض مطابقة لهذا الفلتر</div>';
 }
 
-function salesDealCardHtml(row) {
+function salesDealCardHtml(row, canSeeCommission) {
     const project = row.project;
     const unit = row.model || {};
     const details = projectDetailsOf(project);
@@ -497,7 +502,7 @@ function salesDealCardHtml(row) {
     if (area) facts.push(formatNumber(area) + ' م²');
     const place = project.district || project.city || '';
     if (place) facts.push(place);
-    if (commission) facts.push('عمولة ' + formatNumber(commission) + ' ر.س');
+    if (canSeeCommission && commission) facts.push('عمولة ' + formatNumber(commission) + ' ر.س');
     const title = row.model && unit.name ? project.name + ' — ' + unit.name : (project.name || 'عرض بلا اسم');
     const id = Number(project.id);
     const thumb = image

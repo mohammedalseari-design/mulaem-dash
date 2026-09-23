@@ -1734,12 +1734,17 @@ function listingShareValidation(project) {
         return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
     }
     const expiresKey = dateKey(project.listing_expires_at);
-    if (expiresKey) {
-        if (expiresKey < dateKey(new Date())) {
-            return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
-        }
+    if (project.listing_expires_at && !expiresKey) {
+        return { ok: false, message: 'صيغة تاريخ انتهاء الإعلان غير صحيحة. حدّث التاريخ قبل المشاركة.' };
+    }
+    if (expiresKey && expiresKey < todayDateKeyUtc()) {
+        return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
     }
     return { ok: true, message: '' };
+}
+
+function todayDateKeyUtc() {
+    return new Date().toISOString().slice(0, 10);
 }
 
 function dateKey(value) {
@@ -1754,9 +1759,7 @@ function dateKey(value) {
     const raw = String(value).trim();
     const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
     if (m) return m[1];
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return '';
-    return dateKey(d);
+    return '';
 }
 
 function ensureListingShareable(id) {
@@ -1817,7 +1820,7 @@ window.viewProject = async function (id) {
     const shareCheck = listingShareValidation(p);
     const shareDisabledAttrs = shareCheck.ok
         ? ''
-        : `aria-disabled="true" data-share-blocked="1" title="${esc(shareCheck.message || 'يتطلب رقم ترخيص إعلان ساري')}"`;
+        : `disabled aria-disabled="true" data-share-blocked="1" aria-describedby="shareBlockReason-${Number(p.id)}" title="${esc(shareCheck.message || 'يتطلب رقم ترخيص إعلان ساري')}"`;
 
     // Helper for date
     const dateStr = p.date_added ? new Date(p.date_added).toLocaleString('ar-SA') : 'غير متوفر';
@@ -1953,7 +1956,7 @@ window.viewProject = async function (id) {
                 <span>واتساب (مختصر)</span>
             </button>
         </div>
-        ${shareCheck.ok ? '' : `<p class="crm-share-note" style="margin-top:10px; color:#b45309; font-size:0.9em;">${esc(shareCheck.message)}</p>`}
+        ${shareCheck.ok ? '' : `<p id="shareBlockReason-${Number(p.id)}" class="crm-share-note" style="margin-top:10px; color:#b45309; font-size:0.9em;">${esc(shareCheck.message)}</p>`}
 
         ${images && images.length > 0 ? buildImageSlider(images, p.id) : ''}
     `;

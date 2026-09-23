@@ -1674,12 +1674,12 @@ function buildImageSlider(images, projectId) {
     const sliderId = `slider-${Number(projectId)}`;
     if (safe.length === 1) {
         return `<div style="margin-top:20px; border-radius:12px; overflow:hidden; max-height:300px;">
-            <img src="${esc(safe[0])}" style="width:100%; height:280px; object-fit:cover; cursor:zoom-in; display:block;" onclick="window.open(this.src)">
+            <img src="${esc(safe[0])}" style="width:100%; height:280px; object-fit:cover; cursor:zoom-in; display:block;" onclick="window.open(this.src, '_blank', 'noopener,noreferrer')">
         </div>`;
     }
     const slides = safe.map((src, i) => `
         <div class="img-slider-slide">
-            <img src="${esc(src)}" alt="صورة ${i + 1}" onclick="window.open(this.src)">
+            <img src="${esc(src)}" alt="صورة ${i + 1}" onclick="window.open(this.src, '_blank', 'noopener,noreferrer')">
         </div>`).join('');
     const dots = safe.map((_, i) => `<button class="img-slider-dot ${i === 0 ? 'active' : ''}" onclick="sliderGoTo('${sliderId}', ${i})"></button>`).join('');
     return `
@@ -1777,7 +1777,7 @@ function dateKey(value) {
         ].join('-');
     }
     const raw = String(value).trim();
-    const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    const m = raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
     if (m) {
         const ymd = m[1];
         const parts = ymd.split('-').map((n) => Number(n));
@@ -2108,7 +2108,7 @@ window.shareProjectWhatsApp = function(id) {
     logActivity('مشاركة واتساب كامل', `شارك العرض الكامل عبر واتساب: ${_p ? _p.name : id}`);
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 window.getWhatsAppMessageShort = function(id) {
@@ -2166,7 +2166,7 @@ window.shareProjectWhatsAppShort = function(id) {
     logActivity('مشاركة واتساب مختصر', `شارك الملخص المختصر عبر واتساب: ${_p ? _p.name : id}`);
 
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 window.approveProject = async function (id) {

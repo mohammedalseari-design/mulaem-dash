@@ -1732,7 +1732,11 @@ async function fetchFullProject(id) {
             return { ok: false, message: 'لا يمكن مشاركة هذا العقار قبل إدخال رقم ترخيص الإعلان (REGA).' };
         }
         if (project.listing_expires_at) {
-            const expires = new Date(project.listing_expires_at + 'T00:00:00');
+            const raw = String(project.listing_expires_at).trim();
+            let expires = new Date(raw);
+            if (Number.isNaN(expires.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                expires = new Date(raw + 'T00:00:00');
+            }
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             if (!Number.isNaN(expires.getTime()) && expires < today) {

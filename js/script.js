@@ -1733,9 +1733,12 @@ async function fetchFullProject(id) {
         }
         if (project.listing_expires_at) {
             const raw = String(project.listing_expires_at).trim();
-            let expires = new Date(raw);
-            if (Number.isNaN(expires.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-                expires = new Date(raw + 'T00:00:00');
+            let expires;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+                const [y, m, d] = raw.split('-').map((v) => Number(v));
+                expires = new Date(y, m - 1, d);
+            } else {
+                expires = new Date(raw);
             }
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -1942,6 +1945,7 @@ window.viewProject = async function (id) {
                 <span>واتساب (مختصر)</span>
             </button>
         </div>
+        ${shareCheck.ok ? '' : `<p class="crm-share-note" style="margin-top:10px; color:#b45309; font-size:0.9em;">${esc(shareCheck.message)}</p>`}
 
         ${images && images.length > 0 ? buildImageSlider(images, p.id) : ''}
     `;

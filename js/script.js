@@ -1742,13 +1742,28 @@ function listingShareValidation(project) {
     if (project.listing_expires_at && !expiresKey) {
         return { ok: false, message: 'صيغة تاريخ انتهاء الإعلان غير صحيحة. حدّث التاريخ قبل المشاركة.' };
     }
-    if (expiresKey && expiresKey < todayDateKeyUtc()) {
+    if (expiresKey && expiresKey < todayDateKeyRiyadh()) {
         return { ok: false, message: 'لا يمكن مشاركة هذا العقار لأن ترخيص الإعلان منتهي.' };
     }
     return { ok: true, message: '' };
 }
 
-function todayDateKeyUtc() {
+function todayDateKeyRiyadh() {
+    try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Riyadh',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).formatToParts(new Date());
+        const pick = (type) => (parts.find((p) => p.type === type) || {}).value || '';
+        const y = pick('year');
+        const m = pick('month');
+        const d = pick('day');
+        if (y && m && d) return y + '-' + m + '-' + d;
+    } catch (error) {
+        /* fallback below */
+    }
     return new Date().toISOString().slice(0, 10);
 }
 

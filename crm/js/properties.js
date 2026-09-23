@@ -1,15 +1,16 @@
-// ‎#/properties‎ — تصفّح المخزون من داخل الـCRM. قراءة فقط.
+// ‎#/properties‎ — تصفّح المخزون من داخل الـCRM. قراءة فقط، عدا عمولة الوحدة للمدير.
 //
 // المصدر عرض ‎v_units‎ (security_invoker)، فما لا تسمح به سياسات projects لا يظهر
 // هنا: صفٌّ لكل نموذج وحدة، وصفٌّ واحد ‎'كامل العقار'‎ للمشاريع بلا نماذج.
 //
-// لا تعديل من هذه الصفحة: المخزون يُحرَّر في اللوحة القديمة (‎../index.html‎)، وهذه
-// نافذة عليه فقط حتى لا يخرج الموظف من الـCRM ليرى العقارات. الصفحة لكل الأدوار،
-// وزر "فتح صفقة" وحده مخفي عن مركز الاتصال (والقاعدة ترفضه أصلاً).
+// المخزون يُحرَّر في اللوحة القديمة (‎../index.html‎)، وهذه نافذة عليه حتى لا يخرج الموظف
+// من الـCRM ليرى العقارات. الاستثناء الوحيد: المدير يكتب عمولة الوحدة في عمود «العمولة»
+// مباشرة وتُحفظ فوراً عبر ‎set_unit_commission‎ (021) دون فتح نموذج المشروع كاملاً.
+// الصفحة لكل الأدوار، وزر "فتح صفقة" وحده مخفي عن مركز الاتصال (والقاعدة ترفضه أصلاً).
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { inventoryVocabulary, sanitizeSearch } from './data.js';
-import { myRole } from './auth.js';
+import { myRole, isAdmin } from './auth.js';
 import { openDealForm } from './deal-form.js';
 import { safeUrl } from './agent.js';
 import { UNIT_STATUS, UNIT_STATUS_TONE, label } from './labels.js';
@@ -237,7 +238,7 @@ function table(rows) {
             el('td', { class: 'num', text: number(row.bathrooms) }),
             el('td', { class: 'num', text: number(row.area) }),
             el('td', { class: 'num', text: money(row.price) }),
-            el('td', { class: 'num', text: row.unit_commission === null || row.unit_commission === undefined ? '—' : money(row.unit_commission) }),
+            el('td', { class: 'num' }, commissionCell(row)),
             el('td', { text: dash(row.construction_status) }),
             el('td', {}, badge(label(UNIT_STATUS, row.unit_status), UNIT_STATUS_TONE[row.unit_status] || 'neutral')),
             el('td', { class: 'cell-actions' }, rowActions(row, dealAllowed))
@@ -245,6 +246,52 @@ function table(rows) {
     }
 
     return el('table', { class: 'users-table crm-table' }, [head, body]);
+}
+
+/* ===================== العمولة ===================== */
+
+// المدير يكتب عمولة الوحدة هنا وتُحفظ عند مغادرة الحقل عبر set_unit_commission (021)، التي
+// تغيّر مفتاح العمولة وحده في details.models فلا تُعاد كتابة تفاصيل المشروع من المتصفح.
+// الصف الاصطناعي "كامل العقار" (unit_ord = 0) ليس وحدة فلا حقل له، وغير المدير يرى القيمة فقط.
+function commissionCell(row) {
+    const empty = row.unit_commission === null || row.unit_commission === undefined;
+    if (!isAdmin() || !(row.unit_ord > 0)) return el('span', { text: empty ? '—' : money(row.unit_commission) });
+
+    const box = moneyInput({
+        class: 'crm-money crm-filter-num',
+        value: empty ? '' : String(row.unit_commission),
+        placeholder: 'اكتب العمولة',
+        title: 'تُحفظ عند مغادرة الحقل'
+    });
+    box.addEventListener('change', () => saveCommission(box, row));
+    return box;
+}
+
+async function saveCommission(box, row) {
+    const current = row.unit_commission === null || row.unit_commission === undefined ? null : Number(row.unit_commission);
+    const value = parseNumber(box.value);
+    if (box.value.trim() !== '' && (value === null || value < 0)) {
+        box.value = current === null ? '' : money(current);
+        return void notify('اكتب رقماً للعمولة', 'error');
+    }
+    if (value === null || value === current) return;
+
+    box.disabled = true;
+    const { data, error } = await supabase.rpc('set_unit_commission', {
+        p_project: row.project_id, p_unit_ord: row.unit_ord, p_commission: value
+    });
+    box.disabled = false;
+
+    if (error) return void fail(error, 'تعذّر حفظ العمولة');
+    if (!data || !data.ok) {
+        box.value = current === null ? '' : money(current);
+        return void notify(data && data.code === 'forbidden'
+            ? 'تعديل العمولة للمدير فقط'
+            : 'تعذّر حفظ العمولة — الوحدة غير موجودة أو القيمة غير صالحة', 'error', 8000);
+    }
+    row.unit_commission = value;
+    box.value = money(value);
+    notify('حُفظت عمولة ' + dash(row.unit_key) + ': ' + money(value) + ' ريال', 'success');
 }
 
 function unitImage(row) {

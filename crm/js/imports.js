@@ -154,6 +154,8 @@ export async function renderImports(root) {
             const naturalKeys = new Set(byNaturalKey.keys());
             const projectRefs = new Set(projects.map((row) => row.project_ref));
             const saved = new Map();
+            // ما طابق سجلاً قائماً حُدِّث في مكانه؛ لا يُدرج مرة ثانية (كان يُنشئ نسخة مكررة معلّقة).
+            const matchedRefs = new Set();
             for (const ref of new Set(units.map((row) => row.project_ref))) {
                 if (!projectRefs.has(ref) && !byRef.has(ref)) throw new Error('الوحدات تشير إلى مشروع غير موجود: ' + ref);
             }
@@ -198,6 +200,7 @@ export async function renderImports(root) {
                     const updated = await supabase.from('projects').update(patch).eq('id', existingRow.id);
                     if (updated.error) throw updated.error;
                     saved.set(row.project_ref, existingRow.id);
+                    matchedRefs.add(row.project_ref);
                     continue;
                 }
                 if (byRef.has(row.project_ref)) throw new Error('المشروع مكرر في النظام: ' + row.project_ref);
@@ -205,6 +208,7 @@ export async function renderImports(root) {
                 naturalKeys.add(naturalKey);
             }
             for (const row of projects) {
+                if (matchedRefs.has(row.project_ref)) continue;
                 const details = {
                     import_ref: row.project_ref,
                     developer: row.developer || null,
@@ -238,25 +242,37 @@ export async function renderImports(root) {
                 const projectId = saved.get(group) || byRef.get(group)?.id;
                 if (!projectId) throw new Error('الوحدات تشير إلى مشروع غير موجود: ' + group);
                 const current = projects.find((row) => row.project_ref === group);
-                const details = current ? {
-                    import_ref: current.project_ref,
-                    developer: current.developer || null,
-                    units_count: parseNumber(current.units_count),
-                    buildings_count: parseNumber(current.buildings_count),
-                    contact_phone: current.contact_phone || null,
-                    contact_email: current.contact_email || null,
-                    contact_url: current.contact_url || null,
-                    source_url: current.source_url || null,
-                    brochure_url: current.brochure_url || null,
-                    description: current.description || null
-                } : (byRef.get(group)?.details || {});
-                const models = units.filter((row) => row.project_ref === group).map((row) => ({
+                // التفاصيل الحالية تُقرأ من القاعدة وتُكمَّل فقط: كتابة كائن جديد مكانها كانت تمسح
+                // حقولاً مثل حالة الإنشاء ورابط الصورة وكل ما أُدخل يدوياً في اللوحة.
+                const fresh = await supabase.from('projects').select('details').eq('id', projectId).maybeSingle();
+                if (fresh.error) throw fresh.error;
+                const details = Object.assign({}, (fresh.data && fresh.data.details) || {});
+                if (current) {
+                    const fromFile = {
+                        import_ref: current.project_ref,
+                        developer: current.developer,
+                        units_count: parseNumber(current.units_count),
+                        buildings_count: parseNumber(current.buildings_count),
+                        contact_phone: current.contact_phone,
+                        contact_email: current.contact_email,
+                        contact_url: current.contact_url,
+                        source_url: current.source_url,
+                        brochure_url: current.brochure_url,
+                        description: current.description
+                    };
+                    for (const key of Object.keys(fromFile)) {
+                        const value = fromFile[key];
+                        if (value !== null && value !== undefined && value !== '') details[key] = value;
+                    }
+                }
+                details.models = units.filter((row) => row.project_ref === group).map((row) => ({
                     name: row.unit_ref, type: row.unit_type, rooms: parseNumber(row.rooms) || 0, bathrooms: parseNumber(row.bathrooms) || 0,
                     area: parseNumber(row.area) || 0, price: parseNumber(row.price) || 0, commission: parseNumber(row.commission) || 0,
                     status: cleanStatus(row.status, 'available'), count: parseNumber(row.count) || 1, developer: row.developer || null
                 }));
-                const updated = await supabase.from('projects').update({ details: Object.assign({}, details, { models }) }).eq('id', projectId);
+                const updated = await supabase.from('projects').update({ details: details }).eq('id', projectId).select('id');
                 if (updated.error) throw updated.error;
+                if (!updated.data || !updated.data.length) throw new Error('لا تملك صلاحية تعديل المشروع ' + group);
             }
             notify('تم إرسال ' + saved.size + ' مشروع إلى طلبات الاعتماد.', 'success', 8000);
             status.textContent = 'تم الإرسال للمراجعة. يمكنك رفع ملف جديد.';

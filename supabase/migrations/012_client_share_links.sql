@@ -2,7 +2,7 @@
 
 create table if not exists public.client_share_links (
     id             uuid primary key default gen_random_uuid(),
-    token          text not null unique default encode(gen_random_bytes(24), 'hex'),
+    token          text not null unique default encode(extensions.gen_random_bytes(24), 'hex'),
     client_id      uuid not null references public.clients(id) on delete cascade,
     requirement_id uuid not null references public.client_requirements(id) on delete cascade,
     created_by     uuid not null references public.profiles(id),
@@ -72,7 +72,7 @@ language sql security definer set search_path = public as $$
                 'price', u.price,
                 'construction_status', u.construction_status,
                 'unit_status', u.unit_status
-            ) order by u.project_name, u.unit_ord), '[]'::jsonb)
+            ) order by u.project_name, u.unit_ord)
             from public.property_matches m
             join public.v_units u on u.project_id = m.project_id
                 and (m.unit_key is null or u.unit_key = m.unit_key)

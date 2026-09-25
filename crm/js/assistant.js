@@ -51,13 +51,6 @@ export async function renderAssistant(root) {
             soon ? badge('غير متاح بعد', 'neutral') : null
         ]));
     }
-    // مراجعة مجموعات واتساب دفعةً واحدة: صفحة مستقلة ترسل كل عرض مختار طلباً هنا
-    if (isAdmin()) {
-        tiles.appendChild(el('a', { class: 'agent-tile', href: '#/whatsapp' }, [
-            el('strong', { text: 'عروض واتساب الجديدة' }),
-            el('span', { class: 'crm-subtle', text: 'ارفع تصدير المجموعات، راجع الجديد، وأرسل المختار للمساعد' })
-        ]));
-    }
 
     const body = el('div');
     replace(root, [

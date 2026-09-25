@@ -54,9 +54,9 @@ const NAV = [
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
     { hash: '#/calendar', label: 'المواعيد' },
-    { hash: '#/assistant', label: 'المساعد الذكي' },
+    // المساعد الذكي وطلبات الاعتماد (#/assistant، #/approvals) أُخفيا من القائمة بقرار المالك 2026-09-25:
+    // الإدخال يدوي عبر «عروض واتساب» و«استيراد المشاريع». المسارات والجداول باقية ولا تُستخدم.
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
-    { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
     { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true },
     { hash: '#/reports', label: 'التقارير', admin: true },

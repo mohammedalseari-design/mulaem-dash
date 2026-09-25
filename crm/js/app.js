@@ -130,6 +130,19 @@ function setActiveNav(hash) {
     for (const link of document.querySelectorAll('#crmNav a')) {
         link.classList.toggle('active', link.dataset.hash === hash);
     }
+    revealActiveNav();
+}
+
+// على الجوال القائمة شريط يتمرر أفقياً، فكان بند الصفحة الحالية يقع خارج الشاشة.
+// يُمرَّر الشريط وحده أفقياً — لا الصفحة — حتى يظهر البند النشط.
+function revealActiveNav() {
+    const nav = document.getElementById('crmNav');
+    const link = nav && nav.querySelector('a.active');
+    if (!link || nav.scrollWidth <= nav.clientWidth) return;
+    const box = nav.getBoundingClientRect();
+    const item = link.getBoundingClientRect();
+    if (item.left < box.left) nav.scrollBy({ left: item.left - box.left - 12 });
+    else if (item.right > box.right) nav.scrollBy({ left: item.right - box.right + 12 });
 }
 
 /* ===================== الهيكل ===================== */

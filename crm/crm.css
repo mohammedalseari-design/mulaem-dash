@@ -72,7 +72,7 @@ body.crm-dark .dashboard-attention-item { background: #202a35; border-color: rgb
 .crm-subtle { color: var(--text-muted); font-size: 0.9em; font-weight: 500; }
 
 /* ===== Dashboard ===== */
-.dashboard-shell { display: grid; gap: 18px; }
+.dashboard-shell { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .dashboard-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 4px 2px 2px; }
 .dashboard-intro h1 { margin: 0; font-family: 'Almarai', sans-serif; font-size: 1.55em; font-weight: 800; }
 .dashboard-intro p { margin: 6px 0 0; color: var(--text-muted); }
@@ -85,7 +85,7 @@ body.crm-dark .dashboard-attention-item { background: #202a35; border-color: rgb
 .dashboard-grid-wide > .crm-card:first-child { min-width: 0; }
 .dashboard-grid-wide > .crm-card:last-child { min-width: 0; }
 .dashboard-shell .crm-card { margin-bottom: 0; }
-.dashboard-attention-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; }
+.dashboard-attention-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 8px; }
 .dashboard-attention-item { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; color: inherit; text-decoration: none; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: 10px; background: var(--bg-light); }
 .dashboard-attention-item:hover { border-color: var(--primary-gold); background: var(--bg-card); }
 .dashboard-attention-dot { width: 8px; height: 8px; border-radius: 50%; background: #d68c21; }
@@ -96,7 +96,8 @@ body.crm-dark .dashboard-attention-item { background: #202a35; border-color: rgb
 @media (max-width: 780px) {
     .dashboard-intro { align-items: flex-start; flex-direction: column; }
     .page-intro { align-items: flex-start; flex-direction: column; }
-    .dashboard-grid { grid-template-columns: 1fr; }
+    /* minmax(0, …) لا 1fr: جدول «آخر 12 شهراً» يتمرر داخل بطاقته بدل أن يمدّ الصفحة */
+    .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ===== صفحة العرض العامة ===== */
@@ -149,6 +150,8 @@ body.crm-dark .dashboard-attention-item { background: #202a35; border-color: rgb
     font-size: 0.95em;
     background: var(--bg-card);
     transition: all 0.2s;
+    /* القائمة تأخذ عرض أطول خيار فيها؛ اسم حي طويل كان يمدّ الصفحة على الجوال */
+    max-width: 100%;
 }
 
 .crm-filter-select { min-width: 150px; }
@@ -399,10 +402,10 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
     .crm-card { padding: 18px; }
     .modal-content { padding: 22px; }
     .crm-tabs { display: flex; width: 100%; }
+}
 
 @media (min-width: 781px) and (max-width: 980px) {
-    .dashboard-grid { grid-template-columns: 1fr; }
-}
+    .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ===== مسار مراحل الصفقة ===== */

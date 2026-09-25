@@ -357,6 +357,39 @@ function projectDetailsOf(project) {
     return details || {};
 }
 
+/* سعر الشقة ومساحتها في projects.price/area هما مجموع كل الوحدات (الحفظ يجمع السعر × العدد)،
+   فريفان سدنة كان يظهر «9,919,998 ريال». العرض وفلتر السعر يستخدمان أقل سعر نموذج حقيقي
+   ونطاق مساحات النماذج؛ القيمة المخزّنة نفسها لا تتغير. */
+function apartmentModels(project) {
+    if (project.type !== 'شقة') return [];
+    const models = projectDetailsOf(project).models;
+    return Array.isArray(models) ? models : [];
+}
+
+function projectStartPrice(project) {
+    const models = apartmentModels(project);
+    if (models.length) {
+        const prices = models.map(m => featuredNumber(m.price)).filter(n => n >= SALES_MIN_PRICE);
+        return prices.length ? Math.min(...prices) : null;
+    }
+    const n = featuredNumber(project.price);
+    return n > 0 ? n : null;
+}
+
+function projectPriceText(project, unit = 'ريال') {
+    const n = projectStartPrice(project);
+    if (n === null) return 'السعر عند التواصل';
+    const distinct = new Set(apartmentModels(project).map(m => featuredNumber(m.price)).filter(v => v >= SALES_MIN_PRICE));
+    return (distinct.size > 1 ? 'يبدأ من ' : '') + formatNumber(n) + ' ' + unit;
+}
+
+function projectAreaText(project) {
+    const areas = apartmentModels(project).map(m => featuredNumber(m.area)).filter(n => n > 0);
+    if (!areas.length) return formatNumber(project.area) + ' م²';
+    const low = Math.min(...areas), high = Math.max(...areas);
+    return low === high ? formatNumber(low) + ' م²' : 'من ' + formatNumber(low) + ' إلى ' + formatNumber(high) + ' م²';
+}
+
 function salesPriceTag(value) {
     const n = featuredNumber(value);
     if (!n || n < 1000) return '—';
@@ -661,7 +694,7 @@ function addMarker(project) {
             <div style="text-align: right; direction: rtl; min-width: 250px; font-family: 'Tajawal';">
                 <h3 style="color: #C9A961; margin-bottom: 10px;">${esc(project.name)}</h3>
                 <p><strong>النوع:</strong> ${esc(project.type)}</p>
-                <p><strong>السعر:</strong> ${formatNumber(project.price)} ريال</p>
+                <p><strong>السعر:</strong> ${esc(projectPriceText(project))}</p>
                 <p><strong>التوفر:</strong> ${getAvailabilityBadgeHtml(project.availability)}</p>
                 <p><strong>الحالة:</strong> ${getStatusBadgeHtml(project.status)}</p>
         `;
@@ -752,11 +785,12 @@ function displayProjects() {
     }
     
     // Price Filters
+    // على سعر البداية لا مجموع الوحدات، وإلا لا تظهر أي عمارة شقق تحت حد أعلى معقول
     if (filterMinPrice !== null) {
-        filtered = filtered.filter(p => parseFloat(p.price) >= filterMinPrice);
+        filtered = filtered.filter(p => { const n = projectStartPrice(p); return n !== null && n >= filterMinPrice; });
     }
     if (filterMaxPrice !== null) {
-        filtered = filtered.filter(p => parseFloat(p.price) <= filterMaxPrice);
+        filtered = filtered.filter(p => { const n = projectStartPrice(p); return n !== null && n <= filterMaxPrice; });
     }
     
     // Text Search
@@ -1287,7 +1321,7 @@ function loadApprovals() {
         card.innerHTML = `
             <div class="approval-card-info">
                 <h4>${esc(p.name)}</h4>
-                <p>${esc(p.type)} &mdash; ${formatNumber(p.price)} ريال &mdash; ${formatNumber(p.area)} م²</p>
+                <p>${esc(p.type)} &mdash; ${esc(projectPriceText(p))} &mdash; ${esc(projectAreaText(p))}</p>
                 <p>${esc(p.address || 'بدون عنوان')}</p>
                 <p>رفعه: <strong>${esc(p.employee)}</strong> &mdash; ${esc(dateStr)}</p>
             </div>
@@ -1358,7 +1392,7 @@ function loadMyProjects() {
         card.innerHTML = `
             <div class="my-project-card-info">
                 <h4>${esc(p.name)}</h4>
-                <p>${esc(p.type)} &mdash; ${formatNumber(p.price)} ريال</p>
+                <p>${esc(p.type)} &mdash; ${esc(projectPriceText(p))}</p>
                 <p>${esc(p.address || 'بدون عنوان')} &mdash; <span style="color:${s.color}; font-weight:700;">${s.text}</span></p>
                 <p style="font-size:0.78em;">${esc(dateStr)}</p>
                 ${rejectionHtml}
@@ -1772,9 +1806,9 @@ window.viewProject = async function (id) {
         <h2 style="font-family: 'Almarai'; font-weight: 800; color: var(--text-primary); margin-bottom: 25px; font-size: 2em;">${esc(p.name)}</h2>
         <div class="project-detail"><span>النوع</span><span>${esc(p.type)}</span></div>
         <div class="project-detail"><span>المطور</span><span>${esc(details.developer || p.developer || 'غير محدد')}</span></div>
-        <div class="project-detail"><span>السعر</span><span>${formatNumber(p.price)} ريال</span></div>
+        <div class="project-detail"><span>السعر</span><span>${esc(projectPriceText(p))}</span></div>
         ${commissionSummary}
-        <div class="project-detail"><span>المساحة</span><span>${formatNumber(p.area)} م²</span></div>
+        <div class="project-detail"><span>المساحة</span><span>${esc(projectAreaText(p))}</span></div>
         <div class="project-detail"><span>الموقع</span><span>${esc(p.address || 'غير محدد')}</span></div>
         <div class="project-detail"><span>الموظف</span><span>${esc(p.employee)}</span></div>
         <div class="project-detail"><span>التاريخ</span><span>${esc(dateStr)}</span></div>
@@ -1934,8 +1968,8 @@ window.getWhatsAppMessage = function(id) {
     let msg = `*نظام ملائم العقاري - تفاصيل مشروع: ${p.name}*\n`;
     msg += `------------------------------------------\n`;
     msg += `*النوع:* ${p.type}\n`;
-    msg += `*السعر:* ${formatNumber(p.price)} ريال\n`;
-    msg += `*المساحة:* ${formatNumber(p.area)} م²\n`;
+    msg += `*السعر:* ${projectPriceText(p)}\n`;
+    msg += `*المساحة:* ${projectAreaText(p)}\n`;
     if (p.address) msg += `*العنوان:* ${p.address}\n`;
     if (p.latitude && p.longitude) {
         msg += `*رابط الموقع على الخريطة:* https://www.google.com/maps?q=${p.latitude},${p.longitude}\n`;
@@ -2029,8 +2063,8 @@ window.getWhatsAppMessageShort = function(id) {
     let msg = `*ملخص عقار: ${p.name}*\n`;
     msg += `------------------------------------------\n`;
     msg += `*النوع:* ${p.type}\n`;
-    msg += `*السعر:* ${formatNumber(p.price)} ريال\n`;
-    msg += `*المساحة:* ${formatNumber(p.area)} م²\n`;
+    msg += `*السعر:* ${projectPriceText(p)}\n`;
+    msg += `*المساحة:* ${projectAreaText(p)}\n`;
     if (p.address) msg += `*العنوان:* ${p.address}\n`;
     if (p.latitude && p.longitude) {
         msg += `*رابط الموقع:* https://www.google.com/maps?q=${p.latitude},${p.longitude}\n`;
@@ -2566,8 +2600,8 @@ function renderGridView(filtered) {
                 </div>
                 ${project.address ? `<div class="project-address"><span>${esc(project.address)}</span></div>` : ''}
                 <div class="project-detail"><span>النوع</span><span style="color:${typeColor}; font-weight:700;">${esc(project.type)}</span></div>
-                <div class="project-detail"><span>السعر</span><span>${formatNumber(project.price)} ر.س</span></div>
-                <div class="project-detail"><span>المساحة</span><span>${formatNumber(project.area)} م²</span></div>
+                <div class="project-detail"><span>السعر</span><span>${esc(projectPriceText(project, 'ر.س'))}</span></div>
+                <div class="project-detail"><span>المساحة</span><span>${esc(projectAreaText(project))}</span></div>
                 <div class="added-by-badge">
                     <span>${esc(project.employee)}</span>
                 </div>

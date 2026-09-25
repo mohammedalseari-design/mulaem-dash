@@ -2473,19 +2473,19 @@ window.addUnitModel = function(modelData = null) {
             </div>
             <div class="form-group">
                 <label>عدد الغرف *</label>
-                <input type="number" class="model-rooms" required value="${esc(roomsVal)}" placeholder="مثال: 4">
+                <input type="number" class="model-rooms" required min="0" value="${esc(roomsVal)}" placeholder="مثال: 4">
             </div>
             <div class="form-group">
                 <label>دورات المياه *</label>
-                <input type="number" class="model-bathrooms" required value="${esc(bathroomsVal)}" placeholder="مثال: 3">
+                <input type="number" class="model-bathrooms" required min="0" value="${esc(bathroomsVal)}" placeholder="مثال: 3">
             </div>
             <div class="form-group">
                 <label>المساحة (م²) *</label>
-                <input type="number" class="model-area" required value="${esc(areaVal)}" placeholder="مثال: 140">
+                <input type="number" class="model-area" required min="0" value="${esc(areaVal)}" placeholder="مثال: 140">
             </div>
             <div class="form-group">
                 <label>السعر (ريال) *</label>
-                <input type="number" class="model-price" required value="${esc(priceVal)}" placeholder="مثال: 480000">
+                <input type="number" class="model-price" required min="0" value="${esc(priceVal)}" placeholder="مثال: 480000">
             </div>
             <div class="form-group">
                 <label>العمولة (ريال)</label>
@@ -2933,6 +2933,15 @@ function restoreDraft(draft) {
 // Attach Form Draft Save Listeners
 document.getElementById('projectForm').addEventListener('input', saveFormDraft);
 document.getElementById('projectForm').addEventListener('change', saveFormDraft);
+
+// عجلة الفأرة فوق حقل رقمي مُركَّز تغيّر قيمته بصمت أثناء تمرير الصفحة
+// (هكذا وصلت أسعار مثل 13 و-7 إلى نماذج الوحدات). إزالة التركيز توقف التغيير.
+document.addEventListener('wheel', function (e) {
+    const target = e.target;
+    if (target instanceof HTMLInputElement && target.type === 'number' && target === document.activeElement) {
+        target.blur();
+    }
+}, { passive: true });
 
 // Live Filter Input Event Listeners
 document.getElementById('filterType').addEventListener('change', displayProjects);

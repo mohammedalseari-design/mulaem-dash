@@ -18,6 +18,7 @@ import { renderApprovals, renderApproval } from './approvals.js';
 import { renderCalendar } from './calendar.js';
 import { renderReports } from './reports.js';
 import { renderImports } from './imports.js';
+import { renderWhatsApp } from './whatsapp.js';
 
 /* ===================== المسارات ===================== */
 
@@ -39,6 +40,7 @@ const ROUTES = [
     { pattern: /^#\/dashboard\/?$/, view: renderDashboard, nav: '#/dashboard', admin: true },
     { pattern: /^#\/reports\/?$/, view: renderReports, nav: '#/reports', admin: true },
     { pattern: /^#\/imports\/?$/, view: renderImports, nav: '#/imports', admin: true },
+    { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/whatsapp', admin: true },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true }
 ];
@@ -55,6 +57,7 @@ const NAV = [
     { hash: '#/assistant', label: 'المساعد الذكي' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
     { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
+    { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true },
     { hash: '#/reports', label: 'التقارير', admin: true },
     { hash: '#/imports', label: 'استيراد المشاريع', admin: true },

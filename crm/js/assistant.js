@@ -14,8 +14,8 @@ import {
     AGENT_SOURCE_KIND, DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, AGENT_DECISION, label
 } from './labels.js';
 import {
-    ACCEPT_ATTR, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES, BUCKET,
-    baseName, fileKind, pdfPageCount, safeUrl, sha256Hex, signedUrl, sourceText, storageName, valueText,
+    ACCEPT_ATTR, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES,
+    baseName, fileKind, safeUrl, signedUrl, sourceText, valueText, createRequest,
     extractionStatus, startExtraction, pickTarget
 } from './agent.js';
 import {
@@ -49,6 +49,13 @@ export async function renderAssistant(root) {
             el('strong', { text: AGENT_KIND[tile.kind] }),
             el('span', { class: 'crm-subtle', text: tile.hint }),
             soon ? badge('غير متاح بعد', 'neutral') : null
+        ]));
+    }
+    // مراجعة مجموعات واتساب دفعةً واحدة: صفحة مستقلة ترسل كل عرض مختار طلباً هنا
+    if (isAdmin()) {
+        tiles.appendChild(el('a', { class: 'agent-tile', href: '#/whatsapp' }, [
+            el('strong', { text: 'عروض واتساب الجديدة' }),
+            el('span', { class: 'crm-subtle', text: 'ارفع تصدير المجموعات، راجع الجديد، وأرسل المختار للمساعد' })
         ]));
     }
 
@@ -224,70 +231,6 @@ function openRequestForm(kind) {
     });
 
     openModal(AGENT_KIND[kind], form);
-}
-
-// ترتيب مقصود: صف الطلب أولاً (معرّفه هو مجلد المخزن الذي تسمح به سياسة الرفع)،
-// ثم رفع كل مصدر، ثم صفّه في agent_sources. فشل أي مرفق يحذف الطلب كله حتى لا
-// يبقى طلب نصف مكتمل يُستخرج من مصادر ناقصة.
-async function createRequest(kind, payload) {
-    const { data: request, error } = await supabase
-        .from('agent_requests')
-        .insert({ kind: kind, title: payload.title || null, instruction: payload.instruction })
-        .select('id')
-        .maybeSingle();
-    if (error) throw error;
-    if (!request) throw new Error('لا تملك صلاحية إنشاء هذا الطلب');
-
-    try {
-        let index = 0;
-        if (payload.text) {
-            index += 1;
-            payload.progress('جارٍ رفع النص…');
-            const blob = new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
-            const buffer = await blob.arrayBuffer();
-            await putSource(request.id, index + '-pasted.txt', blob, 'text/plain;charset=utf-8', {
-                kind: 'text', bytes: blob.size, sha256: await sha256Hex(buffer)
-            });
-        }
-        for (const file of payload.files) {
-            index += 1;
-            payload.progress('جارٍ رفع ' + file.name + '…');
-            const spec = fileKind(file.name);
-            const buffer = await file.arrayBuffer();
-            const pages = spec.kind === 'pdf' ? pdfPageCount(buffer) : null;
-            if (pages !== null && pages > MAX_PDF_PAGES) {
-                throw new Error('الملف «' + file.name + '» يتجاوز ' + MAX_PDF_PAGES + ' صفحة');
-            }
-            await putSource(request.id, storageName(index, file.name), file, spec.mime, {
-                kind: spec.kind, bytes: file.size, pages: pages, sha256: await sha256Hex(buffer)
-            });
-        }
-        if (payload.url) {
-            const { error: urlError } = await supabase.from('agent_sources')
-                .insert({ request_id: request.id, kind: 'url', url: payload.url });
-            if (urlError) throw urlError;
-        }
-    } catch (uploadError) {
-        await supabase.from('agent_requests').delete().eq('id', request.id);
-        throw uploadError;
-    }
-
-    return request.id;
-}
-
-async function putSource(requestId, name, body, contentType, row) {
-    const path = requestId + '/' + name;
-    const { error } = await supabase.storage.from(BUCKET).upload(path, body, {
-        contentType: contentType, upsert: false
-    });
-    if (error) throw error;
-    const { error: rowError } = await supabase.from('agent_sources').insert(Object.assign({
-        request_id: requestId, storage_path: path
-    }, row));
-    if (rowError) {
-        await supabase.storage.from(BUCKET).remove([path]);
-        throw rowError;
-    }
 }
 
 /* ===================== صفحة الطلب ===================== */

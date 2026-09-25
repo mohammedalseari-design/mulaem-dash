@@ -626,3 +626,42 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
 .agent-quote { color: var(--text-secondary); font-style: italic; }
 .agent-row-same td { opacity: .55; }
 .agent-decisions:empty { display: none; }
+
+/* ===== عروض واتساب (#/whatsapp) ===== */
+.wa-howto { margin: 12px 0; }
+.wa-howto summary { cursor: pointer; font-weight: 600; color: var(--text-secondary); }
+.wa-howto ol { margin: 10px 0; padding-inline-start: 22px; line-height: 1.9; }
+.wa-finish { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.wa-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0 4px; }
+.wa-card.wa-selected { border-color: var(--primary-gold); box-shadow: 0 0 0 2px rgba(197, 168, 128, 0.25); }
+.wa-card.wa-sent { opacity: .7; }
+.wa-pick input { width: 18px; height: 18px; accent-color: var(--primary-gold); cursor: pointer; }
+.wa-text { max-height: none; }
+.wa-text.wa-clamped { max-height: 220px; overflow: hidden; }
+.wa-docs { margin-top: 6px; }
+.wa-card-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+.wa-card-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+.wa-kind { margin-inline-start: 6px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--bg-card); color: inherit; font-family: inherit; }
+.wa-link { background: none; border: 0; padding: 0; color: #8a6d3b; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.wa-more { display: flex; justify-content: center; margin-top: 14px; }
+.wa-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-top: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-md, 0 4px 14px rgba(0,0,0,.12));
+}
+.wa-bar[hidden] { display: none; }
+.wa-bar-info { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-weight: 600; }
+.wa-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+body.crm-dark .wa-link { color: #d9bf8f; }
+a.agent-tile { text-decoration: none; color: inherit; }

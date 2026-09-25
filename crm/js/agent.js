@@ -194,3 +194,71 @@ export async function recordLink(kind, id) {
     }
     return null;
 }
+
+/* ===================== إنشاء طلب ورفع مصادره ===================== */
+
+// ترتيب مقصود: صف الطلب أولاً (معرّفه هو مجلد المخزن الذي تسمح به سياسة الرفع)،
+// ثم رفع كل مصدر، ثم صفّه في agent_sources. فشل أي مرفق يحذف الطلب كله حتى لا
+// يبقى طلب نصف مكتمل يُستخرج من مصادر ناقصة.
+// payload: { instruction, title?, text?, textName? (لاتيني), files?, url?, progress? }
+export async function createRequest(kind, payload) {
+    const progress = typeof payload.progress === 'function' ? payload.progress : () => {};
+    const { data: request, error } = await supabase
+        .from('agent_requests')
+        .insert({ kind: kind, title: payload.title || null, instruction: payload.instruction })
+        .select('id')
+        .maybeSingle();
+    if (error) throw error;
+    if (!request) throw new Error('لا تملك صلاحية إنشاء هذا الطلب');
+
+    try {
+        let index = 0;
+        if (payload.text) {
+            index += 1;
+            progress('جارٍ رفع النص…');
+            const blob = new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
+            const buffer = await blob.arrayBuffer();
+            await putSource(request.id, index + '-' + (payload.textName || 'pasted') + '.txt', blob, 'text/plain;charset=utf-8', {
+                kind: 'text', bytes: blob.size, sha256: await sha256Hex(buffer)
+            });
+        }
+        for (const file of payload.files || []) {
+            index += 1;
+            progress('جارٍ رفع ' + file.name + '…');
+            const spec = fileKind(file.name);
+            const buffer = await file.arrayBuffer();
+            const pages = spec.kind === 'pdf' ? pdfPageCount(buffer) : null;
+            if (pages !== null && pages > MAX_PDF_PAGES) {
+                throw new Error('الملف «' + file.name + '» يتجاوز ' + MAX_PDF_PAGES + ' صفحة');
+            }
+            await putSource(request.id, storageName(index, file.name), file, spec.mime, {
+                kind: spec.kind, bytes: file.size, pages: pages, sha256: await sha256Hex(buffer)
+            });
+        }
+        if (payload.url) {
+            const { error: urlError } = await supabase.from('agent_sources')
+                .insert({ request_id: request.id, kind: 'url', url: payload.url });
+            if (urlError) throw urlError;
+        }
+    } catch (uploadError) {
+        await supabase.from('agent_requests').delete().eq('id', request.id);
+        throw uploadError;
+    }
+
+    return request.id;
+}
+
+async function putSource(requestId, name, body, contentType, row) {
+    const path = requestId + '/' + name;
+    const { error } = await supabase.storage.from(BUCKET).upload(path, body, {
+        contentType: contentType, upsert: false
+    });
+    if (error) throw error;
+    const { error: rowError } = await supabase.from('agent_sources').insert(Object.assign({
+        request_id: requestId, storage_path: path
+    }, row));
+    if (rowError) {
+        await supabase.storage.from(BUCKET).remove([path]);
+        throw rowError;
+    }
+}

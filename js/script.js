@@ -390,6 +390,27 @@ function projectAreaText(project) {
     return low === high ? formatNumber(low) + ' م²' : 'من ' + formatNumber(low) + ' إلى ' + formatNumber(high) + ' م²';
 }
 
+/* النموذج يحفظ حالة البناء «جاهز» أو «تحت_الإنشاء» فقط، لكن الاستيراد وجولات واتساب كتبت نصاً
+   حراً («تحت الإنشاء — نسبة الإنجاز 70%»، «افراغ فوري»...). المقارنة الحرفية كانت تُظهر المشروع
+   تحت الإنشاء «جاهزاً» في التفاصيل ورسالة العميل، و«افراغ فوري» «تحت الإنشاء» في الشارة،
+   وتُسقطهما من الفلتر. constructionKind تردّ أي نص إلى أحد النوعين أو '' إن لم يتضح. */
+function constructionKind(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (text === 'جاهز' || text === 'تحت_الإنشاء') return text;
+    if (/^(جاهز|مكتمل)/.test(text)) return 'جاهز';
+    if (/تحت|قيد|الخارطة|بدأ العمل|مرحل[ةه]|اللمسات|التشطيب|الإنجاز|العظم/.test(text)) return 'تحت_الإنشاء';
+    if (/جاهز|إفراغ|افراغ|مكتمل|شهاد|تملك الآن|إتمام|اتمام/.test(text)) return 'جاهز';
+    return '';
+}
+
+// للعرض: القيمتان المعتمدتان بتسميتهما، والنص الحر كما هو لأنه أدق من التصنيف
+function constructionLabel(value) {
+    const text = String(value || '').trim();
+    if (text === 'تحت_الإنشاء') return 'تحت الإنشاء';
+    return text;
+}
+
 function salesPriceTag(value) {
     const n = featuredNumber(value);
     if (!n || n < 1000) return '—';
@@ -511,7 +532,7 @@ function salesDealCardHtml(row) {
     const available = row.model ? (unit.status || 'available') === 'available' : project.availability === 'available';
     let status;
     if (!available) status = { text: 'غير متاحة', cls: 'neutral' };
-    else if (details.construction_status === 'تحت_الإنشاء') status = { text: 'قريب', cls: 'warning' };
+    else if (constructionKind(details.construction_status) === 'تحت_الإنشاء') status = { text: 'قريب', cls: 'warning' };
     else if (isRecentProject(project)) status = { text: 'جديد', cls: 'neutral' };
     else status = { text: 'متاحة', cls: 'success' };
 
@@ -650,7 +671,7 @@ function getCategoryBadgeHtml(project) {
         let d = project.details;
         if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { d = {}; } }
         d = d || {};
-        const c = d.construction_status || '';
+        const c = constructionKind(d.construction_status);
         const s = d.support_type || '';
         if (!c) return '';
         const cLabel = c === 'جاهز' ? 'جاهز' : 'تحت الإنشاء';
@@ -764,7 +785,7 @@ function displayProjects() {
     if (activeCategoryConstruction) {
         filtered = filtered.filter(p => {
             const d = getCategoryFromDetails(p);
-            return d.construction_status === activeCategoryConstruction;
+            return constructionKind(d.construction_status) === activeCategoryConstruction;
         });
     }
     if (activeCategorySupport) {
@@ -1842,7 +1863,7 @@ window.viewProject = async function (id) {
             <div style="margin-top:20px; border-top:1px solid #eee; padding-top:10px;">
                 <h4 style="margin-bottom:10px;">تفاصيل العقار</h4>
                 ${details.construction_status ? `
-                    <p><strong>حالة البناء:</strong> ${details.construction_status === 'تحت_الإنشاء' ? 'تحت الإنشاء' : 'جاهز'}</p>
+                    <p><strong>حالة البناء:</strong> ${esc(constructionLabel(details.construction_status))}</p>
                 ` : ''}
                 ${details.support_type ? `
                     <p><strong>نوع الدعم:</strong> ${details.support_type === 'غير_مدعوم' ? 'غير مدعوم' : details.support_type === 'تمويل' ? 'تمويل لغير المدعومين' : esc(details.support_type)}</p>
@@ -1976,7 +1997,7 @@ window.getWhatsAppMessage = function(id) {
     }
 
     // Classification details
-    if (details.construction_status) msg += `*حالة البناء:* ${details.construction_status === 'تحت_الإنشاء' ? 'تحت الإنشاء' : 'جاهز'}\n`;
+    if (details.construction_status) msg += `*حالة البناء:* ${constructionLabel(details.construction_status)}\n`;
     if (details.support_type) {
         const sLabel = details.support_type === 'غير_مدعوم' ? 'غير مدعوم' : details.support_type === 'تمويل' ? 'تمويل لغير المدعومين' : details.support_type;
         msg += `*نوع الدعم:* ${sLabel}\n`;
@@ -2338,7 +2359,8 @@ window.editProject = async function(id) {
 
     // Restore classification fields
     const constructionEl = document.getElementById('constructionStatus');
-    constructionEl.value = details.construction_status || '';
+    // النص الحر لا يطابق خيارات القائمة فكانت تظهر فارغة وتُجبر على إعادة الاختيار
+    constructionEl.value = constructionKind(details.construction_status);
     constructionEl.dispatchEvent(new Event('change')); // triggers supportType options & delivery field
     setTimeout(() => {
         document.getElementById('supportType').value = details.support_type || '';

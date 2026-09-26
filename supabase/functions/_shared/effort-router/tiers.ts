@@ -43,6 +43,12 @@ export const OPENROUTER_URL = "https://openrouter.ai/api/v1";
 // Baseten أمريكية لكنها لا تقبل response_format فخرجت. لا نقطة DeepSeek نفسها ولا مزوّد صيني.
 export const FAST_PROVIDERS = ["deepinfra", "fireworks", "together"];
 
+// مزوّدو Opus 5.5: واجهة Anthropic نفسها فقط (Claude Platform on AWS ثم Anthropic)، تقرأ PDF أصلياً وتقبل
+// structured_outputs. بلا تثبيت يوزّع OpenRouter النداء على 11 نقطة من 5 مزوّدين؛ Bedrock منها لا يقبل
+// structured_outputs، وملف PDF رُفض مرتين في اختبار 2026-09-26 ثم قرأه claude-on-aws بالطلب نفسه.
+// الاسم الأساسي "anthropic" لا يشمل نقطة anthropic/fast (ضعف السعر): نقاط فئة الخدمة تحتاج اسمها الكامل.
+export const GENERAL_PROVIDERS = ["claude-on-aws", "anthropic"];
+
 export const DEFAULT_MODELS: Record<TierId, string> = {
   fast: "deepseek/deepseek-v4.1-flash",
   reason: "openai/gpt-6-astra",
@@ -64,19 +70,20 @@ export function defaultTiers(env: Env): Tiers {
     reasoning: { effort: "medium" },
     ...extra,
   });
-  const providers = list(env("AGENT_FAST_PROVIDERS"));
+  // قائمة مزوّدين مثبّتة: لا بديل خارجها، ولا مزوّد يجمع البيانات، ولا من يتجاهل معاملاً من الطلب
+  const pinned = (envName: string, fallback: string[]): ProviderPrefs => {
+    const order = list(env(envName));
+    return { order: order.length ? order : fallback, allow_fallbacks: false, data_collection: "deny", require_parameters: true };
+  };
   return {
-    fast: cloud("fast", "AGENT_MODEL_FAST", {
-      provider: {
-        order: providers.length ? providers : FAST_PROVIDERS,
-        allow_fallbacks: false,
-        data_collection: "deny",
-        require_parameters: true,
-      },
-    }),
+    fast: cloud("fast", "AGENT_MODEL_FAST", { provider: pinned("AGENT_FAST_PROVIDERS", FAST_PROVIDERS) }),
     // Astra يقرأ الملفات، لكن PDF والصور لا تُخفى منها الأرقام، فلا تذهب إلا للعامة
     reason: cloud("reason", "AGENT_MODEL_REASON", { reasoning: { effort: "high" } }),
-    general: cloud("general", "AGENT_MODEL_GENERAL", { supportsFiles: true, reasoning: { max_tokens: 8_000 } }),
+    general: cloud("general", "AGENT_MODEL_GENERAL", {
+      supportsFiles: true,
+      reasoning: { max_tokens: 8_000 },
+      provider: pinned("AGENT_GENERAL_PROVIDERS", GENERAL_PROVIDERS),
+    }),
   };
 }
 

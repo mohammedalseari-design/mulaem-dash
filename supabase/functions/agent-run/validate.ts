@@ -258,6 +258,29 @@ export class Checker {
     this.conflicts.push(conflict);
   }
 
+  // كل قيمة قُبلت واقتباسها وُجد حرفياً في نص المصدر. PDF والصور لا نقرأ نصها فلا تُعدّ متحقَّقاً منها.
+  verified(keys: string[]): boolean {
+    return keys.every((k) => this.evidence[k]?.verified === true);
+  }
+
+  quotes(keys: string[]): string {
+    return [...new Set(keys.map((k) => this.evidence[k]?.quote).filter(Boolean))].join(" | ");
+  }
+
+  // الرقم نفسه في نص مصدره رقماً كاملاً، لا جزءاً من رقم أطول: مطابقة الاقتباس تمرّر «200,000» داخل «1,200,000»
+  wholeNumberInSource(key: string, n: number): boolean {
+    const id = this.evidence[key]?.source_id;
+    const src = [...this.byLabel.values()].find((s) => s.id === id);
+    return src?.text !== undefined && numbersIn(src.text).some((q) => Math.abs(q - n) <= Math.max(0.5, Math.abs(n) * 0.005));
+  }
+
+  // المصدر نفسه متناقض وكل قيمة مقتبسة منه حرفياً: ليس خطأ نموذج، فلا يُحسب رفضاً (لا إعادة ولا تصعيد).
+  // القيم تخرج من المقترح والتعارض يُعرض للمدير باقتباساته، ولا تُذكر في «الناقص» لأن المصدر ذكرها.
+  sourceContradiction(keys: string[], conflict: Conflict) {
+    for (const key of keys) delete this.evidence[key];
+    this.conflicts.push({ ...conflict, code: "source_contradiction" });
+  }
+
   private async check(key: string, value: unknown, rule: Rule, quote: string): Promise<unknown> {
     switch (rule.kind) {
       case "string": {
@@ -481,6 +504,8 @@ export async function buildClientDraft(out: Json, sources: Src[], normalizePhone
     await putReq("delivery_before", r.delivery_before, DATE);
     await putReq("notes", r.notes, LONG_TEXT);
 
+    // حد أدنى أكبر من الأعلى يبقى رفضاً استدلالياً حتى مع اقتباسين حرفيين: تبديل الطرفين يجعله متسقاً،
+    // فالأرجح أن النموذج قرأ «من … إلى …» بالعكس (خطأ النموذج نفسه)، لا أن المصدر متناقض
     for (const [lo, hi] of [["budget_min", "budget_max"], ["area_min", "area_max"]]) {
       if (typeof req[lo] === "number" && typeof req[hi] === "number" && (req[lo] as number) > (req[hi] as number)) {
         c.dropAll(["requirement." + lo, "requirement." + hi], {
@@ -613,19 +638,50 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
 // سعر المتر كما يذكره المصدر: يُقرأ للتحقق فقط ولا يُحفظ (السعر والمساحة هما المحفوظان)
 const PRICE_PER_M = { kind: "number", min: 100, max: 200_000 } as const;
 
-// السعر الإجمالي والمساحة وسعر المتر معاً في المصدر: إن لم يتفقوا (هامش 3%) فالمصدر أو القراءة
-// متناقضة، فلا يُدرج السعر ولا سعر المتر ويُعرض التناقض للمدير. المساحة تبقى.
+// الإجمالي يساوي حاصل ضرب الآخرَين بهامش 3%
+const agrees = (total: number, a: number, b: number) => Math.abs(total - a * b) <= Math.abs(total) * 0.03;
+
+// أرقام الاقتباسات تتسق بقراءة ما (سعر في مداه = مساحة × سعر متر): المصدر متسق، والنموذج أخذ رقماً من غير موضعه
+// في سطر يحمل أكثر من رقم («المساحة 150 م، سعر المتر 7,000» ← مساحة 7,000)
+function consistentReading(quotes: string[]): boolean {
+  const nums = [...new Set(quotes.flatMap((q) => numbersIn(q)))];
+  const within = (n: number, r: { min: number; max: number }) => n >= r.min && n <= r.max;
+  return nums.some((p) => within(p, PRICE) &&
+    nums.some((a) => within(a, AREA) && nums.some((m) => within(m, PRICE_PER_M) && agrees(p, a, m))));
+}
+
+// السعر الإجمالي والمساحة وسعر المتر معاً في المصدر: إن لم يتفقوا فلا يُدرج السعر ولا سعر المتر ويُعرض
+// التناقض للمدير، والمساحة تبقى. من المسؤول عن التناقض:
+//   - المصدر: كل اقتباس في نص المصدر حرفياً، وكل رقم فيه رقماً كاملاً، ولا قراءة أخرى لأرقام الاقتباسات
+//     تتسق → المسودة تُنشأ والتعارض ملاحظة للمدير، بلا إعادة ولا تصعيد.
+//   - النموذج: رقم من غير موضعه أو جزء من رقم أطول، أو اقتباس لا نتحقق منه (PDF أو صورة) → رفض استدلالي
+//     كما كان. والرقم الذي لا يظهر في اقتباسه (من حساب النموذج) رُفض قبل هذا في take().
 function totalVsPerMetre(c: Checker, base: string, m: Record<string, unknown>) {
   const { price, area, price_per_m: perM } = m as { price?: unknown; area?: unknown; price_per_m?: unknown };
   if (typeof price === "number" && typeof area === "number" && typeof perM === "number" && area > 0) {
-    const expected = area * perM;
-    if (Math.abs(price - expected) > price * 0.03) {
-      c.dropAll([base + "price", base + "price_per_m"], {
-        field: base + "price",
-        value: { price, area, price_per_m: perM },
-        note: `السعر الإجمالي ${price.toLocaleString("en")} لا يساوي المساحة × سعر المتر (${area.toLocaleString("en")} × ${perM.toLocaleString("en")} = ${Math.round(expected).toLocaleString("en")}) — لم يُدرج السعر ولا سعر المتر`,
-        code: "cross_field",
-      });
+    if (!agrees(price, area, perM)) {
+      const fmt = (n: number) => n.toLocaleString("en");
+      const sum = `السعر الإجمالي ${fmt(price)} لا يساوي المساحة × سعر المتر (${fmt(area)} × ${fmt(perM)} = ${fmt(Math.round(area * perM))})`;
+      const value = { price, area, price_per_m: perM };
+      const keys = [base + "price", base + "area", base + "price_per_m"];
+      const fromSource = c.verified(keys) &&
+        [price, area, perM].every((n, i) => c.wholeNumberInSource(keys[i], n)) &&
+        !consistentReading(keys.map((k) => c.evidence[k].quote));
+      if (fromSource) {
+        c.sourceContradiction([base + "price", base + "price_per_m"], {
+          field: base + "price",
+          value,
+          quote: c.quotes(keys),
+          note: `المصدر نفسه متناقض: ${sum} — كل رقم مقتبس منه حرفياً، فلم يُدرج السعر ولا سعر المتر والحسم للمدير`,
+        });
+      } else {
+        c.dropAll([base + "price", base + "price_per_m"], {
+          field: base + "price",
+          value,
+          note: `${sum} — لم يُدرج السعر ولا سعر المتر`,
+          code: "cross_field",
+        });
+      }
       delete m.price;
     }
   }
@@ -735,6 +791,13 @@ export async function buildUpdateDraft(
       rule = r;
     }
     if (c.evidence[evKey]) {
+      // المصدر يكرر القيمة نفسها (تُفحص على مدقق منفصل لا يمسّ دليل الأولى): لا تعارض
+      const probe = new Checker(sources, normalizePhone, restore);
+      const second = await probe.take(evKey, f, rule);
+      const first = evKey.startsWith("details.") ? details[evKey.slice(8)] : proposed[evKey];
+      if (second !== undefined && JSON.stringify(second) === JSON.stringify(first)) continue;
+      // قيمتان مختلفتان لحقل واحد في طلب تحديث تبقيان رفضاً يُعاد بسببه، حتى باقتباسين حرفيين: الغالب
+      // «السعر السابق … والجديد …» أخذ النموذجُ منهما القديم، والأولى تبقى في المقترح فلا تُعتمد بنقرة خطأً
       refuse(evKey, "المصدر يذكر قيمتين لهذا الحقل — أُخذت الأولى", "source_conflict", c.restore(String(ch.quote ?? "")));
       continue;
     }

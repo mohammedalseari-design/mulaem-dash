@@ -6,7 +6,9 @@
 //   الثالثة: فشلت الثانية → الاستدلالية لفشل استدلالي، والعامة لغيره.
 //   بعدها: فشل محاولة مصعّدة (أو أولى على طبقة ثقيلة) يُنهي الطلب؛ ملاحظات المدقق تبقى لإنسان.
 //
-// ثلاث محاولات نموذج على الأكثر في التشغيل الواحد، منفصلة عن إعادة المحاولة لأخطاء البنية.
+// ثلاث محاولات نموذج على الأكثر في الطلب، منفصلة عن إعادة المحاولة لأخطاء البنية: إن أُعيد الطلب إلى
+// الانتظار (مهلة، انقطاع، انتهاء وقت التشغيل) بعد أن تجاوز السلّم خطوته الأولى، يُستأنف من الخطوة نفسها
+// برسالة إصلاحها (resumeLadder) بدل البدء من السريعة.
 import type { FailureClass } from "./classify.ts";
 import type { TierId } from "./tiers.ts";
 
@@ -61,4 +63,36 @@ export function nextStep(prev: Step, failure: FailureClass, available?: TierId[]
   }
   const tier = heavy(failure === "reasoning" ? "reason" : "general", available);
   return tier ? { attempt: prev.attempt + 1, tier, reasoning: true, repair: true, escalation: true } : null;
+}
+
+/* ===================== الاستئناف ===================== */
+
+// موضع السلّم كما يُحفظ على الطلب (agent_requests.ladder): الخطوة التالية وملاحظات المدقق لرسالة إصلاحها
+export interface SavedLadder {
+  step: Step;
+  notes: string[];
+}
+
+// يُحفظ قبل كل خطوة بعد الأولى؛ الأولى تُحسب من جديد بلا خسارة
+export function shouldSaveLadder(step: Step): boolean {
+  return step.attempt > 1;
+}
+
+// الموضع المحفوظ إن كان سليماً وطبقته متاحة وتناسب مصادر الطلب، وإلا null فيبدأ السلّم من أوله.
+// ما في القاعدة لا يُوثق به أعمى: كل حقل يُفحص، والملفات لا تذهب إلا للعامة.
+export function resumeLadder(saved: unknown, input: { available?: TierId[]; hasFiles?: boolean } = {}): SavedLadder | null {
+  // deno-lint-ignore no-explicit-any
+  const s = saved as any;
+  const step = s?.step;
+  if (!step || typeof step !== "object") return null;
+  const tier = step.tier as TierId;
+  if (!Number.isInteger(step.attempt) || step.attempt < 2 || step.attempt > MAX_MODEL_ATTEMPTS) return null;
+  if (!["fast", "reason", "general"].includes(tier) || !has(input.available, tier)) return null;
+  if (input.hasFiles && tier !== "general") return null;
+  if (![step.reasoning, step.repair, step.escalation].every((v) => typeof v === "boolean")) return null;
+  const notes = Array.isArray(s.notes) ? s.notes.filter((n: unknown) => typeof n === "string").slice(0, 50) : [];
+  return {
+    step: { attempt: step.attempt, tier, reasoning: step.reasoning, repair: step.repair, escalation: step.escalation },
+    notes,
+  };
 }

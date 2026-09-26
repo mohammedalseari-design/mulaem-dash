@@ -47,15 +47,18 @@ export interface ChatResult {
 }
 
 // خطأ من الخدمة أو الشبكة. retryable: خطأ بنية (مشغول، انقطاع، 5xx) يستحق إعادة الطلب لاحقاً.
+// provider: المزوّد الذي رفض النداء إن سمّاه OpenRouter (metadata.provider_name)، ليُسجَّل مع النداء.
 export class ChatError extends Error {
   status: number | null;
   retryable: boolean;
   kind: "auth" | "credits" | "rate_limit" | "bad_request" | "schema" | "no_route" | "timeout" | "network" | "server" | "refusal";
-  constructor(message: string, kind: ChatError["kind"], status: number | null, retryable: boolean) {
+  provider: string | null;
+  constructor(message: string, kind: ChatError["kind"], status: number | null, retryable: boolean, provider: string | null = null) {
     super(message);
     this.kind = kind;
     this.status = status;
     this.retryable = retryable;
+    this.provider = provider;
   }
 }
 
@@ -112,18 +115,19 @@ function withSchemaInPrompt(messages: ChatMessage[], schema: JsonSchemaFormat): 
   return out;
 }
 
-function classifyHttp(status: number, message: string): ChatError {
-  if (status === 401 || status === 403) return new ChatError(message, "auth", status, false);
-  if (status === 402) return new ChatError(message, "credits", status, false);
-  if (status === 429) return new ChatError(message, "rate_limit", status, true);
-  if (status === 404 && /no endpoints|no allowed providers|provider/i.test(message)) return new ChatError(message, "no_route", status, false);
+function classifyHttp(status: number, message: string, provider: string | null = null): ChatError {
+  const error = (kind: ChatError["kind"], retryable: boolean) => new ChatError(message, kind, status, retryable, provider);
+  if (status === 401 || status === 403) return error("auth", false);
+  if (status === 402) return error("credits", false);
+  if (status === 429) return error("rate_limit", true);
+  if (status === 404 && /no endpoints|no allowed providers|provider/i.test(message)) return error("no_route", false);
   // المزوّد رفض المخطط نفسه (تعقيد، أو ميزة لا يدعمها): يُعاد النداء بوضع json_object
   if (status === 400 && /schema|response_format|output_format|output_config|structured|too complex|union|anyof/i.test(message)) {
-    return new ChatError(message, "schema", status, false);
+    return error("schema", false);
   }
-  if (status === 408 || status === 504) return new ChatError(message, "timeout", status, true);
-  if (status >= 500) return new ChatError(message, "server", status, true);
-  return new ChatError(message, "bad_request", status, false);
+  if (status === 408 || status === 504) return error("timeout", true);
+  if (status >= 500) return error("server", true);
+  return error("bad_request", false);
 }
 
 async function post(req: ChatRequest, body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -137,15 +141,32 @@ async function post(req: ChatRequest, body: Record<string, unknown>): Promise<Re
     const res = await doFetch(`${req.tier.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST", headers, body: JSON.stringify(body), signal: controller.signal,
     });
-    const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    // الجسم يُقرأ داخل المهلة نفسها: مهلة أو انقطاع أثناء قراءته يصلان إلى catch خطأَ بنية يُعاد
+    // (فيُستأنف السلّم من خطوته)، لا ردّاً فارغاً يُحسب فشلاً في شكل الناتج
+    const raw = await res.text();
+    let data: Record<string, unknown> = {};
+    if (raw.trim()) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        if (res.ok) throw new ChatError("invalid response body", "server", res.status, true);
+      }
+    }
     // deno-lint-ignore no-explicit-any
     const err = (data as any)?.error;
-    // OpenRouter يلفّ خطأ المزوّد برسالة عامة ("Provider returned error")؛ السبب الفعلي في metadata.raw
-    const raw = err?.metadata?.raw;
-    const detail = (msg: string) => msg + (raw ? " — " + (typeof raw === "string" ? raw : JSON.stringify(raw)).slice(0, 600) : "");
-    if (!res.ok) throw classifyHttp(res.status, detail(String(err?.message ?? res.statusText ?? "HTTP " + res.status)));
+    // OpenRouter يلفّ خطأ المزوّد برسالة عامة ("Provider returned error"): اسم المزوّد والسبب الفعلي
+    // في metadata (provider_name و raw، أو error_type و provider_code في الصيغة الأحدث)
+    const meta = err?.metadata ?? {};
+    const provider = typeof meta.provider_name === "string" ? meta.provider_name : null;
+    const reason = [meta.error_type, meta.provider_code, meta.raw]
+      .filter((v) => v !== undefined && v !== null && v !== "")
+      .map((v) => typeof v === "string" ? v : JSON.stringify(v)).join(" ");
+    const detail = (msg: string) => msg + (reason ? " — " + reason.slice(0, 600) : "");
+    if (!res.ok) throw classifyHttp(res.status, detail(String(err?.message ?? res.statusText ?? "HTTP " + res.status)), provider);
     // OpenRouter قد يعيد 200 وفيه خطأ من المزوّد
-    if (err) throw classifyHttp(Number(err.code) || 502, detail(String(err.message ?? "provider error")));
+    if (err) throw classifyHttp(Number(err.code) || 502, detail(String(err.message ?? "provider error")), provider);
+    // 200 بلا choices ولا خطأ ليس جواب نموذج
+    if (!Array.isArray(data.choices)) throw new ChatError("empty response", "server", res.status, true);
     return data;
   } catch (e) {
     if (e instanceof ChatError) throw e;

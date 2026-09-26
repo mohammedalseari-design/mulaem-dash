@@ -17,7 +17,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
   type AttemptOutcome, chat, ChatError, type ChatMessage, type ChatPart, type ChatResult, CODE_CLASS, classifyFailure,
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, defaultTiers, type Effort, firstStep, isFailure, nextStep,
-  parseJson, reasoningFor, Redactor, scoreEffort, type Step, type Tier, type TierId,
+  parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
 } from "../_shared/effort-router/mod.ts";
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { buildParts, estimateTokens, hasFiles, loadSources, SourceError, type SourceRow } from "./sources.ts";
@@ -59,7 +59,8 @@ const MIN_CALL_MS = 25_000;
 // أسماء الإعدادات التي يذكرها sweep إن كانت مضبوطة — الأسماء فقط، لا القيم أبداً
 const CONFIG_NAMES = [
   "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "AGENT_MODEL_FAST", "AGENT_MODEL_REASON", "AGENT_MODEL_GENERAL",
-  "AGENT_FAST_PROVIDERS", "AGENT_REASONING_THRESHOLD", "AGENT_MAX_REJECT_RATIO", "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE",
+  "AGENT_FAST_PROVIDERS", "AGENT_GENERAL_PROVIDERS", "AGENT_REASONING_THRESHOLD", "AGENT_MAX_REJECT_RATIO",
+  "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE",
 ];
 const configured = () => CONFIG_NAMES.filter((name) => (env(name) ?? "").trim() !== "");
 
@@ -189,11 +190,13 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     const restore: Restore = (s) => redactor.restore(s);
     const tail = `${kindPrompt(request.kind)}\n\n<employee_request>\n${redactor.redact(String(request.instruction).slice(0, 4000))}\n</employee_request>`;
 
-    // 3) السلّم: الطبقة الأولى من نوع المصادر وطلب الموظف ودرجة الجهد
+    // 3) السلّم: الطبقة الأولى من نوع المصادر وطلب الموظف ودرجة الجهد، أو الموضع المحفوظ إن أُعيد
+    // الطلب إلى الانتظار بعد أن تجاوز السلّم خطوته الأولى (مهلة نداء مصعّد مثلاً)
     const tiers = defaultTiers(env);
     const available = Object.keys(tiers) as TierId[];
     const effort = scoreEffort({ kind: request.kind, sources: loaded.srcs });
-    let step: Step | null = firstStep({
+    const resumed = resumeLadder(request.ladder, { available, hasFiles: hasFiles(loaded) });
+    let step: Step | null = resumed?.step ?? firstStep({
       deep: request.effort_hint === "deep",
       hasFiles: hasFiles(loaded),
       reasoning: reasoningFor(effort, REASONING_THRESHOLD),
@@ -201,9 +204,11 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     });
     if (!step) throw new Stop("لا طبقة نموذج متاحة تقرأ مصادر هذا الطلب");
 
-    let notes: string[] = [];
+    let notes: string[] = resumed?.notes ?? [];
     while (step) {
       const tier = tiers[step.tier]!;
+      // يُحفظ قبل النداء: مهلة أو انقطاع أو توقف الوظيفة كلها تُعيد الطلب إلى هذه الخطوة
+      if (shouldSaveLadder(step)) await saveLadder(db, id, step, notes);
       const parts = buildParts(loaded, seen, tier.supportsFiles);
       const content: ChatPart[] = [...parts, { type: "text", text: tail }];
       if (step.repair && notes.length) content.push({ type: "text", text: repairText(notes) });
@@ -226,7 +231,11 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
           timeoutMs: Math.min(110_000, remaining - 5_000),
         });
       } catch (e) {
-        await logCall(db, id, step, tier, effort, null, "error", null);
+        // المزوّد الذي رفض النداء وسببه (الجوالات والبريد تُخفى إن ردّدها المزوّد)
+        const why = e instanceof ChatError
+          ? { provider: e.provider, error: redactor.redact(`${e.kind} ${e.status ?? ""} ${e.message}`).slice(0, 500) }
+          : { provider: null, error: redactor.redact(String((e as Error)?.message ?? e)).slice(0, 500) };
+        await logCall(db, id, step, tier, effort, null, "error", null, why);
         throw e;
       }
       spent.tokens += result.usage.prompt + result.usage.completion;
@@ -390,13 +399,16 @@ function reasoningLabel(tier: Tier, step: Step): string {
 async function logCall(
   db: SupabaseClient, id: string, step: Step, tier: Tier, effort: Effort,
   result: ChatResult | null, outcome: "ok" | "invalid" | "error", failure: string | null,
+  why: { provider: string | null; error: string } | null = null,
 ) {
   const { error } = await db.from("agent_model_calls").insert({
     request_id: id,
     attempt: step.attempt,
     tier: tier.id,
     model: tier.model,
-    provider: result?.provider ?? null,
+    // من خدم النداء، أو من رفضه إن سمّاه OpenRouter
+    provider: result?.provider ?? why?.provider ?? null,
+    error: why?.error ?? null,
     reasoning: reasoningLabel(tier, step),
     escalated: step.escalation,
     effort_score: effort.score,
@@ -436,12 +448,22 @@ async function stage(db: SupabaseClient, id: string, value: string) {
   await db.from("agent_requests").update({ stage: value }).eq("id", id).eq("status", "running");
 }
 
+// موضع السلّم قبل خطوة بعد الأولى. فشل الحفظ لا يوقف التنفيذ: أسوأ حالاته بدء الإعادة من السريعة.
+async function saveLadder(db: SupabaseClient, id: string, step: Step, notes: string[]) {
+  const { error } = await db.from("agent_requests")
+    .update({ ladder: { step, notes: [...new Set(notes)].slice(0, 50) } })
+    .eq("id", id).eq("status", "running");
+  if (error) console.error("agent-run ladder", id, error.message);
+}
+
 // الإنهاء بشرط أن الطلب ما زال قيد التنفيذ: الإلغاء من المستخدم لا يُداس عليه.
 // keepCandidates: سؤال الموظف عن الهدف كتب المرشّحين ورسالته على الطلب قبل الإنهاء.
+// موضع السلّم يبقى مع العودة إلى الانتظار فقط؛ أي نهاية أخرى تمسحه.
 async function finish(db: SupabaseClient, id: string, patch: Record<string, unknown>, keepCandidates = false): Promise<boolean> {
   const values = keepCandidates ? { ...patch, error_ar: undefined } : patch;
+  const ladder = patch.status === "queued" ? {} : { ladder: null };
   const { data } = await db.from("agent_requests")
-    .update({ ...values, stage: null, lease_until: null })
+    .update({ ...values, ...ladder, stage: null, lease_until: null })
     .eq("id", id).eq("status", "running").select("id");
   return Boolean(data && data.length);
 }

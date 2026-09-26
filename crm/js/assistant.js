@@ -275,7 +275,7 @@ async function drawAgentRequest(root, requestId) {
         staffMap().catch(() => new Map()),
         // سجل نداءات النموذج للمدير وحده (RLS تسمح بالقراءة للمدير فقط)
         isAdmin()
-            ? supabase.from('agent_model_calls').select('id, attempt, tier, model, reasoning, escalated, cost_usd, outcome, created_at')
+            ? supabase.from('agent_model_calls').select('id, attempt, tier, model, provider, reasoning, escalated, cost_usd, outcome, error, created_at')
                 .eq('request_id', requestId).order('id', { ascending: true })
             : Promise.resolve(null)
     ]);
@@ -358,19 +358,24 @@ function kv(labelText, value) {
     return el('div', { class: 'kv' }, [el('span', { text: labelText }), el('span', {}, value)]);
 }
 
-// محاولات النموذج للمدير: أي نموذج، وهل عمل التفكير، وكم كلّفت. التكلفة من ردّ OpenRouter نفسه.
+// محاولات النموذج للمدير: أي نموذج ومن خدمه، وهل عمل التفكير، وكم كلّفت. التكلفة من ردّ OpenRouter نفسه،
+// والمزوّد من خدم النداء أو من رفضه، ومع الخطأ سببه كما ردّه المزوّد.
 const CALL_OUTCOME = { ok: 'مقبولة', invalid: 'رفضها المدقق', error: 'خطأ من الخدمة' };
 const usd = (value) => (value === null || value === undefined ? '—' : '$' + Number(value).toFixed(4));
 
 function modelCalls(request, rows, error) {
     if (error) return errorBox(error, 'تعذّر تحميل محاولات النموذج');
     if (!rows.length) return null;
-    const head = el('thead', {}, el('tr', {}, ['المحاولة', 'النموذج', 'التفكير', 'النتيجة', 'التكلفة'].map((t) => el('th', { text: t }))));
+    const head = el('thead', {}, el('tr', {}, ['المحاولة', 'النموذج', 'المزوّد', 'التفكير', 'النتيجة', 'التكلفة'].map((t) => el('th', { text: t }))));
     const body = el('tbody', {}, rows.map((row) => el('tr', {}, [
         el('td', { class: 'num', text: String(row.attempt) }),
         el('td', { dir: 'ltr', text: row.model + (row.escalated ? ' ↑' : '') }),
+        el('td', { dir: 'ltr', text: row.provider || '—' }),
         el('td', { text: row.reasoning === 'off' ? 'متوقف' : 'يعمل' }),
-        el('td', { text: CALL_OUTCOME[row.outcome] || row.outcome }),
+        el('td', {}, [
+            el('span', { text: CALL_OUTCOME[row.outcome] || row.outcome }),
+            row.error ? el('small', { class: 'crm-subtle', dir: 'ltr', style: 'display:block', title: row.error, text: row.error.slice(0, 160) }) : null
+        ]),
         el('td', { class: 'num', dir: 'ltr', text: usd(row.cost_usd) })
     ])));
     return el('div', {}, [

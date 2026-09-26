@@ -1,6 +1,6 @@
 // اختبارات ما لا يحتاج مفتاح خدمة: التحقق المستقل، والمحتوى المريب، وحدود المصادر، وشكل المخطط.
 // التشغيل: deno test supabase/functions/agent-run/
-import { assert, assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertFalse, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { CLIENT_SCHEMA, PROJECT_SCHEMA, UPDATE_SCHEMA } from "./schema.ts";
 import { buildParts, estimateTokens, loadSources, MAX_FILE_BYTES, SourceError, type SourceRow } from "./sources.ts";
@@ -407,15 +407,118 @@ function offerOut(price: number, priceQuote: string) {
   return p;
 }
 
-Deno.test("router: a total price that contradicts area × price per metre drops both and fails the ratio", async () => {
+// قرار المالك 2026-09-27: تناقض كل قيمه مقتبسة من المصدر حرفياً تناقضُ مصدر لا خطأ نموذج —
+// مسودة والتعارض ظاهر للمدير، بلا إعادة ولا تصعيد.
+Deno.test("router: a contradiction whose every number is quoted verbatim from the source is a draft, not a failure", async () => {
+  const { isFailure } = await import("../_shared/effort-router/classify.ts");
   const d = await buildProjectDraft(offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال"), [text(OFFER)], normalizePhone);
+  // السعر وسعر المتر خارج المقترح، والاسم والحي والمساحة فيه
   assertEquals(d.proposed.price, undefined);
-  assertEquals(d.proposed.area, 150);
-  assert(!("price_per_m" in d.proposed) && !d.evidence.price_per_m);
+  assertEquals([d.proposed.name, d.proposed.district, d.proposed.area], ["شقة حي الشاطئ", "الشاطئ", 150]);
+  assert(!("price_per_m" in d.proposed) && !d.evidence.price && !d.evidence.price_per_m);
+  // التعارض ظاهر للمدير بالأرقام الثلاثة واقتباساتها، وليس رفضاً
+  const c = d.conflicts.find((x) => x.code === "source_contradiction")!;
+  assert(c.note.includes("المصدر نفسه متناقض") && c.note.includes("150 × 7,000 = 1,050,000"));
+  assertEquals(c.value, { price: 1_200_000, area: 150, price_per_m: 7000 });
+  for (const q of ["السعر الإجمالي 1,200,000 ريال", "المساحة 150 م", "سعر المتر 7,000 ريال"]) assert(c.quote!.includes(q));
+  assert(!d.conflicts.some((x) => x.code === "cross_field"));
+  // المصدر ذكر السعر، فلا يُعدّ «ناقصاً»
+  assert(!d.missing.includes("price"));
+  assertEquals([d.stats.returned, d.stats.rejected, d.stats.rejections], [5, 0, []]);
+  // فالمحاولة ناجحة: المسودة تُحفظ من النداء الأول ولا يعمل السلّم
+  assertFalse(isFailure(d.stats));
+});
+
+Deno.test("router: the same contradiction on a unit inside the project is also a source contradiction", async () => {
+  const p = offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال");
+  p.project.starting_price = none();
+  (p.project as Record<string, unknown>).area = none();
+  (p.project as Record<string, unknown>).price_per_m = none();
+  (p as Record<string, unknown>).units = [{
+    name: none(), type: f("شقة", "شقة للبيع"), rooms: none(), bathrooms: none(), area: f(150, "المساحة 150 م"),
+    price: f(1_200_000, "السعر الإجمالي 1,200,000 ريال"), count: none(), status: none(), price_per_m: f(7000, "سعر المتر 7,000 ريال"),
+  }];
+  const d = await buildProjectDraft(p, [text(OFFER)], normalizePhone);
+  const models = (d.proposed.details as Record<string, unknown>).models as Record<string, unknown>[];
+  assertEquals([models[0].area, models[0].price], [150, undefined]);
+  assertEquals(d.conflicts.find((x) => x.code === "source_contradiction")?.field, "units.0.price");
+  assertEquals(d.stats.rejected, 0);
+});
+
+Deno.test("router: the same contradiction read from a PDF (quotes unverifiable) stays a reasoning rejection", async () => {
+  const pdf: Src = { label: "S1", id: "pdf-1", kind: "pdf" };
+  const d = await buildProjectDraft(offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال"), [pdf], normalizePhone);
+  assertEquals(d.proposed.price, undefined);
   const c = d.conflicts.find((x) => x.code === "cross_field")!;
   assert(c.note.includes("150 × 7,000 = 1,050,000"));
+  assert(!d.conflicts.some((x) => x.code === "source_contradiction"));
   // الاسم، الحي، السعر، المساحة، سعر المتر = 5؛ رُفض اثنان → 0.4 > 0.3
   assertEquals([d.stats.returned, d.stats.rejected], [5, 2]);
+});
+
+Deno.test("router: a value that does not match its own quote (the model's arithmetic) fails and escalates to Astra", async () => {
+  const { classifyFailure, isFailure } = await import("../_shared/effort-router/classify.ts");
+  const { nextStep } = await import("../_shared/effort-router/ladder.ts");
+  // النموذج «صحّح» الإجمالي بنفسه (150 × 7,000) واقتبس سطر المصدر الذي يقول غيره
+  const d = await buildProjectDraft(offerOut(1_050_000, "السعر الإجمالي 1,200,000 ريال"), [text(OFFER)], normalizePhone);
+  assertEquals(d.proposed.price, undefined);
+  assertEquals(d.conflicts.find((x) => x.field === "price")?.code, "number_not_in_quote");
+  assert(!d.conflicts.some((x) => x.code === "source_contradiction"));
+  // رفض واحد من 5 لا يتجاوز النسبة وحده؛ مع قيمة ثانية من حسابه يتجاوزها
+  const out = offerOut(1_050_000, "السعر الإجمالي 1,200,000 ريال");
+  (out.project as Record<string, unknown>).area = f(171, "المساحة 150 م");
+  const d2 = await buildProjectDraft(out, [text(OFFER)], normalizePhone);
+  assert(isFailure(d2.stats));
+  assertEquals(classifyFailure(d2.stats), "reasoning");
+  const s2 = { attempt: 2, tier: "fast" as const, reasoning: true, repair: true, escalation: false };
+  assertEquals(nextStep(s2, classifyFailure(d2.stats))!.tier, "reason");
+});
+
+Deno.test("update: the same value repeated is no conflict; two different values stay a rejection (old vs new price)", async () => {
+  const src = `تحديث مشروع الياسمين: السعر السابق 1,000,000 ريال والسعر الجديد 900,000 ريال.\nالسعر الجديد 900,000 ريال شامل الضريبة`;
+  const change = (value: number, quote: string) =>
+    ({ scope: "project", field: "price", value, quote, page: null, source: "S1", inferred: false, reason: null });
+  const out = (first: Record<string, unknown>, second: Record<string, unknown>) => ({
+    target: { project_name: f("الياسمين", "مشروع الياسمين"), district: none(), unit_name: none() },
+    changes: [first, second],
+    suspicious: [],
+  });
+  const current = { id: 7, price: 1_000_000, area: 150, details: {} };
+  const same = (await buildUpdateDraft(out(change(900000, "السعر الجديد 900,000 ريال"), change(900000, "السعر الجديد 900,000 ريال شامل")),
+    [text(src)], normalizePhone, "project", "7", current, "h"))!;
+  assertEquals([same.proposed.price, same.conflicts.length, same.stats.returned, same.stats.rejected], [900000, 0, 1, 0]);
+  // النموذج أخذ السعر السابق أولاً: رفض يُعاد بسببه، لا «تناقض مصدر» يُعتمد فيه القديم بنقرة
+  const stale = (await buildUpdateDraft(out(change(1000000, "السعر السابق 1,000,000 ريال"), change(900000, "السعر الجديد 900,000 ريال")),
+    [text(src)], normalizePhone, "project", "7", current, "h"))!;
+  assertEquals(stale.conflicts.find((x) => x.field === "price")?.code, "source_conflict");
+  assertEquals([stale.stats.returned, stale.stats.rejected], [2, 1]);
+  assert(!stale.conflicts.some((x) => x.code === "source_contradiction"));
+});
+
+Deno.test("router: a number taken from the wrong place in a multi-number line is the model's error, not the source's", async () => {
+  // مصدر متسق: 150 × 7,000 = 1,050,000؛ النموذج أخذ 7,000 مساحةً من السطر نفسه
+  const src = "شقة للبيع في حي الشاطئ\nالمساحة 150 م، سعر المتر 7,000 ريال\nالسعر الإجمالي 1,050,000 ريال";
+  const out = offerOut(1_050_000, "السعر الإجمالي 1,050,000 ريال");
+  (out.project as Record<string, unknown>).area = f(7000, "المساحة 150 م، سعر المتر 7,000 ريال");
+  (out.project as Record<string, unknown>).price_per_m = f(7000, "المساحة 150 م، سعر المتر 7,000 ريال");
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.conflicts.find((x) => x.field === "price")?.code, "cross_field");
+  assert(!d.conflicts.some((x) => x.code === "source_contradiction"));
+  assertEquals(d.stats.rejected, 2);
+});
+
+Deno.test("router: a quote that is only the tail of a longer number (200,000 inside 1,200,000) is not a source contradiction", async () => {
+  const d = await buildProjectDraft(offerOut(200_000, "200,000 ريال"), [text(OFFER)], normalizePhone);
+  assert(d.evidence.price === undefined);
+  assertEquals(d.conflicts.find((x) => x.field === "price")?.code, "cross_field");
+  assert(!d.conflicts.some((x) => x.code === "source_contradiction"));
+});
+
+Deno.test("router: the owner's live contradiction case keeps name, district and area and raises one source note", async () => {
+  // حالة «تناقض في السعر» الحية نفسها: الأرقام الثلاثة كاملة في المصدر ولا قراءة متسقة لها
+  const d = await buildProjectDraft(offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال"), [text(OFFER)], normalizePhone);
+  assertEquals(d.conflicts.filter((x) => x.code === "source_contradiction").length, 1);
+  assertEquals(Object.keys(d.proposed).sort(), ["area", "district", "name"]);
 });
 
 Deno.test("router: a consistent total is kept and price per metre is never saved", async () => {

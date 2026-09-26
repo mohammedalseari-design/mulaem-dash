@@ -3,7 +3,8 @@
 import { assert, assertEquals, assertFalse, assertRejects } from "jsr:@std/assert@1";
 import {
   applyPolicy, buildBody, chat, ChatError, classifyFailure, defaultTiers, firstStep, isFailure, nextStep,
-  outputBudget, parseJson, rawPhones, reasoningFor, Redactor, scoreEffort, type Step, type Tier,
+  outputBudget, parseJson, rawPhones, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step,
+  type Tier,
 } from "./mod.ts";
 
 const env = (vars: Record<string, string> = {}) => (name: string) => vars[name];
@@ -94,9 +95,25 @@ Deno.test("classify: hard failures are format; rejections go to the class with m
   assertEquals(classifyFailure({ hard: "truncated", returned: 5, rejected: 0, rejections: [] }), "format");
   assertEquals(classifyFailure({ returned: 4, rejected: 2, rejections: ["cross_field", "cross_field"] }), "reasoning");
   assertEquals(classifyFailure({ returned: 4, rejected: 3, rejections: ["no_quote", "quote_not_found", "range"] }), "evidence");
-  assertEquals(classifyFailure({ returned: 4, rejected: 2, rejections: ["type", "number_not_in_quote"] }), "evidence");
+  assertEquals(classifyFailure({ returned: 4, rejected: 2, rejections: ["type", "number_not_in_quote"] }), "reasoning"); // تعادل
   assertEquals(classifyFailure({ returned: 4, rejected: 2, rejections: ["range", "no_quote"] }), "reasoning"); // تعادل
   assertEquals(classifyFailure({ returned: 4, rejected: 2, rejections: ["bad_date", "unknown_value"] }), "format");
+});
+
+// قرار المالك 2026-09-27: Astra حين لا تطابق القيمة اقتباسها أو يخطئ النموذج في حسابه؛ الاقتباس الغائب
+// أو غير الموجود في المصدر يبقى «دليلاً» (Opus)، وتناقض المصدر نفسه ليس رفضاً أصلاً فلا يُصنَّف.
+Deno.test("classify: a value that does not match its quote is reasoning (Astra); a missing quote is evidence (Opus)", () => {
+  const s2: Step = { attempt: 2, tier: "fast", reasoning: true, repair: true, escalation: false };
+  for (const code of ["number_not_in_quote", "phone_not_in_quote", "email_not_in_quote", "cross_field"]) {
+    const cls = classifyFailure({ returned: 2, rejected: 2, rejections: [code, code] });
+    assertEquals([code, cls, nextStep(s2, cls)!.tier], [code, "reasoning", "reason"]);
+  }
+  for (const code of ["no_quote", "quote_not_found"]) {
+    const cls = classifyFailure({ returned: 2, rejected: 2, rejections: [code, code] });
+    assertEquals([code, cls, nextStep(s2, cls)!.tier], [code, "evidence", "general"]);
+  }
+  // source_contradiction لا يُسجَّل رفضاً؛ ولو ظهر رمزه لما دخل التصنيف
+  assertEquals(classifyFailure({ returned: 2, rejected: 1, rejections: ["source_contradiction", "no_quote"] }), "evidence");
 });
 
 Deno.test("classify: failure is hard, or rejected above the ratio of returned fields", () => {
@@ -155,9 +172,18 @@ Deno.test("tiers: defaults, env overrides and the localOnly policy", () => {
     order: ["deepinfra", "fireworks", "together"], allow_fallbacks: false, data_collection: "deny", require_parameters: true,
   });
   assertEquals(tiers.reason!.model, "openai/gpt-6-astra");
+  assertEquals(tiers.reason!.provider, undefined);
   assertEquals(tiers.general!.model, "anthropic/claude-opus-5.5");
-  const custom = defaultTiers(env({ AGENT_MODEL_FAST: "x/y", AGENT_FAST_PROVIDERS: "fireworks" }));
+  // Opus مثبّت على واجهة Anthropic نفسها (تقرأ PDF أصلياً)، بلا بديل
+  assertEquals(tiers.general!.provider, {
+    order: ["claude-on-aws", "anthropic"], allow_fallbacks: false, data_collection: "deny", require_parameters: true,
+  });
+  const custom = defaultTiers(env({ AGENT_MODEL_FAST: "x/y", AGENT_FAST_PROVIDERS: "fireworks", AGENT_GENERAL_PROVIDERS: " anthropic , " }));
   assertEquals([custom.fast!.model, custom.fast!.provider!.order], ["x/y", ["fireworks"]]);
+  assertEquals(custom.general!.provider!.order, ["anthropic"]);
+  // الطلب إلى Opus يحمل التثبيت
+  const body = buildBody({ tier: tiers.general!, apiKey: "k", messages: [], reasoning: true, maxTokens: 10 }, "json_schema");
+  assertEquals((body.provider as { order: string[] }).order, ["claude-on-aws", "anthropic"]);
   assertEquals(applyPolicy(tiers, { localOnly: true }), {});
   const local: Tier = { ...tiers.fast!, location: "local", reasoningStyle: "ollama", baseUrl: "http://127.0.0.1:11434/v1", apiKeyEnv: null };
   assertEquals(Object.keys(applyPolicy({ ...tiers, fast: local }, { localOnly: true })), ["fast"]);
@@ -289,4 +315,76 @@ Deno.test("client: the provider's own reason (metadata.raw) is read, so a wrappe
     }), ChatError);
   assertEquals(e.kind, "bad_request");
   assert(e.message.includes("invalid pdf"));
+});
+
+Deno.test("client: an error names the provider that rejected the call, for the call log", async () => {
+  const e = await assertRejects(() =>
+    chat({
+      tier: tiers.general!, apiKey: "k", reasoning: true, maxTokens: 10, messages: [],
+      fetchImpl: fakeFetch([{
+        status: 400,
+        body: { error: { code: 400, message: "Provider returned error", metadata: { provider_name: "Amazon Bedrock", error_type: "invalid_request", provider_code: "ValidationException" } } },
+      }], []),
+    }), ChatError);
+  assertEquals([e.kind, e.provider], ["bad_request", "Amazon Bedrock"]);
+  assert(e.message.includes("invalid_request") && e.message.includes("ValidationException"));
+  // بلا metadata: المزوّد مجهول ولا يُخترع
+  const plain = await assertRejects(() =>
+    chat({
+      tier: tiers.general!, apiKey: "k", reasoning: true, maxTokens: 10, messages: [],
+      fetchImpl: fakeFetch([{ status: 503, body: { error: { message: "busy" } } }], []),
+    }), ChatError);
+  assertEquals([plain.provider, plain.retryable], [null, true]);
+});
+
+Deno.test("client: a timeout while the body is read is a retryable timeout; an empty 200 is not an answer", async () => {
+  // الرؤوس وصلت ثم انتهت المهلة أثناء قراءة الجسم (نداء مصعّد طويل): يُعاد الطلب ويُستأنف، لا «ناتج ليس JSON»
+  const aborting = (() => Promise.resolve(new Response(new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode("  "));
+      c.error(new DOMException("The signal has been aborted", "AbortError"));
+    },
+  }), { status: 200 }))) as typeof fetch;
+  const call = (fetchImpl: typeof fetch) =>
+    chat({ tier: tiers.fast!, apiKey: "k", reasoning: false, maxTokens: 10, messages: [], fetchImpl });
+  const timeout = await assertRejects(() => call(aborting), ChatError);
+  assertEquals([timeout.kind, timeout.retryable], ["timeout", true]);
+  const empty = await assertRejects(() => call(fakeFetch([{ status: 200, body: {} }], [])), ChatError);
+  assertEquals([empty.kind, empty.retryable], ["server", true]);
+  const garbled = (() => Promise.resolve(new Response("<html>502</html>", { status: 200 }))) as typeof fetch;
+  assertEquals((await assertRejects(() => call(garbled), ChatError)).kind, "server");
+});
+
+/* ===================== الاستئناف ===================== */
+
+Deno.test("ladder: every step after the first is saved; a saved step resumes with its repair notes", () => {
+  const s1 = firstStep({ deep: false, hasFiles: false, reasoning: false })!;
+  const s2 = nextStep(s1, "reasoning")!;
+  const s3 = nextStep(s2, "reasoning")!;
+  assertEquals([shouldSaveLadder(s1), shouldSaveLadder(s2), shouldSaveLadder(s3)], [false, true, true]);
+  // كما يعود من jsonb: مهلة نداء Astra المصعّد تُستأنف على Astra نفسه لا على السريعة
+  const saved = JSON.parse(JSON.stringify({ step: s3, notes: ["units.0.price: السعر الإجمالي لا يساوي"] }));
+  const r = resumeLadder(saved, { available: ["fast", "reason", "general"], hasFiles: false })!;
+  assertEquals(r.step, s3);
+  assertEquals([r.step.tier, r.step.escalation, r.step.repair], ["reason", true, true]);
+  assertEquals(r.notes, ["units.0.price: السعر الإجمالي لا يساوي"]);
+  // بعدها لا خطوة رابعة
+  assertEquals(nextStep(r.step, "reasoning"), null);
+});
+
+Deno.test("ladder: a saved position that is missing, malformed, unavailable or wrong for files starts over", () => {
+  const s3: Step = { attempt: 3, tier: "general", reasoning: true, repair: true, escalation: true };
+  assertEquals(resumeLadder(null), null);
+  assertEquals(resumeLadder({}), null);
+  assertEquals(resumeLadder({ step: { ...s3, attempt: 1 } }), null); // الأولى تُحسب من جديد
+  assertEquals(resumeLadder({ step: { ...s3, attempt: 4 } }), null);
+  assertEquals(resumeLadder({ step: { ...s3, tier: "gpt" } }), null);
+  assertEquals(resumeLadder({ step: { ...s3, escalation: "yes" } }), null);
+  assertEquals(resumeLadder({ step: s3 }, { available: ["fast", "reason"] }), null);
+  // الملفات لا تذهب إلا للعامة
+  assertEquals(resumeLadder({ step: { ...s3, tier: "reason" } }, { hasFiles: true }), null);
+  assertEquals(resumeLadder({ step: s3 }, { hasFiles: true })!.step.tier, "general");
+  // ملاحظات تالفة تُنقّى ولا تُسقط الموضع
+  assertEquals(resumeLadder({ step: s3, notes: ["a", 3, null, "b"] })!.notes, ["a", "b"]);
+  assertEquals(resumeLadder({ step: s3, notes: "x" })!.notes, []);
 });

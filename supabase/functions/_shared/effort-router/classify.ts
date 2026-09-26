@@ -15,13 +15,16 @@ export const CODE_CLASS: Record<string, FailureClass> = {
   bad_phone: "format",
   bad_list: "format",
   unsupported_field: "format",
-  // الدليل: الاقتباس غائب أو لا يطابق المصدر أو لا يحمل القيمة
+  // الدليل: الاقتباس غائب أو غير موجود في نص المصدر
   no_quote: "evidence",
   quote_not_found: "evidence",
-  number_not_in_quote: "evidence",
-  email_not_in_quote: "evidence",
-  phone_not_in_quote: "evidence",
-  // الاستدلال: قيمة خارج المعقول، أو تعارض بين الحقول أو المصادر، أو هدف تحديث مبهم
+  // الاستدلال: القيمة لا تطابق اقتباسها (رقم أو جوال أو بريد لا يظهر فيه: من حساب النموذج لا من المصدر)،
+  // أو قيمة خارج المعقول، أو تعارض سببه قراءة النموذج، أو هدف تحديث مبهم.
+  // source_contradiction ليس هنا عمداً: المصدر نفسه متناقض وكل قيمة مقتبسة منه حرفياً، فهو ملاحظة
+  // للمدير لا رفض، ولا إعادة بسببه ولا تصعيد (validate.ts)
+  number_not_in_quote: "reasoning",
+  email_not_in_quote: "reasoning",
+  phone_not_in_quote: "reasoning",
   range: "reasoning",
   cross_field: "reasoning",
   source_conflict: "reasoning",

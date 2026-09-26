@@ -169,7 +169,7 @@ Extract only what a source states.
 - Phone numbers and e-mail addresses in sources appear as placeholders like [PHONE_1] or [EMAIL_1]; copy a placeholder exactly as written wherever you would copy the number or address.
 
 Keep separate things separate.
-- Project vs unit: project-level facts (name, developer, district, the project's "starting from" price) go in project; each unit model or unit type goes in units with its own price, area, rooms and count. starting_price is only a price the source presents as the project's starting/from price — never copy a unit's price into it.
+- Project vs unit: project-level facts (name, developer, district, the project's "starting from" price) go in project; each unit model or unit type goes in units with its own price, area, rooms and count. starting_price is only a price the source presents as the project's starting/from price — never copy a unit's price into it. Exception: when the source offers one single property and describes no unit models, return an empty units list and put that property's total price in starting_price, next to its area and price_per_m at project level.
 - Phone numbers: list every phone number you see in phones_found with its role. "client" is the person the employee is registering; "message_sender" is whoever sent or forwarded the message; "brochure_contact" is a sales/contact number printed in a brochure or advert; "developer" is the developer's number. Only put a number in client.phone or client.phone_alt when the source makes clear it belongs to the client.
 - For updates, describe which project/unit is meant in target exactly as the source names it; do not pick an ID. Each change carries the new value, its quote, and a short Arabic reason.
 

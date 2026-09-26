@@ -88,6 +88,18 @@
                 shown = true;
                 boot.className = 'crm-error';
                 boot.style.cssText = 'margin:90px auto 0;max-width:640px';
+                // صفحة مفتوحة من ملف على الجهاز (file://): المتصفح يمنع تحميل وحدات
+                // JavaScript منها فيتوقف الإقلاع دائماً. رسالة صريحة برابط الموقع بدل config.js.
+                if (location.protocol === 'file:') {
+                    var site = 'https://mohammedalseari-design.github.io/mulaem-dash/crm/';
+                    boot.textContent = 'هذه نسخة محفوظة على الجهاز، والمتصفح لا يشغّل النظام منها. افتح النظام من رابط الموقع: ';
+                    var link = document.createElement('a');
+                    link.href = site + location.hash;
+                    link.textContent = site;
+                    link.dir = 'ltr';
+                    boot.appendChild(link);
+                    return;
+                }
                 boot.textContent = 'تعذّر تحميل الإعدادات أو المكتبة — راجع js/config.js';
                 if (detail) {
                     var line = document.createElement('div');

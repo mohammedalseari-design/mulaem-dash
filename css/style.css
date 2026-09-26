@@ -2632,6 +2632,16 @@ a.opportunity-item:hover {
     padding: 6px 0;
 }
 
+/* قائمة الموافقات (164 مشروعاً) وسجل النشاطات كانا يمتدان بطول الصفحة (22 ألف بكسل)
+   فتُدفع الخريطة وقائمة المشاريع إلى أسفلها وكأنها اختفت. تتمرر الآن داخل إطارها. */
+#approvalsList,
+#activityLog {
+    max-height: 70vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: 6px;
+}
+
 .approval-card {
     background: var(--bg-card);
     border-radius: 12px;

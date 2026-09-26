@@ -2,7 +2,12 @@
 
 الخطة المجانية في Supabase لا توفّر نسخاً احتياطية، والعمولات والصفقات سجلات مالية لا تُعوَّض. لذلك يوجد
 في المستودع إجراء `.github/workflows/backup.yml` يعمل كل ليلة، يأخذ نسخة كاملة من قاعدة البيانات بـ
-`pg_dump`، يضغطها، ويرفعها كملف (artifact) في صفحة التشغيل على GitHub.
+`pg_dump`، يضغطها، **يشفّرها بمفتاح [age](https://github.com/FiloSottile/age) العام للمالك**، ثم يرفعها كملف
+(artifact) في صفحة التشغيل على GitHub.
+
+المستودع عام، وأي ملف يُرفع فيه يستطيع غيرك تنزيله؛ لذلك لا يُرفع إلا الملف المشفّر، ويفشل الإجراء قبل
+الرفع إن بقي أي ملف `.sql` أو `.sql.gz`. المفتاح العام مكتوب في ملف الإجراء وليس سرّاً. **المفتاح الخاص
+الذي يفك التشفير عند المالك وحده**، خارج المستودع وخارج GitHub، ومن دونه لا تُفتح أي نسخة.
 
 الإجراء لن يعمل قبل إضافة سر واحد إلى المستودع. حتى تُضاف، تفشل المهمة فشلاً واضحاً برسالة
 `add the SUPABASE_DB_URL secret — see docs/BACKUP.md` ولا ترفع ملفاً فارغاً.
@@ -30,17 +35,30 @@ Run workflow**.
 
 ## 3. تنزيل نسخة احتياطية
 
-**Actions ← backup** ← اختر التشغيل المطلوب بتاريخه ← في أسفل الصفحة قسم **Artifacts** ← اضغط
-`mulaem-db-backup` لينزل ملف مضغوط يحوي `mulaem-YYYY-MM-DD.sql.gz`.
+تحتاج [GitHub CLI](https://cli.github.com/) و age (`winget install FiloSottile.age` على ويندوز). نزّل النسخة
+إلى مجلد **خارج المستودع**، فالملف بعد فك تشفيره يحوي بيانات حقيقية:
+
+```bash
+gh run list -R mohammedalseari-design/mulaem-dash --workflow backup.yml   # رقم التشغيل المطلوب بتاريخه
+gh run download <رقم-التشغيل> -R mohammedalseari-design/mulaem-dash -n mulaem-db-backup-encrypted -D backup-restore
+```
+
+ينزل في `backup-restore` الملف `mulaem-YYYY-MM-DD.sql.gz.age`. (من المتصفح: **Actions ← backup** ← التشغيل ←
+قسم **Artifacts** ← `mulaem-db-backup-encrypted`.)
 
 ## 4. استعادة النسخة في مشروع جديد
 
-أنشئ مشروع Supabase جديداً، انسخ رابط اتصاله بالطريقة نفسها في الخطوة 1، ثم نفّذ أمراً واحداً بعد فك
-الضغط عن الملف المنزَّل:
+أنشئ مشروع Supabase جديداً وانسخ رابط اتصاله بالطريقة نفسها في الخطوة 1، ثم فك التشفير بالمفتاح الخاص،
+وفك الضغط، واستعِد:
 
 ```bash
-gunzip -c mulaem-2026-09-18.sql.gz | psql "postgresql://postgres.xxxx:PASSWORD@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+cd backup-restore
+age -d -i <ملف-المفتاح-الخاص> -o mulaem-2026-09-27.sql.gz mulaem-2026-09-27.sql.gz.age
+gunzip mulaem-2026-09-27.sql.gz
+psql "postgresql://postgres.xxxx:PASSWORD@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" -f mulaem-2026-09-27.sql
 ```
+
+بعد الاستعادة احذف الملفات المفكوكة (`.sql`)، ولا تنقلها إلى المستودع أبداً.
 
 الملف مأخوذ بـ `--clean --if-exists`، أي أنه يحذف الكائنات المتطابقة قبل إنشائها، فالاستعادة على قاعدة
 فيها بيانات سابقة **تمحوها**. استعِد دائماً في مشروع جديد أو فارغ إلا إن كنت متعمداً غير ذلك.
@@ -51,6 +69,8 @@ gunzip -c mulaem-2026-09-18.sql.gz | psql "postgresql://postgres.xxxx:PASSWORD@a
 
 - **الملف يُحذف تلقائياً بعد تسعين يوماً** (`retention-days: 90`). ما هو أقدم من ذلك لا يبقى في GitHub؛
   إن أردت أرشيفاً أطول فنزّل نسخة شهرية واحتفظ بها خارج المستودع.
+- **ضياع المفتاح الخاص يعني أن كل النسخ لا تُفتح.** احتفظ بنسخة ثانية منه في مكان آمن آخر (غير
+  المستودع وغير GitHub)، وإن تسرّب فأنشئ مفتاحاً جديداً وضع مفتاحه العام في `backup.yml`.
 - النسخة ليلية، فأسوأ حالة فقدان هي عمل يوم واحد.
 - النسخة تشمل المخطط والبيانات، **ولا تشمل ملفات مخزن Supabase (صور المشاريع)** ولا حسابات المصادقة.
 - هذا حل بديل مؤقت مناسب للخطة المجانية، **وليس بديلاً عن الاستعادة الزمنية (PITR) في خطة Supabase Pro**.

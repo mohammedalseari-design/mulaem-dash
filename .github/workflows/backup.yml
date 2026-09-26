@@ -1,5 +1,6 @@
 # نسخة احتياطية ليلية لقاعدة البيانات. الخطة المجانية في Supabase بلا نسخ احتياطي، والعمولات سجلات مالية.
-# الناتج ملف SQL مضغوط يُرفع كـ artifact ويبقى تسعين يوماً. التفاصيل وخطوات الاستعادة في docs/BACKUP.md.
+# الناتج ملف SQL مضغوط ثم مشفّر بمفتاح age العام للمالك، يُرفع كـ artifact ويبقى تسعين يوماً.
+# المستودع عام، فأي ملف غير مشفّر يُرفع هنا مكشوف للجميع. التفاصيل وخطوات الاستعادة في docs/BACKUP.md.
 name: backup
 
 on:
@@ -36,19 +37,33 @@ jobs:
           sudo apt-get install -y postgresql-client-17
           pg_dump --version
 
-      - name: Dump the database
+      # المفتاح العام ليس سرّاً ومكانه هنا؛ المفتاح الخاص الذي يفك التشفير عند المالك وحده خارج GitHub.
+      - name: Dump, compress and encrypt the database
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          AGE_RECIPIENT: age1zrng4hp9mafqnc65q6999v3vt2qd0555ec6y9servrh9ml08j4mq2mjg84
         run: |
           file="mulaem-$(date -u +%F).sql"
           /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges --clean --if-exists -f "$file"
           gzip "$file"
-          ls -lh "$file.gz"
+          sudo apt-get install -y age
+          age -r "$AGE_RECIPIENT" -o "$file.gz.age" "$file.gz"
+          rm -f "$file.gz"
+          ls -lh "$file.gz.age"
 
-      - name: Upload the backup artifact
-        uses: actions/upload-artifact@v4
+      # حاجز أخير قبل الرفع: إن بقي أي ملف SQL غير مشفّر فلا رفع أصلاً.
+      - name: Refuse to upload unencrypted dumps
+        run: |
+          leftovers="$(find . -type f \( -name '*.sql' -o -name '*.sql.gz' \))"
+          if [ -n "$leftovers" ]; then
+            echo "::error::unencrypted dump found, refusing to upload: $leftovers"
+            exit 1
+          fi
+
+      - name: Upload the encrypted backup artifact
+        uses: actions/upload-artifact@v7
         with:
-          name: mulaem-db-backup
-          path: 'mulaem-*.sql.gz'
+          name: mulaem-db-backup-encrypted
+          path: 'mulaem-*.sql.gz.age'
           retention-days: 90
           if-no-files-found: error

@@ -200,12 +200,15 @@ export async function recordLink(kind, id) {
 // ترتيب مقصود: صف الطلب أولاً (معرّفه هو مجلد المخزن الذي تسمح به سياسة الرفع)،
 // ثم رفع كل مصدر، ثم صفّه في agent_sources. فشل أي مرفق يحذف الطلب كله حتى لا
 // يبقى طلب نصف مكتمل يُستخرج من مصادر ناقصة.
-// payload: { instruction, title?, text?, textName? (لاتيني), files?, url?, progress? }
+// payload: { instruction, title?, deep? («تفكير عميق»), text?, textName? (لاتيني), files?, url?, progress? }
 export async function createRequest(kind, payload) {
     const progress = typeof payload.progress === 'function' ? payload.progress : () => {};
     const { data: request, error } = await supabase
         .from('agent_requests')
-        .insert({ kind: kind, title: payload.title || null, instruction: payload.instruction })
+        .insert({
+            kind: kind, title: payload.title || null, instruction: payload.instruction,
+            effort_hint: payload.deep ? 'deep' : 'auto'
+        })
         .select('id')
         .maybeSingle();
     if (error) throw error;

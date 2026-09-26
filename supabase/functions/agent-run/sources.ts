@@ -1,9 +1,10 @@
-// قراءة المصادر من المخزن الخاص وتحويلها إلى كتل رسالة للنموذج.
+// قراءة المصادر من المخزن الخاص، ثم تحويلها إلى أجزاء رسالة متوافقة مع OpenAI للنموذج.
 //
 // الحدود المعلنة في المتصفح (عشرة ملفات، عشرة ميغابايت، عشرون صفحة) يُعاد فرضها هنا
 // على الملف الفعلي لا على ما صرّح به المتصفح: الحجم من البايتات، والصفحات من قراءة الـPDF،
 // والبصمة sha256 من المحتوى.
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
+import type { ChatPart } from "../_shared/effort-router/client.ts";
 import type { Src, SourceKind } from "./validate.ts";
 
 export const MAX_FILES = 10;
@@ -23,14 +24,25 @@ export interface SourceRow {
   sha256: string | null;
 }
 
-// deno-lint-ignore no-explicit-any
-export type Block = any;
+// ملف PDF أو صورة كما يُرسل: لا نص له هنا، ولا يمكن إخفاء الجوالات منه
+export interface LoadedFile {
+  label: string;
+  kind: "pdf" | "image";
+  name: string;
+  mime: string;
+  base64: string;
+  bytes: number;
+  pages?: number;
+}
 
 export interface Loaded {
-  blocks: Block[];
-  srcs: Src[];
+  srcs: Src[]; // بترتيب المصادر؛ النص الأصلي للنصوص والجداول
+  files: LoadedFile[];
+  urls: Map<string, string>; // S1 → الرابط المسجّل
   pages: Map<string, number>; // عدد الصفحات الفعلي لكل PDF لتحديث agent_sources
 }
+
+export const hasFiles = (loaded: Loaded) => loaded.files.length > 0;
 
 export type Download = (path: string) => Promise<Uint8Array>;
 
@@ -78,8 +90,9 @@ function wrapText(label: string, kind: string, text: string): string {
 
 export async function loadSources(rows: SourceRow[], download: Download): Promise<Loaded> {
   if (rows.length > MAX_FILES) throw new SourceError(`حد المرفقات ${MAX_FILES} ملفات للطلب الواحد`);
-  const blocks: Block[] = [];
   const srcs: Src[] = [];
+  const files: LoadedFile[] = [];
+  const urls = new Map<string, string>();
   const pages = new Map<string, number>();
   let textChars = 0;
 
@@ -89,7 +102,7 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
 
     if (row.kind === "url") {
       // الروابط لا تُفتح في هذه الجولة (الجولة C): تُذكر للنموذج كمرجع فقط، ولا يُستخرج منها شيء.
-      blocks.push({ type: "text", text: wrapText(label, "url", `رابط سجّله الموظف ولم يُفتح: ${row.url ?? ""}\n(لا تستخرج أي قيمة من هذا المصدر)`) });
+      urls.set(label, row.url ?? "");
       srcs.push({ label, id: row.id, kind: "url", text: "" });
       continue;
     }
@@ -112,9 +125,7 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
       }
       if (count > MAX_PDF_PAGES) throw new SourceError(`الملف «${name}» فيه ${count} صفحة، والحد ${MAX_PDF_PAGES}`);
       pages.set(row.id, count);
-      blocks.push({ type: "text", text: `<source id="${label}" kind="pdf" pages="${count}"> (the PDF document that follows)` });
-      blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: encodeBase64(bytes) } });
-      blocks.push({ type: "text", text: `</source>` });
+      files.push({ label, kind: "pdf", name, mime: "application/pdf", base64: encodeBase64(bytes), bytes: bytes.byteLength, pages: count });
       srcs.push({ label, id: row.id, kind: "pdf" });
       continue;
     }
@@ -122,9 +133,7 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
     if (row.kind === "image") {
       const media = imageType(bytes);
       if (!media) throw new SourceError(`الصورة «${name}» ليست PNG أو JPEG أو WEBP`);
-      blocks.push({ type: "text", text: `<source id="${label}" kind="image"> (the image that follows)` });
-      blocks.push({ type: "image", source: { type: "base64", media_type: media, data: encodeBase64(bytes) } });
-      blocks.push({ type: "text", text: `</source>` });
+      files.push({ label, kind: "image", name, mime: media, base64: encodeBase64(bytes), bytes: bytes.byteLength });
       srcs.push({ label, id: row.id, kind: "image" });
       continue;
     }
@@ -147,9 +156,52 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
       // لا اقتطاع صامت: مصدر أطول من الحد يُرفض برسالة واضحة
       throw new SourceError("النصوص المرفقة أطول من الحد المسموح للطلب الواحد — قسّمها على أكثر من طلب");
     }
-    blocks.push({ type: "text", text: wrapText(label, row.kind, text) });
     srcs.push({ label, id: row.id, kind: row.kind, text });
   }
 
-  return { blocks, srcs, pages };
+  return { srcs, files, urls, pages };
+}
+
+// أجزاء الرسالة بترتيب المصادر. seen: المصادر كما سيراها النموذج (نصها بعد الإخفاء)، وهي
+// نفسها التي يطابق المدقق الاقتباس عليها. الملفات لا تُرسل إلا لطبقة تقبلها (العامة).
+export function buildParts(loaded: Loaded, seen: Src[], allowFiles: boolean): ChatPart[] {
+  const parts: ChatPart[] = [];
+  const byLabel = new Map(seen.map((s) => [s.label, s]));
+  for (const src of loaded.srcs) {
+    if (src.kind === "url") {
+      parts.push({ type: "text", text: wrapText(src.label, "url", `رابط سجّله الموظف ولم يُفتح: ${loaded.urls.get(src.label) ?? ""}\n(لا تستخرج أي قيمة من هذا المصدر)`) });
+      continue;
+    }
+    const file = loaded.files.find((f) => f.label === src.label);
+    if (file) {
+      if (!allowFiles) throw new SourceError("هذه الطبقة لا تقرأ الملفات — الطلب يحتاج الطبقة العامة");
+      const dataUrl = `data:${file.mime};base64,${file.base64}`;
+      if (file.kind === "pdf") {
+        parts.push({ type: "text", text: `<source id="${src.label}" kind="pdf" pages="${file.pages}"> (the PDF document that follows)` });
+        parts.push({ type: "file", file: { filename: file.name, file_data: dataUrl } });
+      } else {
+        parts.push({ type: "text", text: `<source id="${src.label}" kind="image"> (the image that follows)` });
+        parts.push({ type: "image_url", image_url: { url: dataUrl } });
+      }
+      parts.push({ type: "text", text: "</source>" });
+      continue;
+    }
+    parts.push({ type: "text", text: wrapText(src.label, src.kind, byLabel.get(src.label)?.text ?? src.text ?? "") });
+  }
+  return parts;
+}
+
+// تقدير الرموز قبل الإنفاق (عدّ الرموز الدقيق خاص بـ Anthropic): النص بالحروف ÷ 3، وتقدير
+// ثابت لكل صفحة PDF ولكل صورة. الرقم الحقيقي (prompt_tokens) يُسجَّل بعد النداء.
+export const TOKENS_PER_PDF_PAGE = 1_600;
+export const TOKENS_PER_IMAGE = 1_600;
+
+export function estimateTokens(parts: ChatPart[], loaded: Loaded, extraText = ""): number {
+  let chars = extraText.length;
+  for (const p of parts) if (p.type === "text") chars += (p.text ?? "").length;
+  let fixed = 0;
+  if (parts.some((p) => p.type !== "text")) {
+    for (const f of loaded.files) fixed += f.kind === "pdf" ? (f.pages ?? 1) * TOKENS_PER_PDF_PAGE : TOKENS_PER_IMAGE;
+  }
+  return Math.ceil(chars / 3) + fixed;
 }

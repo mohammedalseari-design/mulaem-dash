@@ -152,6 +152,9 @@ function openRequestForm(kind) {
     const pasted = el('textarea', { rows: 6, placeholder: 'ألصق نص الرسالة أو الإعلان هنا…' });
     const files = el('input', { type: 'file', multiple: true, accept: ACCEPT_ATTR });
     const link = input({ type: 'url', dir: 'ltr', placeholder: 'https://…' });
+    const deep = el('input', { type: 'checkbox' });
+    const deepChip = el('label', { class: 'chip' }, [deep, 'تفكير عميق (أبطأ وأغلى)']);
+    deep.addEventListener('change', () => deepChip.classList.toggle('on', deep.checked));
     const notice = el('div', { class: 'crm-hidden' });
 
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'إنشاء الطلب' });
@@ -166,7 +169,11 @@ function openRequestForm(kind) {
                 hint: 'PDF أو صور أو CSV/XLSX — حتى ' + MAX_FILES + ' ملفات، ' + (MAX_FILE_BYTES / 1048576)
                     + ' ميغابايت للملف، و' + MAX_PDF_PAGES + ' صفحة للـPDF.'
             }),
-            field('رابط', link, { span2: true, hint: 'يُسجَّل كمصدر فقط؛ لا يُفتح ولا يُنسخ محتواه في هذه الجولة.' })
+            field('رابط', link, { span2: true, hint: 'يُسجَّل كمصدر فقط؛ لا يُفتح ولا يُنسخ محتواه في هذه الجولة.' }),
+            el('div', { class: 'form-group span-2' }, [
+                deepChip,
+                el('small', { class: 'hint', text: 'يبدأ بالنموذج الأقوى مباشرة بدل السريع — للمصادر المعقدة فقط، ويُحسب من سقف التصعيد اليومي.' })
+            ])
         ]),
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
@@ -205,6 +212,7 @@ function openRequestForm(kind) {
             const requestId = await createRequest(kind, {
                 title: title.value.trim(),
                 instruction: instruction.value.trim(),
+                deep: deep.checked,
                 text: text,
                 files: chosen,
                 url: url,
@@ -251,20 +259,25 @@ async function drawAgentRequest(root, requestId) {
     const { data: request, error } = await supabase
         .from('agent_requests')
         .select('id, kind, title, instruction, status, stage, candidates, target_id, attempts, error_ar,'
-            + ' created_at, updated_at, requested_by, tokens_used')
+            + ' created_at, updated_at, requested_by, tokens_used, effort_hint, cost_usd')
         .eq('id', requestId)
         .maybeSingle();
     if (!root.isConnected) return;
     if (error) return void replace(root, errorBox(error, 'تعذّر تحميل الطلب'));
     if (!request) return void replace(root, empty('الطلب غير موجود أو غير مرئي لك'));
 
-    const [sources, drafts, names] = await Promise.all([
+    const [sources, drafts, names, calls] = await Promise.all([
         supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages').eq('request_id', requestId)
             .order('created_at', { ascending: true }),
         supabase.from('agent_drafts')
             .select('id, target_kind, target_id, status, content_hash, missing, suspicious, updated_at, applied_record')
             .eq('request_id', requestId).order('created_at', { ascending: true }),
-        staffMap().catch(() => new Map())
+        staffMap().catch(() => new Map()),
+        // سجل نداءات النموذج للمدير وحده (RLS تسمح بالقراءة للمدير فقط)
+        isAdmin()
+            ? supabase.from('agent_model_calls').select('id, attempt, tier, model, reasoning, escalated, cost_usd, outcome, created_at')
+                .eq('request_id', requestId).order('id', { ascending: true })
+            : Promise.resolve(null)
     ]);
     if (!root.isConnected) return;
 
@@ -321,7 +334,8 @@ async function drawAgentRequest(root, requestId) {
             request.status === 'ready' && !waitingChoice && draftRows.length === 0
                 ? el('div', { class: 'crm-warn-box', text: 'انتهى التنفيذ دون مسودات.' }) : null,
             el('h3', { text: 'التعليمات' }),
-            el('div', { class: 'agent-text', text: request.instruction })
+            el('div', { class: 'agent-text', text: request.instruction }),
+            calls ? modelCalls(request, calls.data || [], calls.error) : null
         ]),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, el('h2', { text: 'المصادر' })),
@@ -342,6 +356,28 @@ async function drawAgentRequest(root, requestId) {
 
 function kv(labelText, value) {
     return el('div', { class: 'kv' }, [el('span', { text: labelText }), el('span', {}, value)]);
+}
+
+// محاولات النموذج للمدير: أي نموذج، وهل عمل التفكير، وكم كلّفت. التكلفة من ردّ OpenRouter نفسه.
+const CALL_OUTCOME = { ok: 'مقبولة', invalid: 'رفضها المدقق', error: 'خطأ من الخدمة' };
+const usd = (value) => (value === null || value === undefined ? '—' : '$' + Number(value).toFixed(4));
+
+function modelCalls(request, rows, error) {
+    if (error) return errorBox(error, 'تعذّر تحميل محاولات النموذج');
+    if (!rows.length) return null;
+    const head = el('thead', {}, el('tr', {}, ['المحاولة', 'النموذج', 'التفكير', 'النتيجة', 'التكلفة'].map((t) => el('th', { text: t }))));
+    const body = el('tbody', {}, rows.map((row) => el('tr', {}, [
+        el('td', { class: 'num', text: String(row.attempt) }),
+        el('td', { dir: 'ltr', text: row.model + (row.escalated ? ' ↑' : '') }),
+        el('td', { text: row.reasoning === 'off' ? 'متوقف' : 'يعمل' }),
+        el('td', { text: CALL_OUTCOME[row.outcome] || row.outcome }),
+        el('td', { class: 'num', dir: 'ltr', text: usd(row.cost_usd) })
+    ])));
+    return el('div', {}, [
+        el('h3', { text: 'محاولات النموذج' + (request.effort_hint === 'deep' ? ' — طُلب تفكير عميق' : '') }),
+        el('table', { class: 'users-table crm-table' }, [head, body]),
+        el('small', { class: 'hint', text: 'التكلفة الإجمالية للطلب: ' + usd(request.cost_usd) + ' — السهم ↑ يعني محاولة تُحسب في سقف التصعيد اليومي.' })
+    ]);
 }
 
 // شريط المراحل: استلام ← قراءة ← استخراج ← تحقق ← جاهز للمراجعة (أو تعذّر التنفيذ)

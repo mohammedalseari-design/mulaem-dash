@@ -6,6 +6,12 @@
 // missing أو conflicts ولا يدخل المقترح.
 //
 // لا شبكة ولا قاعدة هنا: الدوال نقية (تطبيع الجوال يُمرَّر من الخارج) لتُختبر بلا مفتاح.
+//
+// الإخفاء: النموذج يرى الجوالات والبريد عناصر نائبة ([PHONE_1]). الاقتباس يُطابَق مع النص
+// المُخفى كما رآه النموذج، ثم تُعاد القيم الأصلية (restore) قبل فحص القيمة وقبل الحفظ.
+import { asciiDigits } from "../_shared/effort-router/digits.ts";
+
+export { asciiDigits };
 
 export type SourceKind = "text" | "pdf" | "image" | "sheet" | "url";
 
@@ -33,11 +39,13 @@ export interface Evidence {
   reason?: string | null;
 }
 
+// code: سبب آلي ثابت يقرؤه مصنّف الفشل في الموجّه (classify.ts) بدل الملاحظة العربية
 export interface Conflict {
   field?: string;
   value?: unknown;
   quote?: string | null;
   note: string;
+  code?: string;
 }
 
 export interface Suspicious {
@@ -56,21 +64,21 @@ export interface DraftSpec {
   duplicates: unknown[];
   suspicious: Suspicious[];
   baseline_hash: string | null;
+  stats: Stats; // لا يُحفظ: يقرؤه الموجّه ليقرر هل فشلت المحاولة
+}
+
+// ما أعاده النموذج بقيمة (غير المستنتج) وما رفضه المدقق منه، ورموز الرفض
+export interface Stats {
+  returned: number;
+  rejected: number;
+  rejections: string[];
 }
 
 export type PhoneNormalizer = (raw: string) => Promise<string | null>;
+export type Restore = (text: string) => string;
+const same: Restore = (text) => text;
 
 /* ===================== تطبيع النص للمقارنة ===================== */
-
-const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
-const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
-
-export function asciiDigits(text: string): string {
-  return text.replace(/[٠-٩۰-۹]/g, (d) => {
-    const i = AR_DIGITS.indexOf(d);
-    return String(i >= 0 ? i : FA_DIGITS.indexOf(d));
-  });
-}
 
 // نفس فكرة agent_norm_name في القاعدة: الهمزات والتاء المربوطة والتشكيل والترقيم لا تفرّق.
 export function normText(text: string): string {
@@ -146,10 +154,14 @@ export class Checker {
   evidence: Record<string, Evidence> = {};
   missing: string[] = [];
   conflicts: Conflict[] = [];
+  stats: Stats = { returned: 0, rejected: 0, rejections: [] };
+  restore: Restore;
   private byLabel = new Map<string, Src>();
 
-  constructor(sources: Src[], private normalizePhone: PhoneNormalizer) {
+  // sources: كما رآها النموذج (نصها مُخفى إن طُبّق الإخفاء)
+  constructor(sources: Src[], private normalizePhone: PhoneNormalizer, restore: Restore = same) {
     for (const s of sources) this.byLabel.set(s.label.toUpperCase(), s);
+    this.restore = restore;
   }
 
   source(label: string | null | undefined): Src | null {
@@ -157,42 +169,51 @@ export class Checker {
     return this.byLabel.get(String(label).trim().toUpperCase()) ?? null;
   }
 
+  // القيمة كما كانت قبل الإخفاء (نصوص داخل قائمة أيضاً)
+  original(value: unknown): unknown {
+    if (typeof value === "string") return this.restore(value);
+    if (Array.isArray(value)) return value.map((v) => typeof v === "string" ? this.restore(v) : v);
+    return value;
+  }
+
   private miss(key: string) {
     if (!this.missing.includes(key)) this.missing.push(key);
   }
 
-  // يعيد القيمة المقبولة أو undefined. أي رفض يُسجَّل بسببه.
+  // يعيد القيمة المقبولة أو undefined. أي رفض يُسجَّل بسببه ورمزه.
   async take(key: string, f: Field | null | undefined, rule: Rule): Promise<unknown> {
     if (!f || f.value === null || f.value === undefined || f.value === "") {
       this.miss(key);
       return undefined;
     }
-    const quote = typeof f.quote === "string" ? f.quote.trim() : "";
+    const seenQuote = typeof f.quote === "string" ? f.quote.trim() : ""; // كما كتبه النموذج
+    const quote = this.restore(seenQuote);
+    const value = this.original(f.value);
 
+    // المستنتج ليس فشلاً: يُعرض ولا يُحفظ، ولا يدخل في نسبة الرفض
     if (f.inferred) {
-      this.conflicts.push({ field: key, value: f.value, quote: quote || null, note: "قيمة مستنتجة لا يذكرها المصدر نصاً — لم تُدرج في المقترح" });
+      this.conflicts.push({ field: key, value, quote: quote || null, note: "قيمة مستنتجة لا يذكرها المصدر نصاً — لم تُدرج في المقترح", code: "inferred" });
       this.miss(key);
       return undefined;
     }
+    this.stats.returned++;
     const src = this.source(f.source);
-    if (!quote || !src) {
-      this.conflicts.push({ field: key, value: f.value, note: "قيمة بلا اقتباس من مصدر معروف — لم تُدرج في المقترح" });
+    if (!seenQuote || !src) {
       this.miss(key);
-      return undefined;
+      return this.reject(key, value, "قيمة بلا اقتباس من مصدر معروف — لم تُدرج في المقترح", "no_quote");
     }
 
     // الاقتباس يُطابَق مع النص حين نملك نصه؛ PDF والصور لا نقرأ نصها هنا فتبقى "غير متحقَّق منها"
     let verified = false;
     if (src.text !== undefined) {
-      verified = normText(src.text).includes(normText(quote));
+      verified = normText(src.text).includes(normText(seenQuote));
       if (!verified) {
-        this.conflicts.push({ field: key, value: f.value, quote, note: "الاقتباس غير موجود في نص المصدر — لم تُدرج القيمة" });
         this.miss(key);
-        return undefined;
+        return this.reject(key, value, "الاقتباس غير موجود في نص المصدر — لم تُدرج القيمة", "quote_not_found", quote);
       }
     }
 
-    const checked = await this.check(key, f.value, rule, quote);
+    const checked = await this.check(key, value, rule, quote);
     if (checked === undefined) {
       this.miss(key);
       return undefined;
@@ -207,50 +228,75 @@ export class Checker {
     return checked;
   }
 
-  private reject(key: string, value: unknown, note: string): undefined {
-    this.conflicts.push({ field: key, value, note });
+  private reject(key: string, value: unknown, note: string, code: string, quote?: string): undefined {
+    this.stats.rejected++;
+    this.stats.rejections.push(code);
+    this.conflicts.push(quote === undefined ? { field: key, value, note, code } : { field: key, value, quote, note, code });
     return undefined;
+  }
+
+  // رفض قيمة قُبلت ثم تبيّن تعارضها مع غيرها: تخرج من الدليل ومن المقترح (يحذفها المنادي)
+  drop(key: string, value: unknown, note: string, code: string) {
+    delete this.evidence[key];
+    this.miss(key);
+    this.reject(key, value, note, code);
+  }
+
+  // رفض عدة قيم متعارضة معاً بملاحظة واحدة؛ كل قيمة تُحسب رفضاً
+  dropAll(keys: string[], conflict: Conflict & { code: string }) {
+    for (const key of keys) {
+      delete this.evidence[key];
+      this.miss(key);
+      this.stats.rejected++;
+      this.stats.rejections.push(conflict.code);
+    }
+    this.conflicts.push(conflict);
+  }
+
+  // ملاحظة لا ترفض شيئاً: تُعرض للمدير ولا تدخل نسبة الرفض
+  note(conflict: Conflict) {
+    this.conflicts.push(conflict);
   }
 
   private async check(key: string, value: unknown, rule: Rule, quote: string): Promise<unknown> {
     switch (rule.kind) {
       case "string": {
-        if (typeof value !== "string") return this.reject(key, value, "نوع غير صحيح — المتوقع نص");
+        if (typeof value !== "string") return this.reject(key, value, "نوع غير صحيح — المتوقع نص", "type");
         const text = value.replace(/\s+/g, " ").trim();
         if (!text) return undefined;
-        if (text.length > (rule.max ?? 300)) return this.reject(key, value, "نص أطول من المسموح");
+        if (text.length > (rule.max ?? 300)) return this.reject(key, value, "نص أطول من المسموح", "too_long");
         return text;
       }
       case "number":
       case "int": {
         const n = typeof value === "number" ? value : Number(asciiDigits(String(value)).replace(/[,\s٬]/g, ""));
-        if (!Number.isFinite(n)) return this.reject(key, value, "ليست رقماً");
-        if (rule.kind === "int" && !Number.isInteger(n)) return this.reject(key, value, "المتوقع عدد صحيح");
+        if (!Number.isFinite(n)) return this.reject(key, value, "ليست رقماً", "type");
+        if (rule.kind === "int" && !Number.isInteger(n)) return this.reject(key, value, "المتوقع عدد صحيح", "type");
         if (n < rule.min || n > rule.max) {
-          return this.reject(key, value, `خارج المدى المعقول (${rule.min.toLocaleString("en")}–${rule.max.toLocaleString("en")})`);
+          return this.reject(key, value, `خارج المدى المعقول (${rule.min.toLocaleString("en")}–${rule.max.toLocaleString("en")})`, "range");
         }
         // الرقم نفسه يجب أن يُقرأ من الاقتباس: اقتباس حقيقي لا يحمل رقماً مؤلَّفاً
         if (!numbersIn(quote).some((q) => Math.abs(q - n) <= Math.max(0.5, Math.abs(n) * 0.005))) {
-          return this.reject(key, value, "الرقم لا يظهر في الاقتباس");
+          return this.reject(key, value, "الرقم لا يظهر في الاقتباس", "number_not_in_quote");
         }
         return n;
       }
       case "enum":
-        if (typeof value !== "string" || !rule.values.includes(value)) return this.reject(key, value, "قيمة غير معروفة");
+        if (typeof value !== "string" || !rule.values.includes(value)) return this.reject(key, value, "قيمة غير معروفة", "unknown_value");
         return value;
       case "date": {
-        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return this.reject(key, value, "تاريخ غير صالح");
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return this.reject(key, value, "تاريخ غير صالح", "bad_date");
         const d = new Date(value + "T00:00:00Z");
         const year = d.getUTCFullYear();
         if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value || year < 2000 || year > 2100) {
-          return this.reject(key, value, "تاريخ غير صالح");
+          return this.reject(key, value, "تاريخ غير صالح", "bad_date");
         }
         return value;
       }
       case "email": {
         const email = String(value).trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(email)) return this.reject(key, value, "بريد غير صالح");
-        if (!quote.toLowerCase().includes(email)) return this.reject(key, value, "البريد لا يظهر في الاقتباس");
+        if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(email)) return this.reject(key, value, "بريد غير صالح", "bad_email");
+        if (!quote.toLowerCase().includes(email)) return this.reject(key, value, "البريد لا يظهر في الاقتباس", "email_not_in_quote");
         return email;
       }
       case "phone": {
@@ -258,17 +304,17 @@ export class Checker {
         // الأرقام نفسها يجب أن تظهر في الاقتباس: لا رقم مؤلَّف من خارج المصدر
         const digits = digitsOnly(raw).replace(/^(00966|966|0)/, "");
         if (digits.length < 8 || !digitsOnly(quote).includes(digits)) {
-          return this.reject(key, value, "أرقام الجوال لا تظهر في الاقتباس");
+          return this.reject(key, value, "أرقام الجوال لا تظهر في الاقتباس", "phone_not_in_quote");
         }
         const normalized = await this.normalizePhone(raw);
-        if (!normalized || !PHONE_OK.test(normalized)) return this.reject(key, value, "رقم جوال غير صالح بعد التطبيع");
+        if (!normalized || !PHONE_OK.test(normalized)) return this.reject(key, value, "رقم جوال غير صالح بعد التطبيع", "bad_phone");
         return normalized;
       }
       case "strings": {
-        if (!Array.isArray(value)) return this.reject(key, value, "المتوقع قائمة");
+        if (!Array.isArray(value)) return this.reject(key, value, "المتوقع قائمة", "bad_list");
         const items = value.map((v) => String(v ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
         if (!items.length) return undefined;
-        if (items.length > 30 || items.some((v) => v.length > (rule.max ?? 80))) return this.reject(key, value, "قائمة غير معقولة");
+        if (items.length > 30 || items.some((v) => v.length > (rule.max ?? 80))) return this.reject(key, value, "قائمة غير معقولة", "bad_list");
         return [...new Set(items)];
       }
     }
@@ -331,13 +377,13 @@ export function mergeSuspicious(checker: Checker, fromModel: ModelSuspicious[] |
     seen.add(key);
     out.push(s);
   };
-  for (const s of scanned) add(s);
+  for (const s of scanned) add({ ...s, quote: checker.restore(s.quote) });
   for (const s of fromModel ?? []) {
     if (!s || typeof s.quote !== "string") continue;
     add({
-      quote: s.quote.slice(0, 500),
+      quote: checker.restore(s.quote).slice(0, 500),
       source_id: checker.source(s.source)?.id ?? null,
-      reason: String(s.reason || "نص مريب في المصدر").slice(0, 300),
+      reason: checker.restore(String(s.reason || "نص مريب في المصدر")).slice(0, 300),
     });
   }
   return out.slice(0, 30);
@@ -353,11 +399,11 @@ interface PhoneFound {
 }
 
 // رقم وُصف بأنه لمرسل الرسالة أو لجهة تواصل في كتيّب لا يصير جوال العميل.
-function foreignRole(phone: string, found: PhoneFound[] | undefined): string | null {
-  const digits = digitsOnly(phone).slice(-9);
+function foreignRole(phone: string, found: PhoneFound[] | undefined, restore: Restore): string | null {
+  const digits = digitsOnly(restore(phone)).slice(-9);
   for (const p of found ?? []) {
     if (p.role === "client") continue;
-    if (digitsOnly(p.number).slice(-9) === digits) return p.role;
+    if (digitsOnly(restore(String(p.number ?? ""))).slice(-9) === digits) return p.role;
   }
   return null;
 }
@@ -374,8 +420,8 @@ const ROLE_AR: Record<string, string> = {
 // deno-lint-ignore no-explicit-any
 type Json = any;
 
-export async function buildClientDraft(out: Json, sources: Src[], normalizePhone: PhoneNormalizer): Promise<DraftSpec> {
-  const c = new Checker(sources, normalizePhone);
+export async function buildClientDraft(out: Json, sources: Src[], normalizePhone: PhoneNormalizer, restore: Restore = same): Promise<DraftSpec> {
+  const c = new Checker(sources, normalizePhone, restore);
   const client = out?.client ?? {};
   const proposed: Record<string, unknown> = {};
 
@@ -396,12 +442,10 @@ export async function buildClientDraft(out: Json, sources: Src[], normalizePhone
   for (const key of ["phone", "phone_alt"]) {
     const raw = client[key]?.value;
     if (proposed[key] === undefined || typeof raw !== "string") continue;
-    const role = foreignRole(raw, out?.phones_found);
+    const role = foreignRole(raw, out?.phones_found, c.restore);
     if (role) {
-      c.conflicts.push({ field: key, value: raw, note: (ROLE_AR[role] ?? "رقم لا يخص العميل") + " — لا يُعتمد جوالاً للعميل" });
+      c.drop(key, c.restore(raw), (ROLE_AR[role] ?? "رقم لا يخص العميل") + " — لا يُعتمد جوالاً للعميل", "phone_role");
       delete proposed[key];
-      delete c.evidence[key];
-      if (!c.missing.includes(key)) c.missing.push(key);
     }
   }
   if (proposed.phone === undefined && proposed.phone_alt !== undefined) {
@@ -439,19 +483,17 @@ export async function buildClientDraft(out: Json, sources: Src[], normalizePhone
 
     for (const [lo, hi] of [["budget_min", "budget_max"], ["area_min", "area_max"]]) {
       if (typeof req[lo] === "number" && typeof req[hi] === "number" && (req[lo] as number) > (req[hi] as number)) {
-        c.conflicts.push({ field: "requirement." + lo, value: [req[lo], req[hi]], note: "الحد الأدنى أكبر من الأعلى — لم يُدرج أيٌّ منهما" });
-        for (const k of [lo, hi]) {
-          delete req[k];
-          delete c.evidence["requirement." + k];
-          c.missing.push("requirement." + k);
-        }
+        c.dropAll(["requirement." + lo, "requirement." + hi], {
+          field: "requirement." + lo, value: [req[lo], req[hi]], note: "الحد الأدنى أكبر من الأعلى — لم يُدرج أيٌّ منهما", code: "cross_field",
+        });
+        for (const k of [lo, hi]) delete req[k];
       }
     }
 
     if (req.purpose && req.property_type) {
       proposed.requirement = req;
     } else if (Object.keys(req).length) {
-      c.conflicts.push({ field: "requirement", note: "المصدر يذكر مطلباً عقارياً دون الغرض أو نوع العقار — لم يُرفق الطلب بالمسودة" });
+      c.note({ field: "requirement", note: "المصدر يذكر مطلباً عقارياً دون الغرض أو نوع العقار — لم يُرفق الطلب بالمسودة", code: "requirement_incomplete" });
     }
   }
 
@@ -465,13 +507,14 @@ export async function buildClientDraft(out: Json, sources: Src[], normalizePhone
     duplicates: [],
     suspicious: mergeSuspicious(c, out?.suspicious, scanSuspicious(sources)),
     baseline_hash: null,
+    stats: c.stats,
   };
 }
 
 /* ===================== المشروع ===================== */
 
-export async function buildProjectDraft(out: Json, sources: Src[], normalizePhone: PhoneNormalizer): Promise<DraftSpec> {
-  const c = new Checker(sources, normalizePhone);
+export async function buildProjectDraft(out: Json, sources: Src[], normalizePhone: PhoneNormalizer, restore: Restore = same): Promise<DraftSpec> {
+  const c = new Checker(sources, normalizePhone, restore);
   const p = out?.project ?? {};
   const proposed: Record<string, unknown> = {};
   const details: Record<string, unknown> = {};
@@ -498,13 +541,13 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
   await put(details, "construction_status", "details.construction_status", p.construction_status, { kind: "string", max: 60 });
   await put(details, "units_count", "details.units_count", p.units_count, COUNT);
   await put(details, "description", "details.description", p.description, LONG_TEXT);
+  const perM: Record<string, unknown> = {};
+  await put(perM, "price_per_m", "price_per_m", p.price_per_m, PRICE_PER_M);
 
   if ((proposed.latitude === undefined) !== (proposed.longitude === undefined)) {
-    c.conflicts.push({ field: "latitude", note: "إحداثية واحدة دون الأخرى — لم يُدرج الموقع" });
-    for (const k of ["latitude", "longitude"]) {
-      delete proposed[k];
-      delete c.evidence[k];
-    }
+    const present = proposed.latitude !== undefined ? "latitude" : "longitude";
+    c.dropAll([present], { field: "latitude", note: "إحداثية واحدة دون الأخرى — لم يُدرج الموقع", code: "cross_field" });
+    delete proposed[present];
   }
 
   const models: Record<string, unknown>[] = [];
@@ -521,11 +564,22 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
     await put(m, "price", base + "price", u.price, PRICE);
     await put(m, "count", base + "count", u.count, COUNT);
     await put(m, "status", base + "status", u.status, { kind: "enum", values: ["available", "sold", "reserved"] });
+    await put(m, "price_per_m", base + "price_per_m", u.price_per_m, PRICE_PER_M);
+    totalVsPerMetre(c, base, m);
     if (!Object.keys(m).length) continue;
     if (!m.name) m.name = "نموذج " + (models.length + 1);
     priceSanity(c, base, m.price, m.area);
     models.push(m);
   }
+  // عرض وحدة واحدة بلا نماذج: السعر والمساحة وسعر المتر على مستوى المشروع
+  if (!models.length) {
+    const offer = { price: proposed.price, area: proposed.area, price_per_m: perM.price_per_m };
+    totalVsPerMetre(c, "", offer);
+    if (offer.price === undefined) delete proposed.price;
+  } else {
+    delete c.evidence.price_per_m;
+  }
+  c.missing = c.missing.filter((k) => k !== "price_per_m");
   // الناقص من حقول الوحدات كثير بطبيعته؛ يكفي ذكره مجمّعاً لا حقلاً حقلاً
   c.missing = c.missing.filter((k) => !k.startsWith("units."));
 
@@ -537,7 +591,7 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
   if (typeof proposed.price === "number" && unitPrices.length) {
     const cheapest = Math.min(...unitPrices);
     if ((proposed.price as number) > cheapest) {
-      c.conflicts.push({ field: "price", value: proposed.price, note: `سعر البداية أعلى من أرخص وحدة (${cheapest.toLocaleString("en")}) — راجع أيهما الصحيح` });
+      c.note({ field: "price", value: proposed.price, note: `سعر البداية أعلى من أرخص وحدة (${cheapest.toLocaleString("en")}) — راجع أيهما الصحيح`, code: "price_order" });
     }
   }
   priceSanity(c, "", proposed.price, undefined);
@@ -552,7 +606,31 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
     duplicates: [],
     suspicious: mergeSuspicious(c, out?.suspicious, scanSuspicious(sources)),
     baseline_hash: null,
+    stats: c.stats,
   };
+}
+
+// سعر المتر كما يذكره المصدر: يُقرأ للتحقق فقط ولا يُحفظ (السعر والمساحة هما المحفوظان)
+const PRICE_PER_M = { kind: "number", min: 100, max: 200_000 } as const;
+
+// السعر الإجمالي والمساحة وسعر المتر معاً في المصدر: إن لم يتفقوا (هامش 3%) فالمصدر أو القراءة
+// متناقضة، فلا يُدرج السعر ولا سعر المتر ويُعرض التناقض للمدير. المساحة تبقى.
+function totalVsPerMetre(c: Checker, base: string, m: Record<string, unknown>) {
+  const { price, area, price_per_m: perM } = m as { price?: unknown; area?: unknown; price_per_m?: unknown };
+  if (typeof price === "number" && typeof area === "number" && typeof perM === "number" && area > 0) {
+    const expected = area * perM;
+    if (Math.abs(price - expected) > price * 0.03) {
+      c.dropAll([base + "price", base + "price_per_m"], {
+        field: base + "price",
+        value: { price, area, price_per_m: perM },
+        note: `السعر الإجمالي ${price.toLocaleString("en")} لا يساوي المساحة × سعر المتر (${area.toLocaleString("en")} × ${perM.toLocaleString("en")} = ${Math.round(expected).toLocaleString("en")}) — لم يُدرج السعر ولا سعر المتر`,
+        code: "cross_field",
+      });
+      delete m.price;
+    }
+  }
+  delete m.price_per_m;
+  delete c.evidence[base + "price_per_m"];
 }
 
 // سعر المتر خارج 500–100,000 ريال علامة على خطأ قراءة. لا يُسقط القيمة: يُعرض تعارضاً.
@@ -560,7 +638,7 @@ function priceSanity(c: Checker, base: string, price: unknown, area: unknown) {
   if (typeof price !== "number" || typeof area !== "number" || area <= 0) return;
   const perM = price / area;
   if (perM < 500 || perM > 100_000) {
-    c.conflicts.push({ field: base + "price", value: price, note: `سعر المتر ${Math.round(perM).toLocaleString("en")} ريال غير معقول — تحقق من السعر والمساحة` });
+    c.note({ field: base + "price", value: price, note: `سعر المتر ${Math.round(perM).toLocaleString("en")} ريال غير معقول — تحقق من السعر والمساحة`, code: "price_sanity" });
   }
 }
 
@@ -572,10 +650,10 @@ export interface UpdateTarget {
   unit_name?: string;
 }
 
-export function updateTarget(out: Json): UpdateTarget {
+export function updateTarget(out: Json, restore: Restore = same): UpdateTarget {
   const t = out?.target ?? {};
   const val = (f: Field | undefined) =>
-    f && !f.inferred && typeof f.value === "string" && f.value.trim() ? f.value.trim() : undefined;
+    f && !f.inferred && typeof f.value === "string" && f.value.trim() ? restore(f.value.trim()) : undefined;
   return { project_name: val(t.project_name), district: val(t.district), unit_name: val(t.unit_name) };
 }
 
@@ -618,8 +696,9 @@ export async function buildUpdateDraft(
   targetId: string,
   current: Record<string, unknown>,
   baselineHash: string,
+  restore: Restore = same,
 ): Promise<DraftSpec | null> {
-  const c = new Checker(sources, normalizePhone);
+  const c = new Checker(sources, normalizePhone, restore);
   const proposed: Record<string, unknown> = {};
   const details: Record<string, unknown> = {};
   const changes: Json[] = (Array.isArray(out?.changes) ? out.changes : []).filter((ch: Json) => ch?.scope === scope);
@@ -629,10 +708,19 @@ export async function buildUpdateDraft(
     const f: Field = { value: ch.value, quote: ch.quote, page: ch.page, source: ch.source, inferred: Boolean(ch.inferred) };
     let evKey: string;
     let rule: Rule;
+    const hasValue = ch.value !== null && ch.value !== undefined && ch.value !== "" && !ch.inferred;
+    const refuse = (key: string, note: string, code: string, quote?: string) => {
+      if (hasValue) {
+        c.stats.returned++;
+        c.stats.rejected++;
+        c.stats.rejections.push(code);
+      }
+      c.note({ field: key, value: c.original(ch.value), ...(quote === undefined ? {} : { quote }), note, code });
+    };
     if (scope === "project") {
       const spec = PROJECT_RULES[ch.field];
       if (!spec) {
-        c.conflicts.push({ field: String(ch.field), value: ch.value, note: "حقل لا يُحدَّث على مستوى المشروع" });
+        refuse(String(ch.field), "حقل لا يُحدَّث على مستوى المشروع", "unsupported_field");
         continue;
       }
       evKey = spec.key;
@@ -640,14 +728,14 @@ export async function buildUpdateDraft(
     } else {
       const r = UNIT_RULES[ch.field];
       if (!r) {
-        c.conflicts.push({ field: String(ch.field), value: ch.value, note: "حقل لا يُحدَّث على مستوى الوحدة" });
+        refuse(String(ch.field), "حقل لا يُحدَّث على مستوى الوحدة", "unsupported_field");
         continue;
       }
       evKey = ch.field;
       rule = r;
     }
     if (c.evidence[evKey]) {
-      c.conflicts.push({ field: evKey, value: ch.value, quote: ch.quote, note: "المصدر يذكر قيمتين لهذا الحقل — أُخذت الأولى" });
+      refuse(evKey, "المصدر يذكر قيمتين لهذا الحقل — أُخذت الأولى", "source_conflict", c.restore(String(ch.quote ?? "")));
       continue;
     }
     const v = await c.take(evKey, f, rule);
@@ -657,7 +745,7 @@ export async function buildUpdateDraft(
       ? (current.details as Record<string, unknown> | undefined)?.[evKey.slice(8)]
       : current[evKey];
     c.evidence[evKey].before = before ?? null;
-    c.evidence[evKey].reason = typeof ch.reason === "string" ? ch.reason.slice(0, 300) : null;
+    c.evidence[evKey].reason = typeof ch.reason === "string" ? c.restore(ch.reason).slice(0, 300) : null;
     if (evKey.startsWith("details.")) details[evKey.slice(8)] = v;
     else proposed[evKey] = v;
   }
@@ -677,6 +765,7 @@ export async function buildUpdateDraft(
     duplicates: [],
     suspicious: mergeSuspicious(c, out?.suspicious, scanSuspicious(sources)),
     baseline_hash: baselineHash,
+    stats: c.stats,
   };
 }
 

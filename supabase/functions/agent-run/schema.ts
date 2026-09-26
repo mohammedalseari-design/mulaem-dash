@@ -86,6 +86,7 @@ const unit = obj({
   bathrooms: int,
   area: num,
   price: num,
+  price_per_m: num, // للتحقق فقط: السعر ≈ المساحة × سعر المتر
   count: int,
   status: en(["available", "sold", "reserved"]),
 });
@@ -100,6 +101,7 @@ export const PROJECT_SCHEMA: Schema = obj({
     address: str,
     developer: str,
     starting_price: num,
+    price_per_m: num,
     area: num,
     latitude: num,
     longitude: num,
@@ -163,6 +165,8 @@ Extract only what a source states.
 - Every non-null value needs "quote": the shortest exact span copied character-for-character from the source that states it (keep the original digits and spelling), "source": the source id, and "page": the 1-based PDF page, or null for non-PDF sources.
 - If a value is not written explicitly but you derived it (computed it, converted units, read it off a map, assumed a city from a district), set inferred to true. Inferred values are shown to the manager but never saved, so do not present them as stated facts.
 - Keep numbers as plain numbers in SAR and square metres (e.g. "1.2 مليون" → 1200000, "950 ألف" → 950000). Dates as YYYY-MM-DD; if only a year or quarter is given, leave the date null and mention it in description or notes.
+- price_per_m is the price per square metre only when a source states it (سعر المتر). Never compute it, and never compute a total price from it; copy each number exactly as the source states it, even if they do not agree.
+- Phone numbers and e-mail addresses in sources appear as placeholders like [PHONE_1] or [EMAIL_1]; copy a placeholder exactly as written wherever you would copy the number or address.
 
 Keep separate things separate.
 - Project vs unit: project-level facts (name, developer, district, the project's "starting from" price) go in project; each unit model or unit type goes in units with its own price, area, rooms and count. starting_price is only a price the source presents as the project's starting/from price — never copy a unit's price into it.

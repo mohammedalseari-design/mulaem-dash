@@ -71,7 +71,7 @@ export async function renderApprovals(root) {
         let query = supabase
             .from('agent_requests')
             .select('id, kind, title, status, created_at, requested_by, agent_sources(id, kind),'
-                + ' ' + embed + '(id, status, target_kind, target_id)', { count: 'exact' })
+                + ' ' + embed + '(id, status, target_kind, target_id, conflicts)', { count: 'exact' })
             .order('created_at', { ascending: false })
             .range(from, to);
         if (view.status) query = query.eq('agent_drafts.status', view.status);
@@ -309,6 +309,7 @@ function queueTable(rows, names) {
         }, [
             el('td', {}, [
                 el('strong', { text: label(AGENT_KIND, row.kind) }),
+                drafts.some((d) => priceAlerts(d).length) ? badge('تنبيه سعر', 'red') : null,
                 row.title ? el('div', { class: 'crm-subtle', text: row.title }) : null
             ]),
             el('td', { text: staffName(names, row.requested_by) }),
@@ -320,6 +321,14 @@ function queueTable(rows, names) {
         ]));
     }
     return el('table', { class: 'users-table crm-table' }, [head, body]);
+}
+
+// كل ملاحظة للمدقق على حقل سعر: سعر لم يُستخرج (نصه في الملاحظات)، أو أُسقط بتعارض أو لأنه مستنتج،
+// أو سعر متر بلا إجمالي، أو سعر غير معقول
+const PRICE_FIELD = /(^|\.)(price|price_per_m)$/;
+function priceAlerts(draft) {
+    return (Array.isArray(draft.conflicts) ? draft.conflicts : [])
+        .filter((c) => c && PRICE_FIELD.test(String(c.field || '')));
 }
 
 function statusBadges(drafts) {
@@ -406,6 +415,14 @@ function draftCard(draft, names, reload) {
         badge(label(DRAFT_STATUS, draft.status), DRAFT_STATUS_TONE[draft.status] || 'neutral'),
         el('span', { class: 'crm-subtle', text: 'أعدّها ' + staffName(names, draft.created_by) })
     ]));
+
+    const alerts = priceAlerts(draft);
+    if (alerts.length) {
+        card.appendChild(el('div', { class: 'crm-warn-box' }, [
+            el('strong', { text: 'تنبيه السعر — راجعه قبل الاعتماد' }),
+            el('ul', { class: 'agent-list' }, alerts.map((c) => el('li', { text: c.note + (c.quote ? ' — ' + c.quote : '') })))
+        ]));
+    }
 
     const fieldsBox = el('div');
     card.appendChild(fieldsBox);
@@ -495,7 +512,7 @@ function fieldsTable(draft, current) {
 }
 
 // وحدات المشروع المقترحة: صف لكل نموذج، والدليل مجمَّع أسفل الجدول لكل خلية لها اقتباس.
-const UNIT_COLUMNS = ['name', 'type', 'rooms', 'bathrooms', 'area', 'price', 'count', 'status'];
+const UNIT_COLUMNS = ['name', 'type', 'rooms', 'bathrooms', 'area', 'price', 'price_per_m', 'count', 'status'];
 
 function unitsTable(models, evidence, skipped) {
     const head = el('thead', {}, el('tr', {}, UNIT_COLUMNS.map((c) => el('th', { text: label(AGENT_FIELD, c, c) }))));

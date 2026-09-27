@@ -1,25 +1,28 @@
-// ‎#/whatsapp‎ — «عروض واتساب» (للمدير): مراجعة العروض الجديدة في مجموعات واتساب واختيار ما يُضاف.
+// ‎#/whatsapp‎ — «عروض واتساب» (للمدير): مراجعة العروض الجديدة في مجموعات واتساب وإرسال المختار منها
+// إلى المساعد الذكي، فيصير كل عرض طلباً «أضف هذا العرض كمشروع جديد» ومسودةً تنتظر الاعتماد.
 //
 // المصدر ملف «تصدير الدردشة» الذي يصدّره المالك من هاتفه — الواجهة الرسمية لا تقرأ المجموعات.
-// قراءة الملف وفرز العروض تتم في المتصفح بالكامل؛ لا يُرفع شيء إلى الخادم من هذه الصفحة.
+// قراءة الملف وفرز العروض تتم في المتصفح؛ لا يُرفع إلى النظام إلا نص العرض المرسل للمساعد.
 //
-// الإدخال يدوي بقرار المالك (2026-09-25): لا استخراج آلي في النظام. المدير يختار العروض هنا
-// وينزّلها ملفاً واحداً، ثم تُستخرج بياناتها وتُدخل المشاريع «معلّقة» عبر استيراد المشاريع،
-// فتمر على الاعتماد في اللوحة كأي مشروع.
+// قرار المالك (2026-09-27): استيراد واتساب يمر عبر المساعد وحده. مسودات طلبات المدير تدخل «بانتظار
+// الاعتماد» مباشرة (agent-run). ما أُرسل سابقاً يُعرف ببصمة نص المصدر (agent_sources.sha256) فلا يُرسل
+// مرتين، والمشروع الموجود في النظام تكشفه المسودة تحت «مكرّرات محتملة».
 //
 // ما الجديد؟ لكل مجموعة مؤشر «آخر مراجعة» في crm_settings (مفتاح wa_cursor:<المجموعة>).
 // «إنهاء المراجعة» يقدّمه إلى آخر رسالة في الملف، فلا يظهر ما قبلها في المرة القادمة.
 
 import { supabase } from './supabase.js';
 import { myId } from './auth.js';
+import { sha256Hex, createRequest, startExtraction, extractionStatus } from './agent.js';
 import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
-import { el, replace, clear, notify, fail, errorText, badge, empty } from './ui.js';
+import { el, replace, clear, notify, fail, errorText, badge, empty, localDayStart } from './ui.js';
 
 const CURSOR_PREFIX = 'wa_cursor:';
 const PAGE = 25;
 const FIRST_LOOK_DAYS = 7;   // مجموعة بلا مراجعة سابقة: آخر أسبوع من الملف فقط
+const INSTRUCTION = 'أضف هذا العرض كمشروع جديد';
 
 const KIND_AR = { offer: 'عرض', update: 'تحديث', document: 'مستند', wanted: 'طلب شراء', other: 'رسالة أخرى' };
 const KIND_TONE = { offer: 'green', update: 'blue', document: 'gold', wanted: 'orange', other: 'neutral' };
@@ -112,9 +115,36 @@ function fileLoaders(fileList) {
     return loaders;
 }
 
-/* ===================== ملف الاختيارات ===================== */
+/* ===================== نص المصدر وبصمته ===================== */
 
-// سجل واحد لكل عرض مختار، كما يُسلَّم لمن يُدخل البيانات.
+// النص الذي يُرفع إلى المساعد. ثابت لنفس الرسالة، فبصمته تكشف إعادة الإرسال
+// حين يُرفع تصدير جديد يتداخل مع القديم.
+function sourceTextOf(group, block) {
+    const lines = [
+        'مصدر: مجموعة واتساب «' + group + '»',
+        'المرسل: ' + (block.sender || 'غير معروف'),
+        'وقت النشر: ' + showStamp(block.at)
+    ];
+    if (block.documents.length) lines.push('مستندات أُرسلت مع الرسالة ولم تُصدَّر: ' + block.documents.join('، '));
+    else if (block.media && !block.attachments.length) lines.push('في الرسالة صور أو وسائط لم تُصدَّر.');
+    return lines.join('\n') + '\n----\n' + block.text;
+}
+
+async function textHash(text) {
+    return sha256Hex(new TextEncoder().encode(text).buffer);
+}
+
+// عنوان الطلب: أول سطر فيه كلام، لا سطر رموز («👏:») ولا اسم مستند
+function titleOf(group, block) {
+    const first = (block.text || '').split('\n').map((s) => s.replace(/[*_~]/g, '').trim())
+        .find((s) => /[\u0621-\u064aA-Za-z]{3,}/.test(s) && !/\.pdf\b/i.test(s)) || 'عرض';
+    const title = 'واتساب · ' + group + ' · ' + first;
+    return title.length > 110 ? title.slice(0, 109) + '…' : title;
+}
+
+/* ===================== النسخ ===================== */
+
+// سجل واحد لكل عرض، لنسخ نصه كما نُشر.
 function pickRecord(item) {
     const block = item.main.block;
     const others = [...new Set(item.copies.filter((c) => c !== item.main).map((c) => c.source.group))];
@@ -138,15 +168,6 @@ function pickText(record) {
     return head + '\n' + record.text + docs;
 }
 
-function downloadBlob(name, blob) {
-    const url = URL.createObjectURL(blob);
-    const a = el('a', { href: url, download: name });
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
 /* ===================== الصفحة ===================== */
 
 export async function renderWhatsApp(root) {
@@ -154,10 +175,15 @@ export async function renderWhatsApp(root) {
         sources: [],        // المصادر المقروءة
         cursors: {},        // المجموعة → { last_at, reviewed_at }
         items: [],          // العروض بعد دمج المكرّر
-        exported: new Set(),// ما نُزّل أو نُسخ في هذه الجلسة
+        sent: new Map(),    // البصمة → { request_id, status } مما أُرسل للمساعد سابقاً
+        copied: new Set(),  // ما نُسخ في هذه الجلسة
         selected: new Set(),
         shown: PAGE,
-        filters: { group: '', kinds: new Set(['offer', 'update', 'document']), since: 'cursor', hideExported: true, q: '' }
+        filters: { group: '', kinds: new Set(['offer', 'update', 'document']), since: 'cursor', hideSent: true, q: '' },
+        remaining: null,    // ما بقي من حد طلبات المساعد اليومي
+        cap: 20,
+        extraction: null,   // هل الاستخراج مفعّل (المفتاح مضبوط)
+        sending: false
     };
 
     const fileInput = el('input', { type: 'file', multiple: true, accept: '.zip,.txt' });
@@ -169,15 +195,16 @@ export async function renderWhatsApp(root) {
     const list = el('div', { class: 'wa-list' });
     const more = el('div', { class: 'wa-more' });
     const barCount = el('span', { text: 'لا شيء محدد' });
-    const downloadBtn = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'تنزيل المحدد', disabled: true, onclick: () => exportSelected('download') });
-    const copyBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'نسخ المحدد', disabled: true, onclick: () => exportSelected('copy') });
+    const barQuota = el('span', { class: 'crm-subtle' });
+    const sendBtn = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'إرسال للمساعد', disabled: true, onclick: sendSelected });
+    const copyBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'نسخ المحدد', disabled: true, onclick: copySelected });
     const bar = el('div', { class: 'wa-bar', hidden: true }, [
-        el('div', { class: 'wa-bar-info' }, [barCount]),
+        el('div', { class: 'wa-bar-info' }, [barCount, barQuota]),
         el('div', { class: 'wa-bar-actions' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تحديد الظاهر', onclick: selectVisible }),
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء التحديد', onclick: () => { page.selected.clear(); drawList(); } }),
             copyBtn,
-            downloadBtn
+            sendBtn
         ])
     ]);
 
@@ -188,18 +215,18 @@ export async function renderWhatsApp(root) {
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [
                 el('h2', { text: 'عروض واتساب' }),
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/imports', text: 'استيراد المشاريع' })
+                el('a', { class: 'btn btn-outline btn-sm', href: '#/approvals', text: 'طلبات الاعتماد' })
             ]),
             el('p', { class: 'crm-subtle', text: 'ارفع تصدير محادثات المجموعات، فيظهر لك ما نُشر بعد آخر مراجعة مصنّفاً ومن غير تكرار. '
-                + 'حدّد العروض المهمة ونزّلها ملفاً واحداً، فتُستخرج بياناتها وتُدخل المشاريع معلّقة في «استيراد المشاريع» لتعتمدها من اللوحة.' }),
+                + 'حدّد العروض واضغط «إرسال للمساعد»: يصير كل عرض طلباً للمساعد الذكي، وتظهر مسودته في «طلبات الاعتماد» خلال دقائق لتعتمدها قبل أن تدخل المخزون.' }),
             el('details', { class: 'wa-howto' }, [
                 el('summary', { text: 'كيف أصدّر المحادثة من واتساب؟' }),
                 el('ol', {}, [
                     el('li', { text: 'افتح المجموعة في واتساب، ثم اضغط على اسمها في الأعلى.' }),
-                    el('li', { text: 'انزل إلى «تصدير الدردشة» واختر «بدون وسائط» لملف أصغر، أو «إرفاق الوسائط» إن أردت الصور والبروشورات.' }),
+                    el('li', { text: 'انزل إلى «تصدير الدردشة» واختر «بدون وسائط» — المساعد يقرأ نص العرض، والصور والمستندات لا تُرسل من هنا.' }),
                     el('li', { text: 'احفظ الملف (zip) في جهازك أو أرسله لنفسك، ثم ارفعه هنا. يمكن رفع عدة مجموعات معاً، أو اختيار مجلد فيه كل التصديرات.' })
                 ]),
-                el('p', { class: 'crm-subtle', text: 'قراءة الملف تتم في متصفحك. لا يُرفع شيء إلى النظام من هذه الصفحة؛ ملف الاختيارات يُحفظ في جهازك.' })
+                el('p', { class: 'crm-subtle', text: 'قراءة الملف تتم في متصفحك. لا يُرفع إلى النظام إلا نص العرض الذي ترسله للمساعد.' })
             ]),
             el('div', { class: 'crm-import-files' }, [
                 el('label', { class: 'crm-import-file' }, [el('strong', { text: 'ملفات التصدير' }), fileInput,
@@ -213,6 +240,9 @@ export async function renderWhatsApp(root) {
         el('div', { class: 'crm-card' }, [listHead, list, more]),
         bar
     ]);
+
+    refreshQuota();
+    extractionStatus(true).then((st) => { page.extraction = st; drawBar(); });
 
     /* ---------- التحميل ---------- */
 
@@ -234,7 +264,7 @@ export async function renderWhatsApp(root) {
             }
         }
         await loadCursors();
-        buildItems();
+        await buildItems();
         status.textContent = 'مجموعات مقروءة: ' + page.sources.length + (problems.length ? ' — تعذّر: ' + problems.join('، ') : '');
         page.shown = PAGE;
         drawSummary();
@@ -261,13 +291,13 @@ export async function renderWhatsApp(root) {
 
     // كتل كل المصادر ← عناصر، والعرض المنشور في أكثر من مجموعة أو أكثر من مرة يصير عنصراً واحداً
     // يحمل أحدث نسخة، مع قائمة الأماكن الأخرى التي نُشر فيها.
-    function buildItems() {
+    async function buildItems() {
         const byKey = new Map();
         const items = [];
         let n = 0;
         for (const source of page.sources) {
             for (const block of source.blocks) {
-                const copy = { source: source, block: block };
+                const copy = { source: source, block: block, text: sourceTextOf(source.group, block) };
                 const norm = block.text ? normalizeForDedupe(block.text) : '';
                 const key = norm.length >= 20 && block.kind !== 'other' ? norm : null;
                 const existing = key ? byKey.get(key) : null;
@@ -276,7 +306,7 @@ export async function renderWhatsApp(root) {
                     if (block.lastAt > existing.main.block.lastAt) existing.main = copy;
                     continue;
                 }
-                const item = { id: 'i' + (n++), main: copy, copies: [copy] };
+                const item = { id: 'i' + (n++), main: copy, copies: [copy], sentRequest: null };
                 if (key) byKey.set(key, item);
                 items.push(item);
             }
@@ -284,11 +314,63 @@ export async function renderWhatsApp(root) {
         items.sort((a, b) => (a.main.block.lastAt < b.main.block.lastAt ? 1 : -1));
         page.items = items;
         page.selected.clear();
-        page.exported.clear();
+        page.copied.clear();
+        await refreshSent();
     }
 
     function isNew(item) {
         return item.copies.some((c) => c.block.lastAt > threshold(c.source));
+    }
+
+    // ما أُرسل سابقاً: بصمات نصوص المصدر في agent_sources. الطلب الفاشل أو الملغى لا يُحسب مرسلاً.
+    async function refreshSent() {
+        const candidates = page.items.filter(isNew);
+        for (const item of candidates) {
+            for (const copy of item.copies) if (!copy.hash) copy.hash = await textHash(copy.text);
+        }
+        const hashes = [...new Set(candidates.flatMap((i) => i.copies.map((c) => c.hash)).filter(Boolean))]
+            .filter((h) => !page.sent.has(h));
+        for (let i = 0; i < hashes.length; i += 100) {
+            const chunk = hashes.slice(i, i + 100);
+            const { data, error } = await supabase.from('agent_sources')
+                .select('sha256, request_id, agent_requests(status)').in('sha256', chunk);
+            if (error) { fail(error, 'تعذّر التحقق مما أُرسل سابقاً'); return; }
+            for (const row of data || []) {
+                const st = row.agent_requests ? row.agent_requests.status : null;
+                const prev = page.sent.get(row.sha256);
+                if (prev && prev.status !== 'failed' && prev.status !== 'cancelled') continue;
+                page.sent.set(row.sha256, { request_id: row.request_id, status: st });
+            }
+        }
+    }
+
+    function sentInfo(item) {
+        if (item.sentRequest) return { request_id: item.sentRequest, status: 'queued' };
+        let failed = null;
+        for (const copy of item.copies) {
+            const info = copy.hash ? page.sent.get(copy.hash) : null;
+            if (!info) continue;
+            if (info.status === 'failed' || info.status === 'cancelled') failed = info;
+            else return info;
+        }
+        return failed ? Object.assign({ failed: true }, failed) : null;
+    }
+
+    function isSent(item) {
+        const info = sentInfo(item);
+        return Boolean(info && !info.failed);
+    }
+
+    // الحد اليومي لطلبات المساعد لكل مستخدم (القاعدة تفرضه؛ هنا للعرض ولإيقاف الإرسال قبله)
+    async function refreshQuota() {
+        const [capRes, countRes] = await Promise.all([
+            supabase.rpc('agent_daily_cap'),
+            supabase.from('agent_requests').select('id', { count: 'exact', head: true })
+                .eq('requested_by', myId()).gte('created_at', localDayStart(0))
+        ]);
+        if (!capRes.error && Number.isInteger(capRes.data)) page.cap = capRes.data;
+        page.remaining = countRes.error ? null : Math.max(0, page.cap - (countRes.count || 0));
+        drawBar();
     }
 
     /* ---------- ملخص المجموعات ---------- */
@@ -305,7 +387,7 @@ export async function renderWhatsApp(root) {
         for (const source of sorted) {
             const cursor = page.cursors[source.group];
             const fresh = page.items.filter((item) => item.main.source === source && isNew(item)
-                && ['offer', 'update', 'document'].includes(item.main.block.kind)).length;
+                && ['offer', 'update', 'document'].includes(item.main.block.kind) && !isSent(item)).length;
             body.appendChild(el('tr', {}, [
                 el('td', {}, el('button', { type: 'button', class: 'wa-link', text: source.group,
                     onclick: () => { page.filters.group = source.group; page.shown = PAGE; drawList(); } })),
@@ -320,7 +402,7 @@ export async function renderWhatsApp(root) {
             el('div', { class: 'crm-import-preview' }, table),
             el('div', { class: 'wa-finish' }, [
                 finish,
-                el('small', { class: 'crm-subtle', text: 'يحفظ آخر رسالة في كل ملف كنقطة مراجعة؛ ما لم تختره قبلها لن يظهر في «منذ آخر مراجعة» بعد ذلك.' })
+                el('small', { class: 'crm-subtle', text: 'يحفظ آخر رسالة في كل ملف كنقطة مراجعة؛ ما لم ترسله قبلها لن يظهر في «منذ آخر مراجعة» بعد ذلك.' })
             ])
         ]);
     }
@@ -339,6 +421,7 @@ export async function renderWhatsApp(root) {
         if (error) return void fail(error, 'تعذّر حفظ نقطة المراجعة');
         notify('حُفظت نقطة المراجعة لـ ' + rows.length + ' مجموعة', 'success');
         await loadCursors();
+        await refreshSent();
         drawSummary();
         drawList();
     }
@@ -353,7 +436,7 @@ export async function renderWhatsApp(root) {
             if (f.group && !item.copies.some((c) => c.source.group === f.group)) return false;
             if (!f.kinds.has(block.kind)) return false;
             if (!isNew(item)) return false;
-            if (f.hideExported && page.exported.has(item.id)) return false;
+            if (f.hideSent && isSent(item)) return false;
             if (q && normalizeForDedupe(block.text + ' ' + block.sender).indexOf(q) === -1) return false;
             return true;
         });
@@ -368,7 +451,11 @@ export async function renderWhatsApp(root) {
 
         const sinceSel = el('select', {}, SINCE_OPTIONS.map((o) => el('option', { value: o.value, text: o.label })));
         sinceSel.value = f.since;
-        sinceSel.addEventListener('change', () => { f.since = sinceSel.value; page.shown = PAGE; drawSummary(); drawList(); });
+        sinceSel.addEventListener('change', async () => {
+            f.since = sinceSel.value; page.shown = PAGE;
+            await refreshSent();
+            drawSummary(); drawList();
+        });
 
         const search = el('input', { type: 'search', placeholder: 'بحث في النص أو المرسل…', value: f.q });
         let timer = null;
@@ -385,13 +472,13 @@ export async function renderWhatsApp(root) {
             });
             return el('label', { class: 'chip' + (f.kinds.has(kind) ? ' on' : '') }, [box, KIND_AR[kind]]);
         }));
-        const hideBox = el('input', { type: 'checkbox', checked: f.hideExported });
-        hideBox.addEventListener('change', () => { f.hideExported = hideBox.checked; page.shown = PAGE; drawList(); });
+        const hideBox = el('input', { type: 'checkbox', checked: f.hideSent });
+        hideBox.addEventListener('change', () => { f.hideSent = hideBox.checked; page.shown = PAGE; drawList(); });
 
         return { node: el('div', {}, [
             el('div', { class: 'crm-toolbar' }, [groupSel, sinceSel, search]),
             el('div', { class: 'wa-filter-row' }, [kindChips,
-                el('label', { class: 'chip' + (f.hideExported ? ' on' : '') }, [hideBox, 'إخفاء ما نُزّل'])])
+                el('label', { class: 'chip' + (f.hideSent ? ' on' : '') }, [hideBox, 'إخفاء ما أُرسل للمساعد'])])
         ]), search: search };
     }
 
@@ -431,9 +518,10 @@ export async function renderWhatsApp(root) {
     function card(item) {
         const block = item.main.block;
         const source = item.main.source;
-        const exported = page.exported.has(item.id);
+        const info = sentInfo(item);
+        const sent = Boolean(info && !info.failed);
 
-        const check = el('input', { type: 'checkbox', checked: page.selected.has(item.id) });
+        const check = el('input', { type: 'checkbox', checked: page.selected.has(item.id), disabled: sent });
         check.addEventListener('change', () => {
             if (check.checked) page.selected.add(item.id); else page.selected.delete(item.id);
             node.classList.toggle('wa-selected', check.checked);
@@ -446,7 +534,9 @@ export async function renderWhatsApp(root) {
         if (block.attachments.length) badges.push(badge(block.attachments.length + ' مرفق', 'blue'));
         else if (block.documents.length) badges.push(badge('مستند لم يُصدَّر', 'orange'));
         else if (block.media) badges.push(badge('صور لم تُصدَّر', 'neutral'));
-        if (exported) badges.push(badge('نُزّل', 'green'));
+        if (sent) badges.push(badge('أُرسل للمساعد', 'green'));
+        else if (info && info.failed) badges.push(badge('فشل إرسال سابق', 'red'));
+        if (page.copied.has(item.id)) badges.push(badge('نُسخ', 'neutral'));
 
         const text = el('div', { class: 'agent-text wa-text', text: block.text || '(وسائط بلا نص)' });
         const long = (block.text || '').split('\n').length > 9 || (block.text || '').length > 600;
@@ -455,10 +545,11 @@ export async function renderWhatsApp(root) {
         const actions = [
             long ? el('button', { type: 'button', class: 'wa-link', text: 'عرض كامل النص',
                 onclick: (e) => { text.classList.toggle('wa-clamped'); e.currentTarget.textContent = text.classList.contains('wa-clamped') ? 'عرض كامل النص' : 'طيّ النص'; } }) : null,
-            el('button', { type: 'button', class: 'wa-link', text: 'نسخ النص', onclick: () => copyText(pickText(pickRecord(item))) })
+            el('button', { type: 'button', class: 'wa-link', text: 'نسخ النص', onclick: () => copyText(pickText(pickRecord(item))) }),
+            info ? el('a', { class: 'wa-link', href: '#/assistant/' + info.request_id, text: 'فتح الطلب' }) : null
         ];
 
-        const node = el('div', { class: 'agent-source wa-card' + (page.selected.has(item.id) ? ' wa-selected' : '') + (exported ? ' wa-sent' : '') }, [
+        const node = el('div', { class: 'agent-source wa-card' + (page.selected.has(item.id) ? ' wa-selected' : '') + (sent ? ' wa-sent' : '') }, [
             el('div', { class: 'agent-source-head' }, [
                 el('label', { class: 'wa-pick' }, [check]),
                 el('strong', { text: source.group }),
@@ -492,30 +583,63 @@ export async function renderWhatsApp(root) {
         drawList();
     }
 
+    function sendingBlocked() {
+        return Boolean(page.extraction && page.extraction.reachable && !page.extraction.enabled);
+    }
+
     function drawBar() {
         const n = page.selected.size;
         barCount.textContent = n ? 'المحدد: ' + n : 'لا شيء محدد';
-        downloadBtn.disabled = n === 0;
+        barQuota.textContent = sendingBlocked() ? 'الإرسال متوقف: الاستخراج التلقائي غير مفعّل'
+            : page.remaining === null ? '' : 'المتبقي من طلبات المساعد اليوم: ' + page.remaining + ' من ' + page.cap;
+        sendBtn.disabled = n === 0 || page.sending || sendingBlocked() || page.remaining === 0;
         copyBtn.disabled = n === 0;
     }
 
-    /* ---------- التسليم ---------- */
+    /* ---------- النسخ والإرسال ---------- */
 
-    // المحدد ← ملف JSON واحد في جهاز المدير (أو نص في الحافظة). لا شيء يُرسل إلى الخادم.
-    async function exportSelected(mode) {
+    async function copySelected() {
         const chosen = page.items.filter((item) => page.selected.has(item.id));
         if (!chosen.length) return;
-        const records = chosen.map(pickRecord);
-        if (mode === 'copy') {
-            const ok = await copyText(records.map(pickText).join('\n\n'));
-            if (!ok) return;
-        } else {
-            const stamp = nowStamp().replace(/[-:T]/g, '').slice(0, 12);
-            const payload = { generated_at: new Date().toISOString(), count: records.length, picks: records };
-            downloadBlob('mulaem-whatsapp-picks-' + stamp + '.json', new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json;charset=utf-8' }));
-            notify('نُزّل ملف فيه ' + records.length + ' عرضاً. أرسله ليُدخل في «استيراد المشاريع».', 'success', 7000);
-        }
-        for (const item of chosen) { page.exported.add(item.id); page.selected.delete(item.id); }
+        if (!(await copyText(chosen.map((item) => pickText(pickRecord(item))).join('\n\n')))) return;
+        for (const item of chosen) page.copied.add(item.id);
         drawList();
+    }
+
+    // كل عرض محدد ← طلب مستقل للمساعد بتعليمات ثابتة ونص المصدر، ثم يبدأ تنفيذه فوراً (والمُجدوِل
+    // يلتقط ما لم يبدأ). ما أُرسل سابقاً لا يُرسل ثانية، والإرسال يتوقف عند الحد اليومي.
+    async function sendSelected() {
+        const chosen = page.items.filter((item) => page.selected.has(item.id) && !isSent(item));
+        if (!chosen.length || page.sending) return;
+        const limit = page.remaining === null ? chosen.length : Math.min(chosen.length, page.remaining);
+        if (!limit) return void notify('بلغت الحد اليومي لطلبات المساعد', 'error');
+        page.sending = true;
+        drawBar();
+        let done = 0;
+        try {
+            for (const item of chosen.slice(0, limit)) {
+                sendBtn.textContent = 'جارٍ الإرسال ' + (done + 1) + ' من ' + limit + '…';
+                const id = await createRequest('project', {
+                    title: titleOf(item.main.source.group, item.main.block),
+                    instruction: INSTRUCTION,
+                    text: item.main.text,
+                    textName: 'whatsapp'
+                });
+                item.sentRequest = id;
+                page.selected.delete(item.id);
+                startExtraction(id);
+                done += 1;
+            }
+        } catch (error) {
+            fail(error, 'توقف الإرسال بعد ' + done + ' من ' + limit);
+        } finally {
+            page.sending = false;
+            sendBtn.textContent = 'إرسال للمساعد';
+            await refreshQuota();
+            drawSummary();
+            drawList();
+        }
+        if (done) notify('أُرسل ' + done + ' عرضاً للمساعد. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.', 'success', 7000);
+        if (chosen.length > limit) notify('لم يُرسل ' + (chosen.length - limit) + ' عرضاً لبلوغ الحد اليومي', 'error', 7000);
     }
 }

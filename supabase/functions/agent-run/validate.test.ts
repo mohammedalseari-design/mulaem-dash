@@ -518,15 +518,149 @@ Deno.test("router: the owner's live contradiction case keeps name, district and 
   // حالة «تناقض في السعر» الحية نفسها: الأرقام الثلاثة كاملة في المصدر ولا قراءة متسقة لها
   const d = await buildProjectDraft(offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال"), [text(OFFER)], normalizePhone);
   assertEquals(d.conflicts.filter((x) => x.code === "source_contradiction").length, 1);
-  assertEquals(Object.keys(d.proposed).sort(), ["area", "district", "name"]);
+  // السعر لم يُحفظ، فنصّه في الملاحظات؛ وتنبيه التناقض يكفي فلا يُضاف تنبيه ثانٍ
+  assertEquals(Object.keys(d.proposed).sort(), ["area", "district", "name", "notes"]);
+  assert(String(d.proposed.notes).includes("«السعر الإجمالي 1,200,000 ريال»"));
+  assert(!d.conflicts.some((x) => x.code === "price_unread"));
 });
 
-Deno.test("router: a consistent total is kept and price per metre is never saved", async () => {
+/* ===================== السعر لا يضيع بصمت (قرار المالك 2026-09-27) ===================== */
+
+Deno.test("price: a consistent total goes in price and the stated price per metre is saved too", async () => {
   const src = OFFER.replace("1,200,000", "1,050,000");
   const d = await buildProjectDraft(offerOut(1_050_000, "السعر الإجمالي 1,050,000 ريال"), [text(src)], normalizePhone);
   assertEquals(d.proposed.price, 1_050_000);
+  assertEquals((d.proposed.details as Record<string, unknown>).price_per_m, 7000);
+  assertEquals(d.evidence["details.price_per_m"].quote, "سعر المتر 7,000 ريال");
+  assert(!("price_per_m" in d.proposed) && !d.evidence.price_per_m && !d.missing.includes("price_per_m"));
   assertEquals(d.stats.rejected, 0);
-  assert(!("price_per_m" in d.proposed) && !d.missing.includes("price_per_m"));
+  assert(!("notes" in d.proposed) && !d.conflicts.some((x) => x.code === "price_unread"));
+});
+
+Deno.test("price: a per-metre-only offer (land) keeps the per-metre price and tells the manager the total is empty", async () => {
+  const src = "أرض للبيع في حي الياقوت\nالمساحة 600 م\nسعر المتر 3,500 ريال";
+  const out = offerOut(0, "");
+  out.project.name = f("أرض حي الياقوت", "أرض للبيع في حي الياقوت");
+  out.project.district = f("الياقوت", "حي الياقوت");
+  out.project.starting_price = none();
+  (out.project as Record<string, unknown>).area = f(600, "المساحة 600 م");
+  (out.project as Record<string, unknown>).price_per_m = f(3500, "سعر المتر 3,500 ريال");
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.price, undefined);
+  assertEquals((d.proposed.details as Record<string, unknown>).price_per_m, 3500);
+  assertEquals(d.conflicts.find((x) => x.field === "price")?.code, "price_per_m_only");
+  assert(!("notes" in d.proposed));
+});
+
+// حالة «برج الندى» الحية: Flash أعاد الاسم والمساحة وأسقط السعر دون أي أثر
+Deno.test("price: a price the model silently dropped is kept as text in notes with a manager alert, and is no failure", async () => {
+  const { isFailure } = await import("../_shared/effort-router/classify.ts");
+  const src = "مشروع برج الندى — حي النعيم\nشقة 150 م²، 3 غرف\nالسعر 1,200,000 ريال قابل للتفاوض\nللتواصل [PHONE_1]";
+  const out = offerOut(0, "");
+  out.project.name = f("برج الندى", "مشروع برج الندى");
+  out.project.district = f("النعيم", "حي النعيم");
+  out.project.starting_price = none();
+  (out.project as Record<string, unknown>).area = f(150, "شقة 150 م²");
+  (out.project as Record<string, unknown>).price_per_m = none();
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.price, undefined);
+  assertEquals(d.proposed.notes, "السعر كما ورد في المصدر: «السعر 1,200,000 ريال قابل للتفاوض»");
+  const alert = d.conflicts.find((x) => x.code === "price_unread")!;
+  assertEquals([alert.field, alert.quote], ["price", "السعر 1,200,000 ريال قابل للتفاوض"]);
+  // تنبيه لا رفض: لا إعادة ولا تصعيد بسببه
+  assertEquals(d.stats.rejected, 0);
+  assertFalse(isFailure(d.stats));
+});
+
+Deno.test("price: a price with no number («على السوم») comes back through price_text, and phones never reach the notes", async () => {
+  const src = "فيلا دوبلكس للبيع حي الزمرد\nالسعر على السوم [PHONE_1]";
+  const out = offerOut(0, "");
+  out.project.name = f("فيلا دوبلكس حي الزمرد", "فيلا دوبلكس للبيع حي الزمرد");
+  out.project.district = none();
+  out.project.starting_price = none();
+  (out.project as Record<string, unknown>).area = none();
+  (out.project as Record<string, unknown>).price_per_m = none();
+  (out.project as Record<string, unknown>).price_text = f("السعر على السوم", "السعر على السوم");
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.notes, "السعر كما ورد في المصدر: «السعر على السوم …»");
+  assert(d.conflicts.some((x) => x.code === "price_unread"));
+  // نص سعر لا يوجد في المصدر لا يُقبل من النموذج
+  (out.project as Record<string, unknown>).price_text = f("السعر 2 مليون", "السعر 2 مليون");
+  const d2 = await buildProjectDraft(out, [text("فيلا دوبلكس للبيع حي الزمرد")], normalizePhone);
+  assert(!("notes" in d2.proposed) && !d2.conflicts.some((x) => x.code === "price_unread"));
+});
+
+Deno.test("price: from a PDF (no text to scan) the model's price_text is what keeps the price", async () => {
+  const pdf: Src = { label: "S1", id: "pdf-1", kind: "pdf" };
+  const out = offerOut(0, "");
+  out.project.starting_price = none();
+  (out.project as Record<string, unknown>).area = none();
+  (out.project as Record<string, unknown>).price_per_m = none();
+  (out.project as Record<string, unknown>).price_text = f("الأسعار تبدأ من 1.1 مليون شاملة الضريبة", "الأسعار تبدأ من 1.1 مليون شاملة الضريبة");
+  const d = await buildProjectDraft(out, [pdf], normalizePhone);
+  assert(String(d.proposed.notes).includes("1.1 مليون"));
+  assert(d.conflicts.some((x) => x.code === "price_unread"));
+});
+
+Deno.test("price: a single offer returned as one unit model also fills the price field", async () => {
+  const src = "شقة للبيع حي الصفا\nالمساحة 140 م\nالسعر 850 ألف";
+  const out = offerOut(0, "");
+  out.project.name = f("شقة حي الصفا", "شقة للبيع حي الصفا");
+  out.project.district = f("الصفا", "حي الصفا");
+  out.project.starting_price = none();
+  (out.project as Record<string, unknown>).area = none();
+  (out.project as Record<string, unknown>).price_per_m = none();
+  (out as Record<string, unknown>).units = [{
+    name: none(), type: f("شقة", "شقة للبيع"), rooms: none(), bathrooms: none(), area: f(140, "المساحة 140 م"),
+    price: f(850000, "السعر 850 ألف"), count: none(), status: none(), price_per_m: none(),
+  }];
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.price, 850000);
+  assertEquals(d.evidence.price.quote, "السعر 850 ألف");
+  assert(!d.missing.includes("price") && !("notes" in d.proposed));
+});
+
+// عرض «جوهرة الصفا» الحي: «الأربع غرف (مدخلين)» و«الخمس غرف» رُفضت غرفها الثماني «رقماً لا يظهر في الاقتباس»
+Deno.test("rooms written as words with «ال» or a ta marbuta («الخمس غرف», «ثلاثة غرف») are read", async () => {
+  const { numbersIn } = await import("./validate.ts");
+  const has = (q: string, n: number) => assert(numbersIn(q).includes(n), q + " → " + n);
+  has("الأربع غرف (مدخلين)", 4);
+  has("الخمس غرف", 5);
+  has("الست غرف (مدخلين)", 6);
+  has("السبع غرف (مدخلين)", 7);
+  has("ثلاثة غرف نوم", 3);
+  has("خمسة غرف", 5);
+  assertFalse(numbersIn("عشرين").includes(10));
+  assertFalse(numbersIn("الستين").includes(6));
+});
+
+Deno.test("price: compound WhatsApp amounts («2 مليون و 700») are read as one number", async () => {
+  const { numbersIn } = await import("./validate.ts");
+  const has = (q: string, n: number) => assert(numbersIn(q).includes(n), q + " → " + n);
+  has("السعر 2 مليون و 700", 2_700_000);
+  has("مليون و 200 ألف", 1_200_000);
+  has("مليونين و300", 2_300_000);
+  has("1 مليون و 250,000 ريال", 1_250_000);
+  has("السعر ٣ مليون و ٥٠٠ الف", 3_500_000);
+  has("مليونين", 2_000_000);
+  // المسودة: السعر المركّب يُقبل من اقتباسه ولا يُرفض «رقماً لا يظهر في الاقتباس»
+  const src = "فيلا للبيع في حي السامر\nالمساحه 650 متر\nالسعر 2 مليون و 700";
+  const out = offerOut(2_700_000, "السعر 2 مليون و 700");
+  out.project.name = f("فيلا حي السامر", "فيلا للبيع في حي السامر");
+  out.project.district = f("السامر", "حي السامر");
+  (out.project as Record<string, unknown>).area = f(650, "المساحه 650 متر");
+  (out.project as Record<string, unknown>).price_per_m = none();
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals([d.proposed.price, d.stats.rejected], [2_700_000, 0]);
+});
+
+Deno.test("price: an offer that names no price raises nothing; area thousands, «الفيلا» and phones are not prices", async () => {
+  const { priceLines } = await import("./validate.ts");
+  assertEquals(priceLines([text("الفيلا في حي الشاطئ\nالمساحة 3 آلاف متر\nللتواصل [PHONE_1]")]), []);
+  assertEquals(priceLines([text("المطلوب 950 ألف ريال\nالسعر 2.1 مليون\n850k صافي")]), ["المطلوب 950 ألف ريال", "السعر 2.1 مليون", "850k صافي"]);
+  assertEquals(priceLines([text("السعر ٧٥٠ ألف ﷼")]), ["السعر ٧٥٠ ألف ﷼"]);
+  const d = await buildProjectDraft(projectOut(), [text("مشروع الياسمين ريزدنس بلا أسعار")], normalizePhone);
+  assert(!d.conflicts.some((x) => x.code === "price_unread" || x.code === "price_per_m_only"));
 });
 
 Deno.test("router: evidence is matched on the redacted text, then values and quotes come back restored", async () => {

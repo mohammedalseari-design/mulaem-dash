@@ -252,7 +252,8 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
         return;
       }
       if (!failed && Array.isArray(ev.drafts)) {
-        for (const d of ev.drafts) inserted.push(await saveDraft(db, id, request.requested_by, d));
+        const status = await draftStatusFor(db, request.requested_by);
+        for (const d of ev.drafts) inserted.push(await saveDraft(db, id, request.requested_by, d, status));
         const done = await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null });
         // أُلغي الطلب أثناء التنفيذ: لا تبقى مسودات لطلب ملغى
         if (!done && inserted.length) await db.from("agent_drafts").delete().in("id", inserted);
@@ -468,7 +469,17 @@ async function finish(db: SupabaseClient, id: string, patch: Record<string, unkn
   return Boolean(data && data.length);
 }
 
-async function saveDraft(db: SupabaseClient, id: string, requestedBy: string | null, d: DraftSpec): Promise<string> {
+// مسودات طلب أنشأه المدير تدخل «بانتظار الاعتماد» مباشرة، فلا يرسلها لنفسه واحدة واحدة (عروض واتساب).
+// مسودة الموظف تبقى «مسودة» حتى يراجعها ويرسلها.
+async function draftStatusFor(db: SupabaseClient, requestedBy: string | null): Promise<"draft" | "submitted"> {
+  if (!requestedBy) return "draft";
+  const { data } = await db.from("profiles").select("role").eq("id", requestedBy).maybeSingle();
+  return data?.role === "admin" ? "submitted" : "draft";
+}
+
+async function saveDraft(
+  db: SupabaseClient, id: string, requestedBy: string | null, d: DraftSpec, status: "draft" | "submitted" = "draft",
+): Promise<string> {
   const { data: row, error } = await db.from("agent_drafts").insert({
     request_id: id,
     target_kind: d.target_kind,
@@ -480,7 +491,7 @@ async function saveDraft(db: SupabaseClient, id: string, requestedBy: string | n
     duplicates: d.duplicates,
     suspicious: d.suspicious,
     baseline_hash: d.baseline_hash,
-    status: "draft",
+    status,
     created_by: requestedBy,
   }).select("id").single();
   if (error || !row) throw new Stop("تعذّر حفظ المسودة", true);

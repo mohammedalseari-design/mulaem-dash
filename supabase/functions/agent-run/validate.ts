@@ -93,11 +93,12 @@ export function normText(text: string): string {
     .trim();
 }
 
+// تُطابَق على النص بعد normText: التاء المربوطة صارت هاءً («خمسه»)، وقد تسبقها «ال» («الخمس غرف»)
 const NUMBER_WORDS: [RegExp, number][] = [
-  [/(^|\s)(واحد|واحدة)(?=\s|$)/, 1], [/(غرفتين|غرفتان|دورتين|دورتان|اثنين|اثنان|اثنتين)/, 2],
-  [/(^|\s)(ثلاث|ثلاثة)(?=\s|$)/, 3], [/(^|\s)(اربع|اربعة)(?=\s|$)/, 4], [/(^|\s)(خمس|خمسة)(?=\s|$)/, 5],
-  [/(^|\s)(ست|ستة)(?=\s|$)/, 6], [/(^|\s)(سبع|سبعة)(?=\s|$)/, 7], [/(^|\s)(ثمان|ثماني|ثمانية)(?=\s|$)/, 8],
-  [/(^|\s)(تسع|تسعة)(?=\s|$)/, 9], [/(^|\s)(عشر|عشرة)(?=\s|$)/, 10],
+  [/(^|\s)(ال)?(واحد|واحده)(?=\s|$)/, 1], [/(غرفتين|غرفتان|دورتين|دورتان|اثنين|اثنان|اثنتين)/, 2],
+  [/(^|\s)(ال)?(ثلاث|ثلاثه)(?=\s|$)/, 3], [/(^|\s)(ال)?(اربع|اربعه)(?=\s|$)/, 4], [/(^|\s)(ال)?(خمس|خمسه)(?=\s|$)/, 5],
+  [/(^|\s)(ال)?(ست|سته)(?=\s|$)/, 6], [/(^|\s)(ال)?(سبع|سبعه)(?=\s|$)/, 7], [/(^|\s)(ال)?(ثمان|ثماني|ثمانيه)(?=\s|$)/, 8],
+  [/(^|\s)(ال)?(تسع|تسعه)(?=\s|$)/, 9], [/(^|\s)(ال)?(عشر|عشره)(?=\s|$)/, 10],
 ];
 
 // كل رقم يمكن قراءته من الاقتباس: بفواصل الآلاف أو بدونها، مع "ألف" و"مليون"، وكلمات الأعداد الصغيرة.
@@ -114,6 +115,15 @@ export function numbersIn(quote: string): number[] {
     else if (unit) out.push(base * 1_000);
   }
   if (/(^|\s)(مليون)(?=\s|$)/.test(text) && !/\d\s*مليون/.test(text)) out.push(1_000_000);
+  if (/مليونين|مليونان/.test(text)) out.push(2_000_000);
+  // المبالغ المركّبة في عروض واتساب: «2 مليون و 700» و«مليون و 200 ألف» و«مليونين و300» — ما بعد الواو
+  // آلاف إن كان أقل من ألف أو تلته «ألف»، وإلا فهو الرقم نفسه («1 مليون و 250,000»)
+  const compound = /(\d+(?:\.\d+)?)?\s*(مليونين|مليونان|مليون|ملايين)\s*و\s*(\d{1,3}(?:,\d{3})+|\d+)\s*(ألف|الف|آلاف|الاف)?/g;
+  for (const m of text.matchAll(compound)) {
+    const millions = /^مليون(ين|ان)$/.test(m[2]) ? 2 : m[1] ? Number(m[1]) : 1;
+    const rest = Number(m[3].replace(/,/g, ""));
+    out.push(millions * 1_000_000 + (m[4] || rest < 1000 ? rest * 1000 : rest));
+  }
   const words = normText(text);
   for (const [re2, n] of NUMBER_WORDS) if (re2.test(words)) out.push(n);
   return out;
@@ -568,6 +578,7 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
   await put(details, "description", "details.description", p.description, LONG_TEXT);
   const perM: Record<string, unknown> = {};
   await put(perM, "price_per_m", "price_per_m", p.price_per_m, PRICE_PER_M);
+  const wording = priceWording(c, p.price_text);
 
   if ((proposed.latitude === undefined) !== (proposed.longitude === undefined)) {
     const present = proposed.latitude !== undefined ? "latitude" : "longitude";
@@ -601,10 +612,23 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
     const offer = { price: proposed.price, area: proposed.area, price_per_m: perM.price_per_m };
     totalVsPerMetre(c, "", offer);
     if (offer.price === undefined) delete proposed.price;
-  } else {
-    delete c.evidence.price_per_m;
+    perM.price_per_m = offer.price_per_m;
   }
+  // سعر المتر يُحفظ كما ذكره المصدر («سعر المتر 3,500» أو «سعر المتر يبدأ من …» مع نماذج)
+  if (perM.price_per_m !== undefined) {
+    details.price_per_m = perM.price_per_m;
+    c.evidence["details.price_per_m"] = c.evidence.price_per_m;
+  }
+  delete c.evidence.price_per_m;
   c.missing = c.missing.filter((k) => k !== "price_per_m");
+  // عرض بنموذج واحد مسعّر ولا سعر للمشروع: سعر النموذج هو سعر العرض نفسه، فيُحفظ في حقل السعر
+  // (اللوحة تقرأ سعر غير الشقق من حقل السعر وحده)
+  if (proposed.price === undefined && models.length === 1 && typeof models[0].price === "number") {
+    const unitKey = Object.keys(c.evidence).find((k) => /^units\.\d+\.price$/.test(k));
+    proposed.price = models[0].price;
+    if (unitKey) c.evidence.price = c.evidence[unitKey];
+    c.missing = c.missing.filter((k) => k !== "price");
+  }
   // الناقص من حقول الوحدات كثير بطبيعته؛ يكفي ذكره مجمّعاً لا حقلاً حقلاً
   c.missing = c.missing.filter((k) => !k.startsWith("units."));
 
@@ -620,6 +644,7 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
     }
   }
   priceSanity(c, "", proposed.price, undefined);
+  priceGuard(c, sources, proposed, details, models, wording);
 
   return {
     target_kind: "project",
@@ -635,7 +660,7 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
   };
 }
 
-// سعر المتر كما يذكره المصدر: يُقرأ للتحقق فقط ولا يُحفظ (السعر والمساحة هما المحفوظان)
+// سعر المتر كما يذكره المصدر: يُحفظ (details.price_per_m أو في النموذج)، ولا يُحسب منه إجمالي أبداً
 const PRICE_PER_M = { kind: "number", min: 100, max: 200_000 } as const;
 
 // الإجمالي يساوي حاصل ضرب الآخرَين بهامش 3%
@@ -683,10 +708,80 @@ function totalVsPerMetre(c: Checker, base: string, m: Record<string, unknown>) {
         });
       }
       delete m.price;
+      delete m.price_per_m;
     }
   }
-  delete m.price_per_m;
-  delete c.evidence[base + "price_per_m"];
+}
+
+/* ===================== السعر لا يضيع بصمت ===================== */
+
+// نص السعر كما نقله النموذج (price_text): يُقبل إن وُجد اقتباسه في نص المصدر، أو كان مصدره PDF أو صورة
+// لا نقرأ نصها. لا يدخل إحصاء الرفض: غرضه أن يُحفظ نص السعر حين لا يُفهم رقماً، لا أن يُعاد الطلب بسببه.
+function priceWording(c: Checker, f: Field | null | undefined): string | undefined {
+  if (!f || f.inferred || typeof f.value !== "string" || !f.value.trim()) return undefined;
+  const src = c.source(f.source);
+  if (!src) return undefined;
+  const quote = typeof f.quote === "string" && f.quote.trim() ? f.quote.trim() : f.value.trim();
+  if (src.text !== undefined && !normText(src.text).includes(normText(quote))) return undefined;
+  return quote;
+}
+
+export const isPriceField = (field: string | undefined) => /(^|\.)(price|price_per_m)$/.test(String(field ?? ""));
+
+// كلمات السعر. «ألف/مليون» وحدهما لا تكفيان في سطر فيه مساحة («3 آلاف متر»).
+const PRICE_WORD = /(سعر|اسعار|ريال|ر\.س|﷼|sar|price|سوم|بالخاص)/;
+const AMOUNT_WORD = /(^| |\d)(الف|الاف|مليون|ملايين|k)( |$)/;
+const AREA_WORD = /(متر|م2|م²|m2|sqm)/;
+const NO_NUMBER_PRICE = /(سوم|بالخاص|عند التواصل)/;
+
+// أسطر نص المصدر التي تذكر سعراً — فحص مستقل عن النموذج. الجوال والبريد يبقيان عنصراً نائباً
+// (النص كما رآه النموذج) فلا يُنسخ رقم أحد إلى ملاحظات المشروع.
+export function priceLines(sources: Src[]): string[] {
+  const out: string[] = [];
+  for (const s of sources) {
+    if (!s.text) continue;
+    for (const raw of s.text.split(/\r?\n/)) {
+      const line = raw.replace(/\[(PHONE|EMAIL)_\d+\]/g, "…").replace(/\s+/g, " ").trim();
+      if (!line) continue;
+      // المطبَّع يوحّد الهمزات والأرقام، والأصلي يحفظ «﷼» و«م²» اللذين يحذفهما التطبيع
+      const t = normText(line) + " | " + asciiDigits(line).toLowerCase();
+      const hasDigit = /\d/.test(t);
+      const priced = PRICE_WORD.test(t) || (AMOUNT_WORD.test(t) && !AREA_WORD.test(t));
+      if (priced && (hasDigit || (PRICE_WORD.test(t) && NO_NUMBER_PRICE.test(t)))) out.push(line.slice(0, 200));
+      if (out.length >= 3) return out;
+    }
+  }
+  return out;
+}
+
+// المصدر يذكر سعراً ولم يُحفظ منه شيء (لا سعر ولا سعر متر في المشروع أو نماذجه): نص السعر يُحفظ في
+// الملاحظات، وتنبيه للمدير. سعر المتر وحده بلا إجمالي يُحفظ ويُنبَّه إلى أن حقل السعر فارغ.
+function priceGuard(
+  c: Checker, sources: Src[], proposed: Record<string, unknown>, details: Record<string, unknown>,
+  models: Record<string, unknown>[], wording: string | undefined,
+) {
+  const hasTotal = typeof proposed.price === "number" || models.some((m) => typeof m.price === "number");
+  const hasPerM = typeof details.price_per_m === "number" || models.some((m) => typeof m.price_per_m === "number");
+  if (hasTotal) return;
+  if (hasPerM) {
+    c.note({ field: "price", note: "المصدر يذكر سعر المتر فقط — حُفظ في «سعر المتر» وبقي حقل السعر فارغاً", code: "price_per_m_only" });
+    return;
+  }
+  const lines = priceLines(sources);
+  const texts = [...new Set([...(wording ? [wording.replace(/\[(PHONE|EMAIL)_\d+\]/g, "…")] : []), ...lines])];
+  // سطر يحوي نص النموذج نفسه لا يُكرَّر
+  const said = texts.filter((t, i) => !texts.some((o, j) => j !== i && o.length > t.length && normText(o).includes(normText(t))));
+  if (!said.length) return;
+  const note = "السعر كما ورد في المصدر: " + said.map((t) => "«" + t + "»").join(" — ");
+  proposed.notes = typeof proposed.notes === "string" && proposed.notes ? proposed.notes + "\n" + note : note;
+  // سعر أُسقط بتعارض ظاهر للمدير (تناقض المصدر، رقم لا يطابق اقتباسه…) له تنبيهه؛ لا يُكرَّر
+  if (c.conflicts.some((x) => isPriceField(x.field))) return;
+  c.note({
+    field: "price",
+    quote: said.join(" | "),
+    note: "المصدر يذكر سعراً لم يُستخرج رقماً — نصه محفوظ في الملاحظات، راجعه وأدخل السعر قبل الاعتماد",
+    code: "price_unread",
+  });
 }
 
 // سعر المتر خارج 500–100,000 ريال علامة على خطأ قراءة. لا يُسقط القيمة: يُعرض تعارضاً.

@@ -86,7 +86,7 @@ const unit = obj({
   bathrooms: int,
   area: num,
   price: num,
-  price_per_m: num, // للتحقق فقط: السعر ≈ المساحة × سعر المتر
+  price_per_m: num, // يُحفظ كما ذُكر، ويُطابَق مع السعر والمساحة إن ذُكرا معه
   count: int,
   status: en(["available", "sold", "reserved"]),
 });
@@ -102,6 +102,8 @@ export const PROJECT_SCHEMA: Schema = obj({
     developer: str,
     starting_price: num,
     price_per_m: num,
+    // نص السعر حرفياً كما ورد، حتى لو لم يُفهم رقماً — لا يضيع السعر بصمت (validate.ts)
+    price_text: str,
     area: num,
     latitude: num,
     longitude: num,
@@ -167,6 +169,10 @@ Extract only what a source states.
 - Keep numbers as plain numbers in SAR and square metres (e.g. "1.2 مليون" → 1200000, "950 ألف" → 950000). Dates as YYYY-MM-DD; if only a year or quarter is given, leave the date null and mention it in description or notes.
 - price_per_m is the price per square metre only when a source states it (سعر المتر). Never compute it, and never compute a total price from it; copy each number exactly as the source states it, even if they do not agree.
 - Phone numbers and e-mail addresses in sources appear as placeholders like [PHONE_1] or [EMAIL_1]; copy a placeholder exactly as written wherever you would copy the number or address.
+
+Prices are never dropped.
+- If a source states a price in any form, it must appear in your output. A total price goes in starting_price (single offer) or the unit's price; a price per square metre goes in price_per_m. When a source states both, fill both. A commission (عمولة / السعي) is not a price.
+- Also copy the source's price wording into project.price_text, verbatim with its quote (e.g. "السعر 850 ألف قابل للتفاوض", "سعر المتر 3,500", "على السوم"). Fill price_text whenever any price, "from" price, per-metre price or price remark appears, even when you also filled the numbers, and even when you cannot turn it into a number. Leave it null only when no source mentions a price at all.
 
 Keep separate things separate.
 - Project vs unit: project-level facts (name, developer, district, the project's "starting from" price) go in project; each unit model or unit type goes in units with its own price, area, rooms and count. starting_price is only a price the source presents as the project's starting/from price — never copy a unit's price into it. Exception: when the source offers one single property and describes no unit models, return an empty units list and put that property's total price in starting_price, next to its area and price_per_m at project level.

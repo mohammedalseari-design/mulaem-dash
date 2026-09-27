@@ -54,9 +54,11 @@ const NAV = [
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
     { hash: '#/calendar', label: 'المواعيد' },
-    // المساعد الذكي وطلبات الاعتماد (#/assistant، #/approvals) أُخفيا من القائمة بقرار المالك 2026-09-25:
-    // الإدخال يدوي عبر «عروض واتساب» و«استيراد المشاريع». المسارات والجداول باقية ولا تُستخدم.
+    // المساعد الذكي في القائمة لمن يضيف المشاريع (المدير والميداني — سياسة projects_insert)، وطلبات
+    // الاعتماد للمدير وحده. أُعيدا بقرار المالك 2026-09-27 مع إرسال عروض واتساب إلى المساعد.
+    { hash: '#/assistant', label: 'المساعد الذكي', deny: 'callcenter' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
+    { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
     { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true },
     { hash: '#/reports', label: 'التقارير', admin: true },

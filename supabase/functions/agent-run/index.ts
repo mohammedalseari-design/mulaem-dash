@@ -324,7 +324,11 @@ async function evaluate(
     drafts = [draft];
   } else if (request.kind === "project") {
     const draft = await buildProjectDraft(out, seen, normalizePhone, restore);
-    const { data: dups } = await db.rpc("agent_find_duplicates", { p_kind: "project", p: draft.proposed });
+    // الاسم المبني («فيلا – حي السامر») وصف لا هوية: لا يُطابَق به، وإلا صارت كل فلل الحي «الاسم مطابق».
+    // الاسم الذي ذكره المصدر (stated) يبقى دليلاً ولو لم يُتحقق من اقتباسه.
+    const generated = draft.evidence.name?.suggested && !draft.evidence.name.stated;
+    const probe = generated ? { ...draft.proposed, name: undefined } : draft.proposed;
+    const { data: dups } = await db.rpc("agent_find_duplicates", { p_kind: "project", p: probe });
     draft.duplicates = Array.isArray(dups) ? dups : [];
     drafts = [draft];
   } else {

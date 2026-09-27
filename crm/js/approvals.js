@@ -482,11 +482,12 @@ function fieldsTable(draft, current) {
         body.appendChild(el('tr', { class: changed ? '' : 'agent-row-same' }, [
             el('td', {}, [
                 el('strong', { text: displayKey }),
-                skipped ? el('div', {}, badge('لن يُكتب', 'red')) : null
+                skipped ? el('div', {}, badge('لن يُكتب', 'red')) : null,
+                isSuggested(ev, value) ? el('div', {}, badge('اسم مقترح', 'gold')) : null
             ]),
             current ? el('td', { class: 'crm-subtle', text: before }) : null,
             el('td', { text: after }),
-            el('td', { class: 'crm-subtle' }, evidenceCell(ev))
+            el('td', { class: 'crm-subtle' }, evidenceCell(ev, value))
         ]));
     };
 
@@ -538,7 +539,13 @@ function unitsTable(models, evidence, skipped) {
 
 // الدليل: الاقتباس والصفحة والمصدر، وهل وُجد الاقتباس فعلاً في نص المصدر (verified)،
 // والقيمة السابقة وسبب التغيير لمسودات التحديث.
-function evidenceCell(ev) {
+// اسم وصفي اقترحه المساعد لعرض لا يذكر المصدر اسمه (agent-run: evidence.suggested). بعد تعديل المدير
+// للاسم في المسودة لا يعود «مقترحاً»، فالعلامة لا تظهر إلا والقيمة هي المقترحة نفسها.
+function isSuggested(ev, value) {
+    return Boolean(ev && typeof ev === 'object' && typeof ev.suggested === 'string' && ev.suggested === value);
+}
+
+function evidenceCell(ev, value) {
     if (!ev) return el('span', { text: '— بلا دليل' });
     if (typeof ev !== 'object') return el('span', { text: valueText(ev) });
     const box = el('div');
@@ -546,7 +553,11 @@ function evidenceCell(ev) {
     const meta = [];
     if (ev.page !== undefined && ev.page !== null) meta.push('صفحة ' + ev.page);
     if (ev.source_id) meta.push('مصدر ' + String(ev.source_id).slice(0, 8));
-    if (ev.verified === true) meta.push('الاقتباس موجود في النص');
+    if (typeof ev.suggested === 'string') {
+        meta.push(value === undefined || isSuggested(ev, value) ? 'اسم مقترح من المساعد — سببه في «تعارضات» أدناه'
+            : 'عُدّل بعد اقتراح المساعد («' + ev.suggested + '»)');
+    }
+    else if (ev.verified === true) meta.push('الاقتباس موجود في النص');
     else if (ev.verified === false) meta.push('لم يُتحقق من الاقتباس آلياً (ملف أو صورة)');
     if (meta.length) box.appendChild(el('div', { text: meta.join(' — ') }));
     if (ev.before !== undefined) box.appendChild(el('div', { text: 'القيمة السابقة: ' + valueText(ev.before) }));

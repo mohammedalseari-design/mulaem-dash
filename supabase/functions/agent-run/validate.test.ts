@@ -414,7 +414,8 @@ Deno.test("router: a contradiction whose every number is quoted verbatim from th
   const d = await buildProjectDraft(offerOut(1_200_000, "السعر الإجمالي 1,200,000 ريال"), [text(OFFER)], normalizePhone);
   // السعر وسعر المتر خارج المقترح، والاسم والحي والمساحة فيه
   assertEquals(d.proposed.price, undefined);
-  assertEquals([d.proposed.name, d.proposed.district, d.proposed.area], ["شقة حي الشاطئ", "الشاطئ", 150]);
+  // «شقة حي الشاطئ» عنوان لا اسم: الاسم المقترح من نوعه وحيّه
+  assertEquals([d.proposed.name, d.proposed.district, d.proposed.area], ["شقة – حي الشاطئ", "الشاطئ", 150]);
   assert(!("price_per_m" in d.proposed) && !d.evidence.price && !d.evidence.price_per_m);
   // التعارض ظاهر للمدير بالأرقام الثلاثة واقتباساتها، وليس رفضاً
   const c = d.conflicts.find((x) => x.code === "source_contradiction")!;
@@ -684,4 +685,318 @@ Deno.test("router: evidence is matched on the redacted text, then values and quo
   const d2 = await buildClientDraft(wrong, [seen], normalizePhone, (s) => r.restore(s));
   assertEquals(d2.proposed.phone, undefined);
   assertEquals(d2.conflicts.find((c) => c.code === "phone_role")?.value, "0501112222");
+});
+
+/* ===================== الاسم المقترح (قرار المالك 2026-09-27) ===================== */
+
+const VILLA = "فيلا للبيع في حي السامر بمدينة جدة\nالمساحه 650 متر\nالسعر 2 مليون و 700";
+
+function villaOut() {
+  const out = offerOut(2_700_000, "السعر 2 مليون و 700");
+  out.project.name = none();
+  out.project.city = f("جدة", "بمدينة جدة");
+  out.project.district = f("السامر", "حي السامر");
+  (out.project as Record<string, unknown>).type = f("فيلا", "فيلا للبيع");
+  (out.project as Record<string, unknown>).area = f(650, "المساحه 650 متر");
+  (out.project as Record<string, unknown>).price_per_m = none();
+  return out;
+}
+const setP = (out: ReturnType<typeof villaOut>, key: string, v: Field) => ((out.project as Record<string, unknown>)[key] = v);
+
+Deno.test("name: an offer with no name gets «<type> – حي <district>» from its accepted fields, marked as suggested", async () => {
+  const out = villaOut();
+  setP(out, "suggested_name", f("فيلا – حي السامر", "فيلا للبيع في حي السامر"));
+  const d = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d.proposed.name, "فيلا – حي السامر");
+  assertEquals(d.evidence.name.suggested, "فيلا – حي السامر");
+  // الدليل من اقتباسَي النوع والحي المتحقَّق منهما
+  assert(d.evidence.name.quote.includes("فيلا للبيع") && d.evidence.name.quote.includes("حي السامر"));
+  assert(!d.missing.includes("name"));
+  assertEquals(d.conflicts.find((c) => c.field === "name")?.code, "name_suggested");
+  // ملاحظة لا رفض: لا إعادة ولا تصعيد بسببها
+  assertEquals(d.stats.rejected, 0);
+});
+
+// مراجعة: اقتراح النموذج كان يُفحص على كل النص لا على الحقول المقبولة («شقة» بجوار نوع «فيلا»)
+Deno.test("name: the accepted type and district win over a model suggestion that disagrees with them", async () => {
+  const out = villaOut();
+  setP(out, "suggested_name", f("شقة – حي السامر", "فيلا للبيع في حي السامر"));
+  const d = await buildProjectDraft(out, [text(VILLA + "\nوعندنا شقة في حي المروة")], normalizePhone);
+  assertEquals(d.proposed.name, "فيلا – حي السامر");
+});
+
+Deno.test("name: without an accepted type the model's suggestion is used if all its words are in the source; a made-up quote is not kept", async () => {
+  const out = villaOut();
+  setP(out, "type", none());
+  setP(out, "suggested_name", f("فيلا – حي السامر", "فيلا فاخرة دوبلكس بحي السامر الراقي"));
+  const d = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d.proposed.name, "فيلا – حي السامر");
+  assertEquals(d.evidence.name.quote, "");
+  // اقتباس موجود يُحفظ
+  setP(out, "suggested_name", f("فيلا – حي السامر", "فيلا للبيع في حي السامر"));
+  const d2 = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d2.evidence.name.quote, "فيلا للبيع في حي السامر");
+  // كلمة لا يقولها المصدر: يُرفض الاقتراح، والاسم من الحي وحده
+  setP(out, "suggested_name", f("فيلا فاخرة – حي السامر", "فيلا للبيع في حي السامر"));
+  const d3 = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d3.proposed.name, "عقار – حي السامر");
+});
+
+// مراجعة: «حى» و«بحي» و«حيّ» كانت تعطي «حي حى السامر»
+Deno.test("name: district spellings «حي السامر», «حى السامر», «بحي السامر», «حيّ: السامر» give one «حي»", async () => {
+  for (const district of ["حي السامر", "حى السامر", "بحي السامر", "حيّ: السامر"]) {
+    const out = villaOut();
+    setP(out, "district", f(district, district));
+    const src = VILLA.replace("حي السامر", district);
+    const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+    assertEquals(d.proposed.name, "فيلا – حي السامر", district);
+  }
+});
+
+Deno.test("name: an advert headline in name («فيلا للبيع في حي …») is replaced by the suggested name", async () => {
+  const out = villaOut();
+  out.project.name = f("فيلا للبيع في حي السامر بمدينة جدة", "فيلا للبيع في حي السامر بمدينة جدة");
+  const d = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d.proposed.name, "فيلا – حي السامر");
+  assert(d.conflicts.find((c) => c.code === "name_suggested")!.note.includes("عنوان إعلان لا اسم"));
+});
+
+// مراجعة: «عرض» و«فرصة» و«للاستثمار» وعلامة البيع وحدها كانت تُسقط أسماء حقيقية
+Deno.test("name: real names with «عرض», «فرصة», «للاستثمار» are kept; a trailing «للبيع» is stripped", async () => {
+  const cases: [string, string, string][] = [
+    ["أبراج عرض البحر", "أبراج عرض البحر - شقق فاخرة بحي الشاطئ، جدة", "أبراج عرض البحر"],
+    ["عمارة النخبة للاستثمار العقاري", "عمارة النخبة للاستثمار العقاري\nشقق تمليك في حي الروضة بجدة", "عمارة النخبة للاستثمار العقاري"],
+    ["فرصة جوهرة الصفا", "مشروع فرصة جوهرة الصفا — فلل في حي الصفا", "فرصة جوهرة الصفا"],
+    ["جوهرة الصفا للبيع", "جوهرة الصفا للبيع\nفلل في حي الصفا", "جوهرة الصفا"],
+  ];
+  for (const [name, src, want] of cases) {
+    const out = villaOut();
+    out.project.name = f(name, name);
+    setP(out, "type", none());
+    setP(out, "area", none());
+    const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+    assertEquals(d.proposed.name, want, name);
+    assert(!d.conflicts.some((c) => c.code === "name_suggested"), name);
+  }
+});
+
+// مراجعة: اسم حقيقي رفضه المدقق كان يُستبدل باسم عام وملاحظة تقول إن المصدر بلا اسم
+Deno.test("name: a stated name the checker rejected is kept as the suggestion when its words are in the source, never swapped for a generic one", async () => {
+  const src = "مشروع برج الندى\nشقق للبيع في حي الصفا\nالسعر 850 ألف";
+  const out = villaOut();
+  out.project.name = f("برج الندى", "برج الندي السكني"); // اقتباس لا يطابق
+  setP(out, "type", f("شقق", "شقق للبيع"));
+  out.project.district = f("الصفا", "حي الصفا");
+  out.project.city = none();
+  setP(out, "area", none());
+  out.project.starting_price = f(850000, "السعر 850 ألف");
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.name, "برج الندى");
+  assertEquals(d.evidence.name.quote, "");
+  const note = d.conflicts.find((c) => c.code === "name_suggested")!;
+  assert(note.note.includes("«برج الندى»") && !note.note.includes("لا يذكر اسماً"));
+  // اسم مستنتج بكلمة ليست في المصدر («الصفاء» بهمزة): لا اسم عام بديل، يبقى ناقصاً ليكتبه المدير
+  const out2 = villaOut();
+  out2.project.name = f("جوهرة الصفاء", "مشروع جوهرة الصفاء", "S1", true);
+  const d2 = await buildProjectDraft(out2, [text("مشروع جوهرة الصفا\nفيلا للبيع في حي السامر بمدينة جدة")], normalizePhone);
+  assertEquals(d2.proposed.name, undefined);
+  assert(d2.missing.includes("name"));
+});
+
+Deno.test("name: a real project name is kept; without type, district or city nothing is invented", async () => {
+  const d = await buildProjectDraft(projectOut(), [text(BROCHURE)], normalizePhone);
+  assertEquals(d.proposed.name, "الياسمين ريزدنس");
+  assertEquals(d.evidence.name.suggested, undefined);
+  assert(!d.conflicts.some((c) => c.code === "name_suggested"));
+  const bare = offerOut(2_700_000, "السعر 2 مليون و 700");
+  bare.project.name = none();
+  bare.project.district = none();
+  bare.project.city = none();
+  (bare.project as Record<string, unknown>).area = none();
+  (bare.project as Record<string, unknown>).price_per_m = none();
+  const d2 = await buildProjectDraft(bare, [text(VILLA)], normalizePhone);
+  assertEquals(d2.proposed.name, undefined);
+  assert(d2.missing.includes("name"));
+});
+
+Deno.test("name: a type with advert words («عرض شقة للبيع») is cleaned; the city stands in for a missing district", async () => {
+  const src = "عرض شقة للبيع في جدة\nالسعر 850 ألف";
+  const out = offerOut(850_000, "السعر 850 ألف");
+  out.project.name = none();
+  out.project.district = none();
+  out.project.city = f("جدة", "في جدة");
+  (out.project as Record<string, unknown>).type = f("عرض شقة للبيع", "عرض شقة للبيع");
+  (out.project as Record<string, unknown>).area = none();
+  (out.project as Record<string, unknown>).price_per_m = none();
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.name, "شقة – جدة");
+});
+
+// المراجعة الثانية: نص واتساب الحقيقي (نقطة آخر الجملة، حروف ملتصقة، أرقام، رموز، تطويل)
+Deno.test("name: a stated name is re-offered despite a full stop or an attached «لل»/«و» in the source; an invented number is not", async () => {
+  const stated = async (src: string, name: string) => {
+    const out = villaOut();
+    out.project.name = f(name, "اقتباس لا يوجد في المصدر");
+    setP(out, "type", none());
+    out.project.district = none();
+    out.project.city = none();
+    setP(out, "area", none());
+    return await buildProjectDraft(out, [text(src)], normalizePhone);
+  };
+  assertEquals((await stated("مشروع برج الندى.\nشقق للبيع", "برج الندى")).proposed.name, "برج الندى");
+  assertEquals((await stated("شقق تابعة للياسمين ريزدنس في حي الصفا", "الياسمين ريزدنس")).proposed.name, "الياسمين ريزدنس");
+  assertEquals((await stated("شقق للبيع بالقرب من الصفا والمروة", "المروة")).proposed.name, "المروة");
+  const d = await stated("مشروع المروة 2\nشقق في حي المروة", "المروة 7");
+  assertEquals(d.proposed.name, undefined);
+  assert(d.missing.includes("name"));
+  // اسم مذكور يبقى دليل هوية لفحص المكرر
+  const d2 = await stated("مشروع برج الندى.\nشقق للبيع", "برج الندى");
+  assertEquals(d2.evidence.name.stated, true);
+});
+
+Deno.test("name: district values with «📍», tatweel, diacritics, «في حي», «الحي:», «حي -» give one «حي»; «حياة» is a district, not a prefix", async () => {
+  for (const [district, want] of [
+    ["📍 حي السامر", "فيلا – حي السامر"], ["حـي السامر", "فيلا – حي السامر"], ["حَيّ السامر", "فيلا – حي السامر"],
+    ["في حي السامر", "فيلا – حي السامر"], ["الحي: السامر", "فيلا – حي السامر"], ["حي - السامر", "فيلا – حي السامر"],
+    ["حياة", "فيلا – حي حياة"], ["بحيرات", "فيلا – حي بحيرات"],
+  ]) {
+    const out = villaOut();
+    setP(out, "district", f(district, district));
+    const d = await buildProjectDraft(out, [text(VILLA + "\n" + district)], normalizePhone);
+    assertEquals(d.proposed.name, want, district);
+  }
+});
+
+Deno.test("name: a headline without «للبيع» (the prompt's «شقه تمليك جده حي المروه») is replaced; «عمارة النخبة للبيع» keeps «النخبة»", async () => {
+  const src = "شقه تمليك جده حي المروه\nالسعر 625الف";
+  const out = offerOut(625_000, "السعر 625الف");
+  out.project.name = f("شقه تمليك جده حي المروه", "شقه تمليك جده حي المروه");
+  out.project.district = f("حي المروه", "حي المروه");
+  out.project.city = f("جده", "جده");
+  (out.project as Record<string, unknown>).type = f("شقة تمليك", "شقه تمليك");
+  (out.project as Record<string, unknown>).area = none();
+  (out.project as Record<string, unknown>).price_per_m = none();
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.name, "شقة تمليك – حي المروه");
+  for (const [name, want] of [["عمارة النخبة للبيع", "عمارة النخبة"], ["فلل الريم للبيع", "فلل الريم"], ["جوهرة الصفا - للبيع", "جوهرة الصفا"], ["جوهرة الصفا (للبيع)", "جوهرة الصفا"]]) {
+    const o = villaOut();
+    o.project.name = f(name, name);
+    const r = await buildProjectDraft(o, [text(name + "\n" + VILLA)], normalizePhone);
+    assertEquals(r.proposed.name, want, name);
+  }
+  // «فيلة» و«شاليه» و«عقار» أنواع عقار: «فيلة للبيع في حي السامر» عنوان
+  const o2 = villaOut();
+  o2.project.name = f("فيلة للبيع في حي السامر", "فيلة للبيع في حي السامر");
+  setP(o2, "type", f("فيلة", "فيلة للبيع"));
+  const r2 = await buildProjectDraft(o2, [text("فيلة للبيع في حي السامر بجدة")], normalizePhone);
+  assertEquals(r2.proposed.name, "فيلة – حي السامر");
+});
+
+Deno.test("name: a project whose units differ in type is «عقار – حي …», not the first unit's type; a shared unit type is used", async () => {
+  const src = "مشروع في حي السامر\nشقق 3 غرف السعر 700 ألف\nفلل دوبلكس السعر 2 مليون";
+  const unit = (type: string, tq: string, price: number, pq: string) => ({
+    name: none(), type: f(type, tq), rooms: none(), bathrooms: none(), area: none(), price: f(price, pq), count: none(), status: none(), price_per_m: none(),
+  });
+  const out = villaOut();
+  setP(out, "type", none());
+  out.project.city = none();
+  out.project.starting_price = none();
+  setP(out, "area", none());
+  (out as Record<string, unknown>).units = [unit("شقة", "شقق 3 غرف", 700000, "السعر 700 ألف"), unit("فيلا", "فلل دوبلكس", 2000000, "السعر 2 مليون")];
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d.proposed.name, "عقار – حي السامر");
+  (out as Record<string, unknown>).units = [unit("شقة", "شقق 3 غرف", 700000, "السعر 700 ألف")];
+  const d2 = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(d2.proposed.name, "شقة – حي السامر");
+});
+
+Deno.test("name: a suggestion with a phone placeholder or a sale word, or one that disagrees with an accepted field, is refused", async () => {
+  const out = villaOut();
+  setP(out, "type", none());
+  setP(out, "suggested_name", f("فيلا [PHONE_1]", "فيلا للبيع في حي السامر للتواصل [PHONE_1]"));
+  const d = await buildProjectDraft(out, [text(VILLA + "\nللتواصل [PHONE_1]")], normalizePhone);
+  assertEquals(d.proposed.name, "عقار – حي السامر");
+  // «للبيع» تُحذف من الاقتراح
+  setP(out, "suggested_name", f("فيلا للبيع – حي السامر", "فيلا للبيع في حي السامر"));
+  const d2 = await buildProjectDraft(out, [text(VILLA)], normalizePhone);
+  assertEquals(d2.proposed.name, "فيلا – حي السامر");
+  // يخالف الحي المقبول
+  setP(out, "suggested_name", f("فيلا – حي المروة", "فيلا للبيع في حي السامر"));
+  const d3 = await buildProjectDraft(out, [text(VILLA + "\nوفي حي المروة شقق")], normalizePhone);
+  assertEquals(d3.proposed.name, "عقار – حي السامر");
+});
+
+Deno.test("name: from a PDF (nothing to check) an inferred stated name is not re-offered; a model suggestion says it was not checked", async () => {
+  const pdf: Src = { label: "S1", id: "pdf-1", kind: "pdf" };
+  const out = villaOut();
+  out.project.name = f("جوهرة الصفاء", "جوهرة الصفاء", "S1", true);
+  setP(out, "type", none());
+  out.project.district = none();
+  out.project.city = none();
+  setP(out, "area", none());
+  const d = await buildProjectDraft(out, [pdf], normalizePhone);
+  assertEquals(d.proposed.name, undefined);
+  out.project.name = none();
+  setP(out, "suggested_name", f("فلل – حي الصفا", "فلل حي الصفا"));
+  const d2 = await buildProjectDraft(out, [pdf], normalizePhone);
+  assertEquals(d2.proposed.name, "فلل – حي الصفا");
+  assert(d2.conflicts.find((c) => c.code === "name_suggested")!.note.includes("لم يُتحقق من كلماته"));
+});
+
+// المراجعة الثالثة: 168 عنواناً حقيقياً من التصدير، وأسماء أبراج، وترقيم
+Deno.test("name: real WhatsApp headlines are replaced; tower and building names are kept", async () => {
+  const run = async (name: string, district: string | null, src: string) => {
+    const out = villaOut();
+    out.project.name = f(name, name);
+    setP(out, "type", none());
+    out.project.district = district ? f(district, district) : none();
+    out.project.city = none();
+    setP(out, "area", none());
+    return (await buildProjectDraft(out, [text(src)], normalizePhone)).proposed.name;
+  };
+  // عناوين: علامة بيع بلا ما يسمّي، أو نوع ثم «في/حي»، أو لا شيء يسمّي
+  assertEquals(await run("شقة 5 غرف للبيع", "السامر", "شقة 5 غرف للبيع\nحي السامر"), "شقة – حي السامر");
+  assertEquals(await run("فيلا للبيع بجدة", "السامر", "فيلا للبيع بجدة\nحي السامر"), "فيلا – حي السامر");
+  assertEquals(await run("فيلا شمال جدة", "السامر", "فيلا شمال جدة\nحي السامر"), "فيلا – حي السامر");
+  assertEquals(await run("للبيع هدد في حي الرحاب", "الرحاب", "للبيع هدد في حي الرحاب"), "هدد – حي الرحاب");
+  assertEquals(await run("⭐️للبيع عمارة سكنية جديدة حي السلامة", "السلامة", "⭐️للبيع عمارة سكنية جديدة حي السلامة"), "عمارة – حي السلامة");
+  assertEquals(await run("أرض سكنية تجارية في الرويس المنظم", "الرويس", "أرض سكنية تجارية في الرويس المنظم"), "أرض – حي الرويس");
+  // أسماء: «برج/عمارة/مجمع» + اسم، واسم تلته علامة البيع (تُحذف مع ذيلها ورموزها)
+  assertEquals(await run("برج الروضة", "الروضة", "برج الروضة\nشقق للبيع في حي الروضة"), "برج الروضة");
+  assertEquals(await run("مجمع الياسمين السكني", "الياسمين", "مجمع الياسمين السكني\nحي الياسمين"), "مجمع الياسمين السكني");
+  assertEquals(await run("برج الندى - شقق للبيع", null, "برج الندى - شقق للبيع"), "برج الندى");
+  assertEquals(await run("جوهرة الصفا للبيع 🔥", null, "جوهرة الصفا للبيع 🔥"), "جوهرة الصفا");
+  assertEquals(await run("المروة 2", "المروة", "مشروع المروة 2\nحي المروة"), "المروة 2");
+  // نوع ثم رقم اسمٌ من القاعدة الحية («المنزل 104»، «عمارة 499 – حي الواحة»)، ونوع ثم رقم ثم وصف عنوان
+  assertEquals(await run("المنزل 104", "الريان", "المنزل 104\nحي الريان"), "المنزل 104");
+  assertEquals(await run("عمارة 499 – حي الواحة", "الواحة", "عمارة 499 – حي الواحة"), "عمارة 499 – حي الواحة");
+  assertEquals(await run("شقة 4 غرف في حي السامر", "السامر", "شقة 4 غرف في حي السامر"), "شقة – حي السامر");
+  assertEquals(await run("مشروع هاوسنق الرحاب (111 – 112 – 113 – 114)", "الرحاب", "مشروع هاوسنق الرحاب (111 – 112 – 113 – 114)\nحي الرحاب"),
+    "مشروع هاوسنق الرحاب (111 – 112 – 113 – 114)");
+});
+
+Deno.test("name: «حي:السامر» without a space and a trailing «.»/«،» still give «فيلا – حي السامر»", async () => {
+  for (const district of ["حي:السامر", "حي/السامر", "حي-السامر", "السامر.", "حي السامر،"]) {
+    const out = villaOut();
+    setP(out, "district", f(district, district));
+    const d = await buildProjectDraft(out, [text(VILLA + "\n" + district)], normalizePhone);
+    assertEquals(d.proposed.name, "فيلا – حي السامر", district);
+  }
+});
+
+Deno.test("name: an inferred name built from source words is a suggestion, not the source's own name", async () => {
+  const out = villaOut();
+  out.project.name = f("مشروع السامر", "مشروع في حي السامر", "S1", true);
+  const d = await buildProjectDraft(out, [text("مشروع في حي السامر\n" + VILLA)], normalizePhone);
+  assertEquals(d.proposed.name, "مشروع السامر");
+  assertEquals(d.evidence.name.stated, undefined);
+  assert(d.conflicts.find((c) => c.code === "name_suggested")!.note.includes("استنتجه المساعد"));
+});
+
+Deno.test("price: «12مليون 500 الف» without «و» is 12,500,000; «مليون 5 غرف» adds no number", async () => {
+  const { numbersIn } = await import("./validate.ts");
+  assert(numbersIn("سعر البيع 12مليون 500 الف صافي").includes(12_500_000));
+  assert(numbersIn("1 مليون 250,000 ريال").includes(1_250_000));
+  assertFalse(numbersIn("مليون 5 غرف").includes(1_005_000));
+  assertFalse(numbersIn("مليون 5 غرف").includes(1_005_000_000));
 });

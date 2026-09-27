@@ -37,6 +37,8 @@ export interface Evidence {
   verified: boolean; // الاقتباس وُجد حرفياً في نص المصدر
   before?: unknown;
   reason?: string | null;
+  suggested?: string; // اسم وصفي اقترحه المساعد لعرض بلا اسم؛ الواجهة تعلّمه ما دام الاسم هو نفسه
+  stated?: boolean; // الاسم المقترح هو اسم ذكره المصدر ولم يُتحقق من اقتباسه (يبقى دليل هوية في فحص المكرر)
 }
 
 // code: سبب آلي ثابت يقرؤه مصنّف الفشل في الموجّه (classify.ts) بدل الملاحظة العربية
@@ -118,11 +120,13 @@ export function numbersIn(quote: string): number[] {
   if (/مليونين|مليونان/.test(text)) out.push(2_000_000);
   // المبالغ المركّبة في عروض واتساب: «2 مليون و 700» و«مليون و 200 ألف» و«مليونين و300» — ما بعد الواو
   // آلاف إن كان أقل من ألف أو تلته «ألف»، وإلا فهو الرقم نفسه («1 مليون و 250,000»)
-  const compound = /(\d+(?:\.\d+)?)?\s*(مليونين|مليونان|مليون|ملايين)\s*و\s*(\d{1,3}(?:,\d{3})+|\d+)\s*(ألف|الف|آلاف|الاف)?/g;
+  // بلا واو («12مليون 500 الف») لا يُقرأ إلا إن تلا الباقيَ «ألف» أو كان ألفاً فأكثر، فلا يلتصق به عدد لاحق («مليون 5 غرف»)
+  const compound = /(\d+(?:\.\d+)?)?\s*(مليونين|مليونان|مليون|ملايين)\s*(و)?\s*(\d{1,3}(?:,\d{3})+|\d+)\s*(ألف|الف|آلاف|الاف)?/g;
   for (const m of text.matchAll(compound)) {
     const millions = /^مليون(ين|ان)$/.test(m[2]) ? 2 : m[1] ? Number(m[1]) : 1;
-    const rest = Number(m[3].replace(/,/g, ""));
-    out.push(millions * 1_000_000 + (m[4] || rest < 1000 ? rest * 1000 : rest));
+    const rest = Number(m[4].replace(/,/g, ""));
+    if (!m[3] && !m[5] && rest < 1000) continue;
+    out.push(millions * 1_000_000 + (m[5] || rest < 1000 ? rest * 1000 : rest));
   }
   const words = normText(text);
   for (const [re2, n] of NUMBER_WORDS) if (re2.test(words)) out.push(n);
@@ -645,6 +649,7 @@ export async function buildProjectDraft(out: Json, sources: Src[], normalizePhon
   }
   priceSanity(c, "", proposed.price, undefined);
   priceGuard(c, sources, proposed, details, models, wording);
+  suggestName(c, sources, proposed, models, p.name, p.suggested_name);
 
   return {
     target_kind: "project",
@@ -711,6 +716,236 @@ function totalVsPerMetre(c: Checker, base: string, m: Record<string, unknown>) {
       delete m.price_per_m;
     }
   }
+}
+
+/* ===================== الاسم المقترح ===================== */
+
+// التشكيل والتطويل والرموز (الإيموجي و«📍») تُحذف من القيمة قبل أن يُبنى منها اسم
+function clean(value: string): string {
+  return value.replace(/[ً-ْٰـ]/g, "")
+    .replace(/[\p{Extended_Pictographic}\p{So}️‍]/gu, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+// كلمات القيمة بعد التطبيع، بلا ترقيم على أطرافها («السامر.» ← السامر)
+function tokens(value: string): string[] {
+  return normText(value).split(" ").map((w) => w.replace(/^[.@+]+|[.@+]+$/g, "")).filter(Boolean);
+}
+
+// صيغ كلمة المصدر بلا حروف العطف والجر والتعريف الملتصقة: «وفلل» ← فلل، «للياسمين» ← الياسمين، «بالسامر» ← السامر
+function sourceForms(word: string): string[] {
+  const out = new Set([word]);
+  const bases = /^[وف]/.test(word) && word.length > 3 ? [word, word.slice(1)] : [word];
+  for (const b of bases) {
+    out.add(b);
+    const m = b.match(/^(بال|كال|لل|ال|ب|ل|ك)(.{2,})$/);
+    if (m) {
+      out.add(m[2]);
+      out.add("ال" + m[2]);
+    }
+  }
+  return [...out];
+}
+
+const nameForms = (word: string) => [word, word.replace(/^ال(?=..)/, "")];
+
+// كلمات ربط لا تُطلب في المصدر: «حي» يضيفها قالب الاسم نفسه
+const NAME_GLUE = new Set(["حي", "في", "و"]);
+
+// كل كلمات القيمة (والأرقام أيضاً) في النصوص. null: لا نص يُتحقق عليه (PDF أو صورة)
+function grounded(value: string, texts: string[]): boolean | null {
+  if (!texts.length) return null;
+  const pool = new Set(texts.flatMap((t) => tokens(t).flatMap(sourceForms)));
+  const words = tokens(value).filter((w) => !NAME_GLUE.has(w));
+  return words.length > 0 && words.every((w) => nameForms(w).some((x) => pool.has(x)));
+}
+
+// نصوص المصدر الذي يستشهد به الحقل، أو كل نصوص الطلب إن لم يسمِّ مصدراً
+function textsFor(c: Checker, sources: Src[], label: string | null | undefined): string[] {
+  const src = c.source(label);
+  if (src) return src.text === undefined ? [] : [src.text];
+  return sources.filter((s) => s.text !== undefined).map((s) => s.text as string);
+}
+
+const PLACEHOLDER = /\[(PHONE|EMAIL)_/;
+
+// كلمات لا تجعل النص اسماً: نوع العقار، ووصف الإعلان، والربط، والمدن. تُطابَق بصيغها بلا سوابق («بجدة»، «وملحق»).
+const PROPERTY = new Set([
+  "فيلا", "فيله", "فلل", "فله", "فلتين", "شقه", "شقق", "شقتين", "ارض", "اراضي", "قطعه", "دور", "ادوار", "دوبلكس",
+  "دبلكس", "دوبليكس", "عماره", "عمائر", "عمارتين", "محل", "محلات", "مكتب", "مكاتب", "معرض", "مستودع", "استراحه",
+  "شاليه", "بيت", "منزل", "قصر", "تاون", "هاوس", "روف", "ملحق", "مبني", "مجمع", "عقار", "وحده", "وحدات", "برج",
+  "هدد", "محطه", "فندق", "فندقي",
+]);
+const SALE = new Set(["للبيع", "للايجار", "للتاجير"]);
+const DESCRIPTIVE = new Set([
+  ...SALE, "عرض", "تمليك", "سكني", "سكنيه", "تجاري", "تجاريه", "استثماري", "استثماريه", "للاستثمار", "مميز", "مميزه",
+  "فاخر", "فاخره", "فخم", "فخمه", "راقي", "راقيه", "مودرن", "جديد", "جديده", "قديم", "قديمه", "نظيف", "نظيفه", "فرصه",
+  "لقطه", "جاهز", "جاهزه", "مستقل", "مستقله", "اماميه", "زاويه", "ركنيه", "مؤثثه", "موثثه", "مفروشه", "سنوي", "السنوي",
+  "شهري", "غرف", "غرفه", "غرفتين", "دورين", "مساحه", "بسعر", "مغري", "خام", "زراعيه", "كاش", "افراغ", "فوري",
+  "شمال", "جنوب", "شرق", "غرب", "شمالي", "جنوبي", "شرقي", "غربي", "شارع", "شارعين", "طريق",
+]);
+const GLUE = new Set(["في", "ف", "حي", "بحي", "الحي", "ب", "مدينه", "بمدينه", "مخطط", "و", "من", "على", "مع", "قرب", "بجوار", "خلف", "امام"]);
+const CITIES = new Set(["جده", "الرياض", "مكه", "المكرمه", "المدينه", "المنوره", "الدمام", "الخبر", "الطائف", "الاحساء", "ابها", "تبوك", "ينبع", "رابغ"]);
+// كلمات تبدأ بها أسماء حقيقية («برج الروضة»، «عمارة النخبة»، «مجمع الياسمين السكني»)
+const NAMED = new Set(["برج", "ابراج", "مجمع", "مشروع", "عماره", "فندق", "مركز"]);
+
+const inSet = (set: Set<string>, word: string) => sourceForms(word).some((x) => set.has(x));
+
+// عنوان إعلان لا اسم. مع علامة البيع («للبيع/للإيجار»): عنوان إلا أن يكون قصيراً بلا «في/حي» وفيه كلمة تسمّي
+// («عمارة النخبة للبيع» اسم؛ «شقة 5 غرف للبيع»، «فيلا للبيع في حي السامر» عنوانان). بلا علامة: عنوان إن بدأ بنوع
+// عقار أو وصف ثم جاء «في/حي» أو لم يبقَ ما يسمّي («شقة حي الشاطئ»، «فيلا شمال جدة»، «شقه تمليك جده حي المروه»).
+// «برج/مجمع/عمارة/مشروع» + كلمة أو كلمتان اسم، ونوعٌ ثم رقم اسم. ما بدأ بنوع أو وصف وزاد على ست كلمات وصفٌ لا اسم.
+function isHeadline(name: string, location: string[]): boolean {
+  const loc = new Set(location.flatMap((l) => tokens(l)).flatMap(sourceForms));
+  const words = tokens(clean(name));
+  if (!words.length) return false;
+  const after = (i: number) => i > 0 && ["حي", "بحي", "الحي"].includes(words[i - 1]);
+  const isLoc = (w: string, i: number) => inSet(CITIES, w) || sourceForms(w).some((x) => loc.has(x)) || after(i);
+  const glue = words.some((w) => ["في", "ف", "حي", "بحي", "الحي"].includes(w));
+  const proper = words.filter((w, i) => !/^\d/.test(w) && !inSet(PROPERTY, w) && !inSet(DESCRIPTIVE, w) && !GLUE.has(w) && !isLoc(w, i));
+  if (words.some((w) => inSet(SALE, w))) {
+    return glue || words.filter((w) => !inSet(SALE, w)).length > 3 || proper.length === 0;
+  }
+  if (NAMED.has(words[0]) && words.length <= 3 && !glue) return false;
+  // نوع ثم رقم أو رمز اسمٌ («المنزل 104»، «عمارة F14»، «عمارة 499 – حي الواحة»)، إلا أن يتلوه وصف («شقة 4 غرف»)
+  if (words.length > 1 && /\d/.test(words[1]) && !(words[2] && inSet(DESCRIPTIVE, words[2]))) return false;
+  if (!inSet(PROPERTY, words[0]) && !inSet(DESCRIPTIVE, words[0])) return false;
+  return words.length > 6 || glue || proper.length === 0;
+}
+
+// علامة البيع أو الإيجار تُحذف من الاسم مع ما حولها من ترقيم («جوهرة الصفا - للبيع» ← جوهرة الصفا)
+function stripSale(name: string): string {
+  return name.replace(/ـ/g, "")
+    .replace(/(^|[\s\-–—(\[،,:])لل(بيع|إيجار|ايجار|تأجير|تاجير)(?=$|[\s\-–—)\].!،,:])[)\].!]*/g, " ")
+    .replace(/\s+/g, " ").replace(/[\s\-–—:،,(\[]+$/, "").replace(/^[\s\-–—:،,)\]]+/, "").trim();
+}
+
+// الاسم كما يُعرض: بلا رموز ولا علامة بيع، ولا ذيل وصفي بعد شرطة («برج الندى - شقق للبيع 🔥» ← برج الندى)
+function stripName(name: string): string {
+  let v = stripSale(clean(name));
+  const m = v.match(/^(.*\S)\s*[\-–—|]\s*([^\-–—|]+)$/);
+  if (m && tokens(m[2]).length && tokens(m[2]).every((w) => inSet(PROPERTY, w) || inSet(DESCRIPTIVE, w))) v = m[1];
+  return v.replace(/[\s.،,!:\-–—|]+$/, "").trim();
+}
+
+// نوع العقار للاسم: بلا «للبيع» و«عرض» ولا ما بعد «في/حي» من موقع («فيلا للبيع في حي السامر» ← فيلا)
+function kindOf(raw: string): string {
+  const words = clean(raw).split(" ");
+  const out: string[] = [];
+  for (const word of words) {
+    const t = tokens(word)[0] ?? "";
+    if (["في", "حي", "بحي", "بمدينه", "مدينه"].includes(t) || inSet(CITIES, t)) break;
+    if (t && !inSet(SALE, t) && !(t === "عرض" && out.length === 0)) out.push(word);
+  }
+  return out.join(" ").replace(/[\s.،,!\-–—:]+$/, "").replace(/^[\s\-–—:،,]+/, "").trim();
+}
+
+// اسم الحي أو المدينة بلا «في» و«حي/الحي/بحي» و«مدينة» في أوله، ولا ترقيم في آخره («📍 في حيّ:السامر.» ← السامر)
+function placeOf(raw: string): string {
+  let v = clean(raw).replace(/^[\s\-–—:،,.]+/, "");
+  v = v.replace(/^(?:في\s+)?(?:ال)?[بف]?ح[يى](?=$|[\s:：\-–—/،,])[\s:：\-–—/،,]*/, "");
+  v = v.replace(/^(?:بمدينة|مدينة|بمدينه|مدينه|في)\s+/, "");
+  return v.replace(/[\s.،,!:\-–—/]+$/, "").trim();
+}
+
+// اسم للعرض حين لا يذكر المصدر اسماً، حتى لا يتعطل الاعتماد (الاسم إلزامي) ولا يعدّله المدير في كل مسودة:
+//   1) اسم حقيقي مقبول يبقى (وتُحذف منه علامة «للبيع»). عنوان الإعلان ليس اسماً.
+//   2) اسم أعاده النموذج ورُفض (اقتباس لا يطابق، أو «مستنتج») لا يُستبدل باسم عام: يُقترح هو نفسه إن كانت كل
+//      كلماته وأرقامه في نص مصدره، وإلا (أو كان مصدره PDF لا نص له) يبقى الاسم ناقصاً ليكتبه المدير.
+//   3) لا اسم: «<النوع> – حي <الحي>» (أو المدينة) من الحقول المقبولة، وإلا اقتراح النموذج إن كانت كلماته في المصدر
+//      ويوافق الحقول المقبولة، وإلا «عقار – حي <الحي>».
+// يُعلَّم في الدليل (suggested؛ و stated حين يكون الاسم المذكور نفسه) وبملاحظة «name_suggested» صادقة السبب.
+// لا يدخل إحصاء الرفض: لا إعادة ولا تصعيد بسببه.
+function suggestName(
+  c: Checker, sources: Src[], proposed: Record<string, unknown>, models: Record<string, unknown>[],
+  given: Field | null | undefined, f: Field | null | undefined,
+) {
+  const district = typeof proposed.district === "string" ? placeOf(proposed.district) : "";
+  const city = typeof proposed.city === "string" ? placeOf(proposed.city) : "";
+  const location = [district, city].filter(Boolean);
+
+  let headline: string | null = null;
+  let headlineEv: Evidence | undefined;
+  if (typeof proposed.name === "string" && proposed.name) {
+    headlineEv = c.evidence.name;
+    if (!isHeadline(proposed.name, location)) {
+      const shown = stripName(proposed.name);
+      if (shown) proposed.name = shown;
+      return;
+    }
+    headline = proposed.name;
+  }
+  const said = !headline && given && typeof given.value === "string" ? given.value.replace(/\s+/g, " ").trim() : "";
+  if (said && isHeadline(c.restore(said), location)) {
+    headline = c.restore(said);
+  } else if (said) {
+    if (PLACEHOLDER.test(said) || said.length > 80 || grounded(said, textsFor(c, sources, given?.source)) !== true) return;
+    const name = stripName(c.restore(said)) || c.restore(said);
+    // «مستنتج»: صاغه المساعد من كلمات المصدر فهو اقتراح لا هوية؛ غيره ذكره المصدر ورُفض اقتباسه فيبقى هوية للمكرر
+    return given?.inferred
+      ? setSuggested(c, proposed, name, "", c.source(given?.source)?.id ?? null, false,
+        "الاسم «" + name + "» استنتجه المساعد من كلمات المصدر ولا يذكره المصدر نصاً — اسم مقترح، راجعه قبل الاعتماد")
+      : setSuggested(c, proposed, name, "", c.source(given?.source)?.id ?? null, true,
+        "الاسم «" + name + "» كلماته في المصدر لكن اقتباسه لم يُتحقق منه — اسم مقترح، راجعه قبل الاعتماد");
+  }
+
+  const reason = headline ? "«" + headline + "» عنوان إعلان لا اسم" : "المصدر لا يذكر اسماً للعرض";
+  // نوع المشروع، أو نوع وحداته إن اتفقت كلها («شقة» لمشروع فيه شقق وفلل لا تصح)
+  const unitKinds = [...new Set(models.map((m) => typeof m.type === "string" ? kindOf(m.type) : "").filter(Boolean))];
+  const ownKind = typeof proposed.type === "string" ? kindOf(proposed.type) : "";
+  const unitKind = unitKinds.length === 1 && models.every((m) => typeof m.type === "string") ? unitKinds[0] : "";
+  // لا نوع في الحقول: كلمة النوع في العنوان نفسه («شقة حي الشاطئ» ← شقة)
+  const headKind = headline ? clean(headline).split(" ").find((w) => inSet(PROPERTY, tokens(w)[0] ?? "")) ?? "" : "";
+  const kind = ownKind || unitKind || headKind;
+  const kindEv = ownKind ? c.evidence.type
+    : unitKind ? c.evidence[Object.keys(c.evidence).find((k) => /^units\.\d+\.type$/.test(k)) ?? ""]
+    : headKind ? headlineEv : undefined;
+  const partsEv = (withKind: boolean) => {
+    const ev = [withKind ? kindEv : undefined, district ? c.evidence.district : c.evidence.city].filter((e): e is Evidence => Boolean(e));
+    const ids = [...new Set(ev.map((e) => e.source_id))];
+    return { quote: [...new Set(ev.map((e) => e.quote))].join(" | "), id: ids.length === 1 ? ids[0] : null };
+  };
+  const place = district ? "حي " + district : city;
+
+  if (kind && place && (kind + " – " + place).length <= 80) {
+    const q = partsEv(true);
+    return setSuggested(c, proposed, kind + " – " + place, q.quote, q.id, false,
+      reason + " — اسم مقترح من نوع العقار و" + (district ? "حيّه" : "مدينته") + " كما استُخرجا منه، راجعه قبل الاعتماد");
+  }
+
+  const src = f ? c.source(f.source) : null;
+  const offered = f && typeof f.value === "string" && src ? f.value.replace(/\s+/g, " ").trim() : "";
+  if (src && offered && !PLACEHOLDER.test(offered) && offered.length <= 80) {
+    const shown = stripName(c.restore(offered));
+    const check = grounded(offered, textsFor(c, sources, f?.source));
+    // يوافق الحقول المقبولة: كل كلمة من النوع والحي أو المدينة المقبولة موجودة في الاقتراح
+    const pool = new Set(tokens(shown).flatMap(sourceForms));
+    const agrees = [kind, district || city].filter(Boolean).every((v) => tokens(v).every((w) => nameForms(w).some((x) => pool.has(x))));
+    if (shown && check !== false && agrees) {
+      const q = typeof f?.quote === "string" ? f.quote.trim() : "";
+      const quoted = q !== "" && tokens(q).length > 0 && src.text !== undefined && normText(src.text).includes(normText(q));
+      return setSuggested(c, proposed, shown, quoted ? c.restore(q) : "", src.id, false,
+        reason + (check === null
+          ? " — اسم مقترح من المساعد من ملف لم يُتحقق من كلماته آلياً، راجعه قبل الاعتماد"
+          : " — اسم مقترح من المساعد بكلمات المصدر، راجعه قبل الاعتماد"));
+    }
+  }
+
+  if (district && ("عقار – " + place).length <= 80) {
+    const q = partsEv(false);
+    return setSuggested(c, proposed, "عقار – " + place, q.quote, q.id, false,
+      reason + " — اسم مقترح من الحي كما استُخرج منه، راجعه قبل الاعتماد");
+  }
+  // لا شيء يُبنى منه اسم: يبقى العنوان إن كان هو «الاسم» (أفضل من لا اسم)، وإلا يبقى الاسم ناقصاً
+}
+
+function setSuggested(
+  c: Checker, proposed: Record<string, unknown>, name: string, quote: string, sourceId: string | null, stated: boolean, note: string,
+) {
+  proposed.name = name;
+  c.evidence.name = { quote, page: null, source_id: sourceId, verified: false, suggested: name, ...(stated ? { stated: true } : {}) };
+  c.missing = c.missing.filter((k) => k !== "name");
+  c.note({ field: "name", value: name, note, code: "name_suggested" });
 }
 
 /* ===================== السعر لا يضيع بصمت ===================== */

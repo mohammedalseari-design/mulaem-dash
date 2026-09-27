@@ -94,6 +94,8 @@ const unit = obj({
 export const PROJECT_SCHEMA: Schema = obj({
   project: obj({
     name: str,
+    // اسم وصفي حين لا يذكر المصدر اسماً للعرض («فيلا – حي السامر»)؛ يُعرض للمدير «اسماً مقترحاً» (validate.ts)
+    suggested_name: str,
     type: str,
     purpose: en(["sale", "rent"]),
     city: str,
@@ -173,6 +175,10 @@ Extract only what a source states.
 Prices are never dropped.
 - If a source states a price in any form, it must appear in your output. A total price goes in starting_price (single offer) or the unit's price; a price per square metre goes in price_per_m. When a source states both, fill both. A commission (عمولة / السعي) is not a price.
 - Also copy the source's price wording into project.price_text, verbatim with its quote (e.g. "السعر 850 ألف قابل للتفاوض", "سعر المتر 3,500", "على السوم"). Fill price_text whenever any price, "from" price, per-metre price or price remark appears, even when you also filled the numbers, and even when you cannot turn it into a number. Leave it null only when no source mentions a price at all.
+
+Names.
+- name is the project's or building's own name exactly as a source states it (e.g. "جوهرة الصفا", "برج الندى", "AL NOOR RESIDENCE"). An advert headline or description is not a name ("فيلا للبيع في حي السامر", "شقه تمليك جده حي المروه", "أرض تجارية للبيع"): for those, leave name null.
+- suggested_name is the one field you compose instead of copying, as an exception to the rules above. When a source states no name, fill it with a short descriptive name that uses only words appearing in the source, in the form "<property type> – حي <district>" (e.g. "فيلا – حي السامر", "شقة دوبلكس – حي المروة", "أرض تجارية – حي المنار"), or "<property type> – <city>" when no district is given; no sale words ("للبيع"), prices or phone numbers. Its quote is the shortest source span holding those words, and inferred is false for it. Leave suggested_name null whenever name is filled.
 
 Keep separate things separate.
 - Project vs unit: project-level facts (name, developer, district, the project's "starting from" price) go in project; each unit model or unit type goes in units with its own price, area, rooms and count. starting_price is only a price the source presents as the project's starting/from price — never copy a unit's price into it. Exception: when the source offers one single property and describes no unit models, return an empty units list and put that property's total price in starting_price, next to its area and price_per_m at project level.

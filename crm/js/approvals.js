@@ -62,7 +62,11 @@ export async function renderApprovals(root) {
     }
     if (!body.isConnected) return;
 
+    // تحميل أقدم (ترشيح أو صفحة سابقة) ينتهي بعد أحدث: يُهمل ولا يُعرض فوقه
+    let loadSeq = 0;
     async function load() {
+        const seq = ++loadSeq;
+        const stale = () => !body.isConnected || seq !== loadSeq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
 
@@ -71,7 +75,7 @@ export async function renderApprovals(root) {
         let query = supabase
             .from('agent_requests')
             .select('id, kind, title, status, created_at, requested_by, agent_sources(id, kind),'
-                + ' ' + embed + '(id, status, target_kind, target_id, conflicts)', { count: 'exact' })
+                + ' ' + embed + '(id, status, target_kind, target_id, conflicts, duplicates)', { count: 'exact' })
             .order('created_at', { ascending: false })
             .range(from, to);
         if (view.status) query = query.eq('agent_drafts.status', view.status);
@@ -82,18 +86,21 @@ export async function renderApprovals(root) {
             .eq('status', 'pending')
             .order('date_added', { ascending: false });
         const [{ data, error, count }, { data: projects, error: projectsError }] = await Promise.all([query, projectsQuery]);
-        if (!body.isConnected) return;
+        if (stale()) return;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل الطابور'));
         if (projectsError) return void replace(body, errorBox(projectsError, 'تعذّر تحميل مشاريع الاعتماد'));
         if ((!data || data.length === 0) && (!projects || projects.length === 0)) {
             return void replace(body, empty(view.status ? 'لا طلبات بهذه الحالة' : 'لا طلبات بعد'));
         }
 
+        const twinState = await twinStatuses((data || []).flatMap((row) => row.agent_drafts || []));
+        if (stale()) return;
+
         const content = [];
         if (projects && projects.length) content.push(projectApprovalSection(projects, load));
         if (data && data.length) content.push(
             el('h3', { class: 'crm-section-title', text: 'طلبات المساعد الذكي' }),
-            el('div', { class: 'crm-table-wrap' }, queueTable(data, names)),
+            el('div', { class: 'crm-table-wrap' }, queueTable(data, names, twinState)),
             pager(view.page, count || data.length, (p) => { view.page = p; load(); }, PAGE_SIZE)
         );
         replace(body, content);
@@ -283,7 +290,7 @@ async function decideProject(project, status, reload) {
     reload();
 }
 
-function queueTable(rows, names) {
+function queueTable(rows, names, twinState) {
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'النوع' }),
         el('th', { text: 'مقدّم الطلب' }),
@@ -310,6 +317,7 @@ function queueTable(rows, names) {
             el('td', {}, [
                 el('strong', { text: label(AGENT_KIND, row.kind) }),
                 drafts.some((d) => priceAlerts(d).length) ? badge('تنبيه سعر', 'red') : null,
+                drafts.some((d) => OPEN_DRAFT.includes(d.status) && liveTwins(d, twinState).length) ? badge('مسودة مكررة', 'gold') : null,
                 row.title ? el('div', { class: 'crm-subtle', text: row.title }) : null
             ]),
             el('td', { text: staffName(names, row.requested_by) }),
@@ -329,6 +337,31 @@ const PRICE_FIELD = /(^|\.)(price|price_per_m)$/;
 function priceAlerts(draft) {
     return (Array.isArray(draft.conflicts) ? draft.conflicts : [])
         .filter((c) => c && PRICE_FIELD.test(String(c.field || '')));
+}
+
+// مسودة معلّقة أخرى (طلب آخر) تصف العرض نفسه: فحص التكرار يضعها في duplicates بنوع draft على المسودتين
+const OPEN_DRAFT = ['draft', 'submitted', 'returned'];
+function draftTwins(draft) {
+    return (Array.isArray(draft.duplicates) ? draft.duplicates : [])
+        .filter((d) => d && d.kind === 'draft' && d.id);
+}
+
+// حالة التوائم الآن: قد تكون اعتُمدت أو رُفضت أو حُذفت بعد تسجيلها. null إن تعذّرت القراءة (يُعرض ما سُجّل)
+async function twinStatuses(drafts) {
+    const ids = [...new Set(drafts.flatMap(draftTwins).map((t) => t.draft_id).filter(Boolean))];
+    if (!ids.length) return new Map();
+    const { data, error } = await supabase.from('agent_drafts').select('id, status, applied_record').in('id', ids);
+    if (error) return null;
+    return new Map((data || []).map((row) => [row.id, row]));
+}
+
+// التوائم التي تستحق التنبيه: ما زالت معلّقة، أو طُبّقت (فهذه مكررة لمشروع صار قائماً). المرفوضة والمحذوفة تسقط
+function liveTwins(draft, twinState) {
+    return draftTwins(draft).filter((t) => {
+        if (!twinState) return true;
+        const now = twinState.get(t.draft_id);
+        return Boolean(now) && (OPEN_DRAFT.includes(now.status) || now.status === 'applied');
+    });
 }
 
 function statusBadges(drafts) {
@@ -368,6 +401,8 @@ export async function renderApproval(root, requestId) {
     if (!root.isConnected) return;
 
     const reload = () => renderApproval(root, requestId);
+    const twinState = drafts.error ? new Map() : await twinStatuses(drafts.data || []);
+    if (!root.isConnected) return;
 
     replace(root, [
         el('div', { class: 'crm-card' }, [
@@ -393,19 +428,19 @@ export async function renderApproval(root, requestId) {
             drafts.error
                 ? errorBox(drafts.error, 'تعذّر تحميل المسودات')
                 : ((drafts.data || []).length
-                    ? draftCards(drafts.data, names, reload)
+                    ? draftCards(drafts.data, names, reload, twinState)
                     : empty('لا مسودات على هذا الطلب'))
         ])
     ]);
 }
 
-function draftCards(rows, names, reload) {
+function draftCards(rows, names, reload, twinState) {
     const holder = el('div');
-    for (const draft of rows) holder.appendChild(draftCard(draft, names, reload));
+    for (const draft of rows) holder.appendChild(draftCard(draft, names, reload, twinState));
     return holder;
 }
 
-function draftCard(draft, names, reload) {
+function draftCard(draft, names, reload, twinState) {
     const card = el('div', { class: 'agent-draft' });
     const isNew = !draft.target_id;
 
@@ -421,6 +456,17 @@ function draftCard(draft, names, reload) {
         card.appendChild(el('div', { class: 'crm-warn-box' }, [
             el('strong', { text: 'تنبيه السعر — راجعه قبل الاعتماد' }),
             el('ul', { class: 'agent-list' }, alerts.map((c) => el('li', { text: c.note + (c.quote ? ' — ' + c.quote : '') })))
+        ]));
+    }
+
+    const twins = OPEN_DRAFT.includes(draft.status) ? liveTwins(draft, twinState) : [];
+    if (twins.length) {
+        const applied = twins.filter((t) => twinState && twinState.get(t.draft_id)?.status === 'applied');
+        card.appendChild(el('div', { class: 'crm-warn-box' }, [
+            el('strong', { text: applied.length
+                ? 'مسودة مطابقة لهذه اعتُمدت وصارت مشروعاً — هذه مكررة له على الأرجح'
+                : 'مسودة معلّقة أخرى تطابق هذه — اعتمد واحدة فقط، وارفض الأخرى' }),
+            el('ul', { class: 'agent-list' }, twins.map((t) => twinLine(t, twinState)))
         ]));
     }
 
@@ -448,7 +494,7 @@ function draftCard(draft, names, reload) {
         ]));
     }
     card.appendChild(listBlock('تعارضات', draft.conflicts, 'لا تعارضات'));
-    card.appendChild(duplicatesBlock(draft.duplicates));
+    card.appendChild(duplicatesBlock(draft.duplicates, twinState));
     card.appendChild(suspiciousBlock(draft.suspicious));
     card.appendChild(touchedBlock(draft));
     card.appendChild(actionsRow(draft, reload));
@@ -613,7 +659,19 @@ function itemText(item) {
 }
 
 // المكرّرات: مرشّحون موجودون فعلاً في النظام. الرابط يُبنى فقط لما نعرف صفحته.
-function duplicatesBlock(rows) {
+// سطر التوأم: اسمه وسبب المطابقة وحالته الآن (ورقم المشروع إن طُبّق)، ورابط طلبه
+function twinLine(t, twinState) {
+    const now = twinState ? twinState.get(t.draft_id) : undefined;
+    const state = !twinState ? '' : !now ? ' (حُذفت)' : now.status === 'applied'
+        ? ' (طُبّقت كمشروع رقم ' + (now.applied_record || '—') + ')'
+        : now.status === 'rejected' ? ' (رُفضت)' : '';
+    return el('li', {}, [
+        el('span', { text: (t.name || 'بلا اسم') + (t.reason ? ' — ' + t.reason : '') + state + ' ' }),
+        el('a', { class: 'btn btn-outline btn-xs', href: '#/approvals/' + encodeURIComponent(t.id), text: 'فتح الطلب' })
+    ]);
+}
+
+function duplicatesBlock(rows, twinState) {
     const items = Array.isArray(rows) ? rows : [];
     const box = el('div', { class: 'agent-block' }, el('h4', { text: 'مكرّرات محتملة' }));
     if (!items.length) {
@@ -622,6 +680,12 @@ function duplicatesBlock(rows) {
     }
     const list = el('ul', { class: 'agent-list' });
     for (const item of items) {
+        if (item && item.kind === 'draft' && item.id) {
+            const line = twinLine(item, twinState);
+            line.prepend(el('span', { text: 'مسودة في طلب آخر: ' }));
+            list.appendChild(line);
+            continue;
+        }
         const line = el('li', {}, el('span', { text: itemText(item) }));
         if (item && item.kind === 'client' && item.id) {
             line.appendChild(el('a', { class: 'btn btn-outline btn-xs', href: '#/clients/' + item.id, text: 'فتح العميل' }));

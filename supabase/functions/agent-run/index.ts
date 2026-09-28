@@ -15,15 +15,15 @@
 // النصوص قبل كل نداء وتُعاد في المسودات. سقف يومي للإنفاق وللتصعيد قبل كل نداء.
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
-  type AttemptOutcome, chat, ChatError, type ChatMessage, type ChatPart, type ChatResult, CODE_CLASS, classifyFailure,
+  afterTimeout, type AttemptOutcome, chat, ChatError, type ChatMessage, type ChatPart, type ChatResult, CODE_CLASS, classifyFailure,
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, defaultTiers, type Effort, firstStep, isFailure, nextStep,
   parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
 } from "../_shared/effort-router/mod.ts";
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { buildParts, estimateTokens, hasFiles, loadSources, SourceError, type SourceRow } from "./sources.ts";
 import {
-  buildClientDraft, buildProjectDraft, buildUpdateDraft, type DraftSpec, hasProjectChanges, hasUnitChanges,
-  matchUnit, type PhoneNormalizer, type Restore, type Src, updateTarget,
+  buildClientDraft, buildProjectDraft, buildUpdateDraft, type DraftSpec, fmtArea, fmtPrice, hasProjectChanges, hasUnitChanges,
+  matchUnit, type PhoneNormalizer, type Restore, type Src, twinReason, updateTarget,
 } from "./validate.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -55,12 +55,22 @@ const SWEEP_BATCH = 3;
 // حد تشغيل الوظيفة 150 ث في الخطة المجانية: لا نبدأ نداءً لا يتسع له الوقت الباقي
 const RUN_BUDGET_MS = 140_000;
 const MIN_CALL_MS = 25_000;
+// مهلة النداء: السريعة 110 ث؛ الطبقة الثقيلة المستأنفة بعد مهلة السريعة تأخذ وقت التشغيل كله تقريباً
+const FAST_WINDOW_MS = 110_000;
+const HEAVY_WINDOW_MS = 130_000;
+// نداء قُطع بمهلة يُكمله المزوّد ويُفوتره كاملاً (الطلب غير متدفق)، ولا تعود تكلفته: يُسجَّل بتقدير أعلى
+// فيدخل سقف الإنفاق اليومي. يُضبط لكل طبقة بـ AGENT_TIMEOUT_COST_FAST/_REASON/_GENERAL
+const TIMEOUT_COST_USD: Record<TierId, number> = {
+  fast: numEnv("AGENT_TIMEOUT_COST_FAST", 0.01),
+  reason: numEnv("AGENT_TIMEOUT_COST_REASON", 0.25),
+  general: numEnv("AGENT_TIMEOUT_COST_GENERAL", 0.5),
+};
 
 // أسماء الإعدادات التي يذكرها sweep إن كانت مضبوطة — الأسماء فقط، لا القيم أبداً
 const CONFIG_NAMES = [
   "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "AGENT_MODEL_FAST", "AGENT_MODEL_REASON", "AGENT_MODEL_GENERAL",
   "AGENT_FAST_PROVIDERS", "AGENT_GENERAL_PROVIDERS", "AGENT_REASONING_THRESHOLD", "AGENT_MAX_REJECT_RATIO",
-  "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE",
+  "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE", "AGENT_TIMEOUT_COST_FAST", "AGENT_TIMEOUT_COST_REASON", "AGENT_TIMEOUT_COST_GENERAL",
 ];
 const configured = () => CONFIG_NAMES.filter((name) => (env(name) ?? "").trim() !== "");
 
@@ -95,9 +105,12 @@ Deno.serve(async (req) => {
       const list = ((ids ?? []) as unknown[]).map((row) => typeof row === "string" ? row : Object.values(row as object)[0] as string);
       const deadline = Date.now() + RUN_BUDGET_MS;
       EdgeRuntime.waitUntil((async () => {
-        // طلب لا يتسع له الوقت الباقي يبقى في الانتظار للدورة التالية
-        for (const id of list) {
-          if (deadline - Date.now() < 60_000) break;
+        // طلب لا يتسع الوقت الباقي لمهلة ندائه كاملة يبقى في الانتظار للدورة التالية (الحجز يستهلك محاولة، ونداء
+        // بمهلة ناقصة يُقطع ولا يُصعَّد). الأول في الدورة يُحجز دائماً ويأخذ وقت التشغيل كله
+        for (const [i, id] of list.entries()) {
+          const left = deadline - Date.now();
+          if (left < 60_000) break;
+          if (i > 0 && left < (await needsHeavyWindow(db, id) ? HEAVY_WINDOW_MS : FAST_WINDOW_MS) + 5_000) continue;
           await processRequest(db, id, deadline);
         }
       })());
@@ -224,18 +237,32 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       await stage(db, id, "extracting");
       const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content }];
       let result: ChatResult;
+      const windowMs = Math.min(step.tier === "fast" ? FAST_WINDOW_MS : HEAVY_WINDOW_MS, remaining - 5_000);
       try {
         result = await chat({
           tier, apiKey: key, messages, reasoning: step.reasoning, maxTokens: MAX_OUTPUT_TOKENS,
-          schema: { name: request.kind, schema }, plugins: pdfPlugins(tier, parts),
-          timeoutMs: Math.min(110_000, remaining - 5_000),
+          schema: { name: request.kind, schema }, plugins: pdfPlugins(tier, parts), timeoutMs: windowMs,
         });
       } catch (e) {
         // المزوّد الذي رفض النداء وسببه (الجوالات والبريد تُخفى إن ردّدها المزوّد)
         const why = e instanceof ChatError
           ? { provider: e.provider, error: redactor.redact(`${e.kind} ${e.status ?? ""} ${e.message}`).slice(0, 500) }
           : { provider: null, error: redactor.redact(String((e as Error)?.message ?? e)).slice(0, 500) };
-        await logCall(db, id, step, tier, effort, null, "error", null, why);
+        // انتهت مهلتنا نحن (لا 408/504 من المزوّد): التكلفة تقديرية وتُحتسب
+        const aborted = e instanceof ChatError && e.kind === "timeout" && e.status === null;
+        const estimate = aborted ? TIMEOUT_COST_USD[tier.id] : null;
+        if (estimate !== null) {
+          spent.cost += estimate;
+          why.error = (why.error + " — تكلفة تقديرية").slice(0, 500);
+        }
+        await logCall(db, id, step, tier, effort, null, "error", null, why, estimate);
+        // أخذت السريعة مهلتها كاملة ولم تكمل: الناتج أطول مما تكتبه فيها، فالإعادة عليها تنتهي مثلها. يُحفظ الطلب
+        // على الطبقة العامة ويُستأنف منها. مهلة أقصر (وقت تشغيل باقٍ قليل)، أو سقف تصعيد يومي بلغ حدّه (فيُفشل
+        // الطلب إن صُعّد)، تُعاد على السريعة كما هي
+        if (aborted && step.tier === "fast" && windowMs >= FAST_WINDOW_MS) {
+          const next = afterTimeout(step, available);
+          if (next && await canEscalate(db)) await saveLadder(db, id, next, notes);
+        }
         throw e;
       }
       spent.tokens += result.usage.prompt + result.usage.completion;
@@ -256,7 +283,11 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
         for (const d of ev.drafts) inserted.push(await saveDraft(db, id, request.requested_by, d, status));
         const done = await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null });
         // أُلغي الطلب أثناء التنفيذ: لا تبقى مسودات لطلب ملغى
-        if (!done && inserted.length) await db.from("agent_drafts").delete().in("id", inserted);
+        if (!done) {
+          if (inserted.length) await db.from("agent_drafts").delete().in("id", inserted);
+          return;
+        }
+        await linkTwins(db, id, ev.drafts, inserted, request.kind === "project");
         return;
       }
       notes = ev.notes;
@@ -280,6 +311,25 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       error_ar: again ? message + " — ستُعاد المحاولة تلقائياً" : message,
     });
   }
+}
+
+// نداء الطلب التالي على طبقة ثقيلة: خطوته المحفوظة (agent_requests.ladder، استئناف بعد مهلة السريعة)،
+// وإلا الخطوة الأولى كما يختارها firstStep — ملف (PDF أو صورة) إلى العامة، و«عميق» إلى طبقة التفكير
+async function needsHeavyWindow(db: SupabaseClient, id: string): Promise<boolean> {
+  const { data } = await db.from("agent_requests").select("ladder, effort_hint, agent_sources(kind)").eq("id", id).maybeSingle();
+  if (!data) return false;
+  const tier = data.ladder?.step?.tier;
+  if (typeof tier === "string") return tier !== "fast";
+  const sources = (data.agent_sources ?? []) as { kind?: string }[];
+  return data.effort_hint === "deep" || sources.some((s) => s?.kind === "pdf" || s?.kind === "image");
+}
+
+// بقي في سقف التصعيد اليومي متسع (تعذّرت القراءة: لا)
+async function canEscalate(db: SupabaseClient): Promise<boolean> {
+  const { data, error } = await db.rpc("agent_router_budget");
+  if (error || !data) return false;
+  const b = data as { spent_usd: number; usd_cap: number; escalations: number; escalation_cap: number };
+  return Number(b.escalations) < Number(b.escalation_cap) && Number(b.spent_usd) < Number(b.usd_cap);
 }
 
 /* ===================== تقييم محاولة ===================== */
@@ -329,7 +379,7 @@ async function evaluate(
     const generated = draft.evidence.name?.suggested && !draft.evidence.name.stated;
     const probe = generated ? { ...draft.proposed, name: undefined } : draft.proposed;
     const { data: dups } = await db.rpc("agent_find_duplicates", { p_kind: "project", p: probe });
-    draft.duplicates = Array.isArray(dups) ? dups : [];
+    draft.duplicates = [...(Array.isArray(dups) ? dups : []), ...await pendingTwins(db, id, draft)];
     drafts = [draft];
   } else {
     const picked = await buildUpdateDrafts(db, id, request.target_id, out, seen, normalizePhone, restore);
@@ -405,6 +455,7 @@ async function logCall(
   db: SupabaseClient, id: string, step: Step, tier: Tier, effort: Effort,
   result: ChatResult | null, outcome: "ok" | "invalid" | "error", failure: string | null,
   why: { provider: string | null; error: string } | null = null,
+  estimatedCost: number | null = null,
 ) {
   const { error } = await db.from("agent_model_calls").insert({
     request_id: id,
@@ -421,7 +472,7 @@ async function logCall(
     prompt_tokens: result?.usage.prompt ?? null,
     completion_tokens: result?.usage.completion ?? null,
     reasoning_tokens: result?.usage.reasoning ?? null,
-    cost_usd: result?.usage.costUsd ?? null,
+    cost_usd: result?.usage.costUsd ?? estimatedCost,
     outcome,
     failure_class: failure,
   });
@@ -438,6 +489,9 @@ function describe(e: unknown): { message: string; retry: boolean } {
       case "auth": return { message: "مفتاح OpenRouter غير صالح أو بلا صلاحية", retry: false };
       case "credits": return { message: "رصيد OpenRouter غير كافٍ — اشحن الرصيد ثم أعد الطلب", retry: false };
       case "rate_limit": return { message: "خدمة الاستخراج مشغولة الآن", retry: true };
+      case "timeout": return { message: "انتهت مهلة النموذج قبل أن يُكمل الاستخراج (عرض طويل أو خدمة بطيئة الآن)", retry: true };
+      case "network": return { message: "انقطع الاتصال بخدمة الاستخراج", retry: true };
+      case "server": return { message: "أعادت خدمة الاستخراج خطأً مؤقتاً", retry: true };
       case "no_route": return { message: "لم يوجد مزوّد مسموح يقبل هذا الطلب — راجع قائمة المزوّدين", retry: false };
       case "refusal": return { message: "رفض النموذج معالجة هذا المصدر", retry: false };
       case "bad_request":
@@ -527,9 +581,110 @@ async function attachClientDuplicates(db: SupabaseClient, draft: DraftSpec) {
   draft.conflicts.push({ note: "الجوال مسجّل للعميل «" + (existing.name ?? "") + "» — المسودة تعديل على ملفه لا عميل جديد", code: "duplicate" });
 }
 
+/* ===================== المسودات المعلّقة المتطابقة ===================== */
+
+// مسودات مشاريع جديدة معلّقة (مسودة، بانتظار الاعتماد، أو معادة للموظف) في طلبات أخرى تطابق هذه المسودة:
+// العرض نفسه منشوراً في مجموعتين أو مرسلاً مرتين. تُذكر في مكرّراتها بنوع draft ورابط طلبها.
+async function pendingTwins(db: SupabaseClient, id: string, draft: DraftSpec): Promise<unknown[]> {
+  const { data, error } = await db.from("agent_drafts").select("id, request_id, proposed, evidence")
+    .eq("target_kind", "project").is("target_id", null).in("status", ["draft", "submitted", "returned"])
+    .neq("request_id", id).order("created_at", { ascending: false }).limit(500);
+  if (error) {
+    console.error("agent-run twins", id, error.message);
+    return [];
+  }
+  const out: unknown[] = [];
+  for (const row of data ?? []) {
+    let reason: string | null = null;
+    try {
+      reason = twinReason(draft, row);
+    } catch (e) {
+      console.error("agent-run twins row", row.id, String((e as Error)?.message ?? e).slice(0, 200));
+    }
+    if (reason) {
+      const name = typeof row.proposed?.name === "string" ? row.proposed.name : null;
+      out.push({ kind: "draft", id: row.request_id, draft_id: row.id, name, reason });
+    }
+  }
+  return out;
+}
+
+// التنبيه على المسودتين: المسودة الأقدم تُضاف إليها الجديدة في مكرّراتها (وظيفة الخدمة وحدها تكتبه؛ الحارس يمنع غيرها).
+// يُعاد الفحص بعد الحفظ: نسختان من العرض نفسه تُستخرجان معاً (إرسال دفعة من واتساب) لا ترى إحداهما الأخرى في فحص
+// التقييم، فالتي تصل هنا بعد حفظ الأخرى تراها وتربط الاثنتين
+async function linkTwins(db: SupabaseClient, id: string, drafts: DraftSpec[], ids: string[], isProject: boolean) {
+  type Twin = { kind?: string; draft_id?: string; reason?: string };
+  for (let i = 0; i < drafts.length; i++) {
+    if (!ids[i]) continue;
+    const twins = drafts[i].duplicates as Twin[];
+    if (isProject && drafts[i].target_kind === "project" && !drafts[i].target_id) {
+      const late = (await pendingTwins(db, id, drafts[i]) as Twin[])
+        .filter((t) => !twins.some((k) => k?.kind === "draft" && k.draft_id === t.draft_id));
+      if (late.length) {
+        twins.push(...late);
+        const { error } = await db.from("agent_drafts").update({ duplicates: twins }).eq("id", ids[i]);
+        if (error) console.error("agent-run twins late", id, error.message);
+      }
+    }
+    for (const twin of twins) {
+      if (twin?.kind !== "draft" || !twin.draft_id) continue;
+      const { data: other } = await db.from("agent_drafts").select("duplicates").eq("id", twin.draft_id).maybeSingle();
+      if (!other) continue;
+      const list: { draft_id?: string }[] = Array.isArray(other.duplicates) ? other.duplicates : [];
+      if (list.some((x) => x?.draft_id === ids[i])) continue;
+      const entry = { kind: "draft", id, draft_id: ids[i], name: drafts[i].proposed.name ?? null, reason: twin.reason ?? null };
+      const { error } = await db.from("agent_drafts").update({ duplicates: [...list, entry] }).eq("id", twin.draft_id);
+      if (error) console.error("agent-run twins link", id, error.message);
+    }
+  }
+}
+
 /* ===================== التحديث: تحديد السجل الهدف ===================== */
 
 type UpdatePick = DraftSpec[] | "asked" | { fail: string; note: string };
+
+interface ProjectFacts {
+  name: string;
+  price: unknown;
+  area: unknown;
+  // deno-lint-ignore no-explicit-any
+  details: any;
+}
+
+// اسم المشروع ومساحته وسعره وتفاصيله لمرشّحي التحديث (هل اسمه مقترح؟ وما يميّزه في القائمة). null: تعذّرت القراءة
+async function projectFacts(db: SupabaseClient, ids: string[]): Promise<Map<string, ProjectFacts & { suggested: boolean }> | null> {
+  const nums = ids.map(Number).filter(Number.isInteger);
+  if (!nums.length) return new Map();
+  const { data, error } = await db.from("projects").select("id, name, price, area, details").in("id", nums);
+  if (error) return null;
+  const rows = (data ?? []) as (ProjectFacts & { id: number })[];
+  const marked = await suggestedNames(db, rows);
+  if (!marked) return null;
+  return new Map(rows.map((r) => [String(r.id), { ...r, suggested: marked.has(String(r.id)) }]));
+}
+
+// اسم المشروع مقترح (وصفي) ما دام هو الاسم الذي بناه المساعد: details.name_suggested، أو دليل مسودة الاعتماد
+// التي أنشأته (evidence.name.suggested) إن ضاعت العلامة من details (مسودات ما قبل العلامة، أو تعديل من اللوحة).
+// اسمٌ عدّله المدير بعدها لم يعد مقترحاً.
+async function suggestedNames(db: SupabaseClient, rows: (ProjectFacts & { id: number })[]): Promise<Set<string> | null> {
+  const out = new Set<string>();
+  const rest: (ProjectFacts & { id: number })[] = [];
+  for (const r of rows) {
+    if (typeof r.details?.name_suggested === "string" && r.details.name_suggested === r.name) out.add(String(r.id));
+    else rest.push(r);
+  }
+  if (!rest.length) return out;
+  const { data, error } = await db.from("agent_drafts").select("applied_record, evidence")
+    .eq("target_kind", "project").is("target_id", null).eq("status", "applied")
+    .in("applied_record", rest.map((r) => String(r.id)));
+  if (error) return null;
+  for (const d of data ?? []) {
+    const ev = d.evidence?.name;
+    const r = rest.find((x) => String(x.id) === String(d.applied_record));
+    if (r && ev && typeof ev.suggested === "string" && ev.stated !== true && ev.suggested === r.name) out.add(String(r.id));
+  }
+  return out;
+}
 
 // مرشّحون: يُسأل الموظف (نجاح، لا فشل). لا مرشّح: فشل استدلالي — ربما أخطأ النموذج قراءة الاسم.
 async function askUser(db: SupabaseClient, id: string, candidates: unknown[], message: string, missing: string): Promise<UpdatePick> {
@@ -560,12 +715,27 @@ async function buildUpdateDrafts(
     }) as { data: { id: string; name?: string; district?: string; reason?: string; rank?: string }[] | null };
     const list = found ?? [];
     const exact = list.filter((c) => c.rank === "1");
-    if (exact.length === 1) {
+    // المشروع الذي اسمه مقترح («فيلا – حي السامر – 650م») وصفٌ لا هوية: لا يُربط به تحديث تلقائياً، ويختار المدير.
+    // المساحة والسعر ورقم المشروع في كل خيار تميّز المتشابهة.
+    const facts = await projectFacts(db, list.map((c) => String(c.id)));
+    // تعذّرت القراءة: لا ربط تلقائي، يختار مقدّم الطلب
+    const generic = (pid: string) => facts === null || Boolean(facts.get(pid)?.suggested);
+    if (exact.length === 1 && !generic(String(exact[0].id))) {
       projectId = Number(exact[0].id);
     } else {
-      return askUser(db, id, list.map((c) => ({
-        id: String(c.id), kind: "project", label: [c.name, c.district].filter(Boolean).join(" — "), reason: c.reason,
-      })), "تعذّر تحديد المشروع المقصود بثقة — اختر المشروع",
+      return askUser(db, id, list.map((c) => {
+        const f = facts?.get(String(c.id));
+        const extra = [
+          f && Number(f.area) > 0 ? fmtArea(Number(f.area)) : "",
+          f && Number(f.price) > 0 ? fmtPrice(Number(f.price)) : "",
+        ].filter(Boolean);
+        return {
+          id: String(c.id), kind: "project", label: [c.name, c.district, ...extra, "#" + c.id].filter(Boolean).join(" — "),
+          reason: facts?.get(String(c.id))?.suggested ? "اسمه مقترح (وصفي) — تحقق أنه المقصود" : c.reason,
+        };
+      }), exact.length === 1 && facts !== null
+        ? "المشروع المطابق اسمه مقترح (وصفي) لا اسمٌ ذكره مصدر — اختر المشروع المقصود"
+        : "تعذّر تحديد المشروع المقصود بثقة — اختر المشروع",
       `لم يُعثر على مشروع باسم «${target.project_name ?? ""}» — اكتب اسم المشروع كما يرد في المصدر حرفياً`);
     }
   }
@@ -595,6 +765,16 @@ async function buildUpdateDrafts(
     if (!unitSnap?.hash) throw new Stop("الوحدة المختارة لم تعد موجودة");
     const d = await buildUpdateDraft(out, srcs, normalizePhone, "unit", projectId + "/" + unitOrd, unitSnap.row, unitSnap.hash, restore);
     if (d) drafts.push(d);
+  }
+  // هدفٌ اسمه مقترح اختاره مقدّم الطلب من الخيارات: يُنبَّه المدير عند الاعتماد أن الربط اختيارٌ لا تطابقُ اسم
+  const row = projectSnap.row;
+  if (drafts.length && (await projectFacts(db, [String(projectId)]))?.get(String(projectId))?.suggested) {
+    for (const d of drafts) {
+      d.conflicts.push({
+        note: "المشروع الهدف «" + row.name + "» اسمه مقترح (وصفي)، واختير من الخيارات لا بتطابق الاسم — تحقق أنه المقصود قبل الاعتماد",
+        code: "target_suggested_name",
+      });
+    }
   }
   return drafts;
 }

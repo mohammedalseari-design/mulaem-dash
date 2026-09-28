@@ -152,6 +152,43 @@ export type Rule =
 // حدود معقولة لسوق جدة. خارجها القيمة خطأ قراءة (فاصلة ضائعة أو صفر زائد) لا صفقة.
 export const PRICE = { kind: "number", min: 10_000, max: 500_000_000 } as const;
 export const AREA = { kind: "number", min: 10, max: 1_000_000 } as const;
+// رقم بعلامة المتر بعده («170م»، «150 م²»، «مساحتها 600 متراً») أو قبله («م ١٧٠»): مساحة مذكورة نصاً.
+// الأرقام الموسومة وحدها: «20×30م» لا تسم 600. بحثان منفصلان: «غرف 5 م 170» تسم 170 وإن أخذ الأول «5 م».
+const AREA_AFTER = /(\d[\d,٬]*(?:\.\d+)?)\s*(?:م²|م2|متراً|مترًا|مترا|متر|م|m²|m2|sqm|㎡)(?![ء-ي])/gi;
+const AREA_BEFORE = /(?:^|[^ء-ي])(?:م²|م2|متر|م)\s*[:：]?\s*(\d[\d,٬]*(?:\.\d+)?)/gi;
+function markedAreas(quote: string): number[] {
+  // علامات الاتجاه والمحارف الخفية (Cf) والتطويل لا تفصل الرقم عن علامة المتر
+  const q = asciiDigits(quote).replace(/[\p{Cf}ـ]/gu, "").replace(/٫/g, ".");
+  const out: number[] = [];
+  for (const re of [AREA_AFTER, AREA_BEFORE]) {
+    for (const m of q.matchAll(re)) {
+      const start = re === AREA_AFTER ? m.index : m.index + m[0].length - m[1].length;
+      const before = q.slice(Math.max(0, start - 40), start);
+      const after = q.slice(m.index + m[0].length);
+      // بُعدا القطعة («20م×30م»، «30 × 20 م») أطوالٌ لا مساحة
+      if (/[×xX*]\s*$/.test(before) || /^\s*[×xX*]/.test(after)) continue;
+      if (notAreaBefore(before)) continue;
+      const n = Number(m[1].replace(/[,٬]/g, ""));
+      if (Number.isFinite(n)) out.push(n);
+    }
+  }
+  return out;
+}
+// رقم تسبقه كلمة طول أو بُعد أو سعر لا مساحة: «شارع 15م»، «عرض الشارع 20م»، «شارع تجاري 30م»، «للشارع 15م»،
+// «واجهة 20م وعمق 30م»، «يبعد 500م»، «سعر م 3500». كلمات ما بعد آخر رقم فقط، وكلمة مساحة بعدها تُلغيها:
+// «شارع 15 المساحة 400م» و«على شارعين مساحتها 400م» تسمان 400
+const NOT_AREA_WORDS = new Set([
+  "شارع", "شوارع", "شارعين", "عرض", "واجهة", "واجهه", "واجهات", "طول", "عمق", "ارتفاع", "ممر", "ارتداد", "ضلع",
+  "يبعد", "تبعد", "بعد", "مسافة", "مسافه", "سعر", "سعره", "سعرها",
+]);
+const AREA_WORDS = new Set(["مساحة", "مساحه", "مساحتها", "مساحته", "مسطح", "مسطحات"]);
+function notAreaBefore(text: string): boolean {
+  const words = (text.split(/\d/).pop()?.match(/[ء-ي]+/g) ?? []).slice(-3);
+  const bare = (w: string) => w.replace(/^(?:ولل|لل|وب|ب|و|ل)?(?:ال)?/, "");
+  const last = (set: Set<string>) => words.findLastIndex((w) => set.has(w) || set.has(bare(w)));
+  const length = last(NOT_AREA_WORDS);
+  return length >= 0 && length > last(AREA_WORDS);
+}
 export const ROOMS = { kind: "int", min: 0, max: 50 } as const;
 export const COUNT = { kind: "int", min: 1, max: 10_000 } as const;
 export const LAT = { kind: "number", min: 16, max: 33 } as const; // حدود المملكة تقريباً
@@ -204,8 +241,13 @@ export class Checker {
     const quote = this.restore(seenQuote);
     const value = this.original(f.value);
 
+    // مساحة موسومة بعلامة المتر في اقتباسها («٥ غرف م ١٧٠») مذكورة نصاً وإن علّمها النموذج مستنتجة؛
+    // الاقتباس والرقم يُفحصان بعدها كغيرها
+    const n = typeof value === "number" ? value : Number(asciiDigits(String(value)).replace(/[,\s٬]/g, ""));
+    const statedArea = Boolean(f.inferred) && rule === AREA && Number.isFinite(n) &&
+      markedAreas(seenQuote).some((q) => Math.abs(q - n) <= Math.max(0.5, n * 0.005));
     // المستنتج ليس فشلاً: يُعرض ولا يُحفظ، ولا يدخل في نسبة الرفض
-    if (f.inferred) {
+    if (f.inferred && !statedArea) {
       this.conflicts.push({ field: key, value, quote: quote || null, note: "قيمة مستنتجة لا يذكرها المصدر نصاً — لم تُدرج في المقترح", code: "inferred" });
       this.miss(key);
       return undefined;
@@ -863,6 +905,7 @@ function suggestName(
   const district = typeof proposed.district === "string" ? placeOf(proposed.district) : "";
   const city = typeof proposed.city === "string" ? placeOf(proposed.city) : "";
   const location = [district, city].filter(Boolean);
+  const detail = detailOf(proposed, models);
 
   let headline: string | null = null;
   let headlineEv: Evidence | undefined;
@@ -884,7 +927,7 @@ function suggestName(
     // «مستنتج»: صاغه المساعد من كلمات المصدر فهو اقتراح لا هوية؛ غيره ذكره المصدر ورُفض اقتباسه فيبقى هوية للمكرر
     return given?.inferred
       ? setSuggested(c, proposed, name, "", c.source(given?.source)?.id ?? null, false,
-        "الاسم «" + name + "» استنتجه المساعد من كلمات المصدر ولا يذكره المصدر نصاً — اسم مقترح، راجعه قبل الاعتماد")
+        "الاسم «" + name + "» استنتجه المساعد من كلمات المصدر ولا يذكره المصدر نصاً — اسم مقترح، راجعه قبل الاعتماد", detail)
       : setSuggested(c, proposed, name, "", c.source(given?.source)?.id ?? null, true,
         "الاسم «" + name + "» كلماته في المصدر لكن اقتباسه لم يُتحقق منه — اسم مقترح، راجعه قبل الاعتماد");
   }
@@ -910,7 +953,7 @@ function suggestName(
   if (kind && place && (kind + " – " + place).length <= 80) {
     const q = partsEv(true);
     return setSuggested(c, proposed, kind + " – " + place, q.quote, q.id, false,
-      reason + " — اسم مقترح من نوع العقار و" + (district ? "حيّه" : "مدينته") + " كما استُخرجا منه، راجعه قبل الاعتماد");
+      reason + " — اسم مقترح من نوع العقار و" + (district ? "حيّه" : "مدينته") + " كما استُخرجا منه، راجعه قبل الاعتماد", detail);
   }
 
   const src = f ? c.source(f.source) : null;
@@ -927,25 +970,168 @@ function suggestName(
       return setSuggested(c, proposed, shown, quoted ? c.restore(q) : "", src.id, false,
         reason + (check === null
           ? " — اسم مقترح من المساعد من ملف لم يُتحقق من كلماته آلياً، راجعه قبل الاعتماد"
-          : " — اسم مقترح من المساعد بكلمات المصدر، راجعه قبل الاعتماد"));
+          : " — اسم مقترح من المساعد بكلمات المصدر، راجعه قبل الاعتماد"), detail);
     }
   }
 
   if (district && ("عقار – " + place).length <= 80) {
     const q = partsEv(false);
     return setSuggested(c, proposed, "عقار – " + place, q.quote, q.id, false,
-      reason + " — اسم مقترح من الحي كما استُخرج منه، راجعه قبل الاعتماد");
+      reason + " — اسم مقترح من الحي كما استُخرج منه، راجعه قبل الاعتماد", detail);
   }
   // لا شيء يُبنى منه اسم: يبقى العنوان إن كان هو «الاسم» (أفضل من لا اسم)، وإلا يبقى الاسم ناقصاً
 }
 
+// المساحة والسعر بصيغة قصيرة للأسماء والخيارات («650م»، «2.7 مليون»، «850 ألف»)
+export const fmtArea = (area: number) => (Number.isInteger(area) ? String(area) : String(+area.toFixed(1))) + "م";
+export const fmtPrice = (price: number) =>
+  price >= 999_500 ? Math.round(price / 10_000) / 100 + " مليون" : price >= 1000 ? Math.round(price / 1000) + " ألف" : Math.round(price) + " ريال";
+
+// تفصيلة تميّز الاسم المبني عن غيره في الحي نفسه: المساحة، وإلا السعر («فيلا – حي السامر – 650م»)
+function detailOf(proposed: Record<string, unknown>, models: Record<string, unknown>[]): string {
+  const one = models.length === 1 ? models[0] : null;
+  const area = typeof proposed.area === "number" ? proposed.area : one && typeof one.area === "number" ? one.area : null;
+  if (area) return fmtArea(area);
+  const price = typeof proposed.price === "number" ? proposed.price : one && typeof one.price === "number" ? one.price : null;
+  return price ? fmtPrice(price) : "";
+}
+
+// stated: الاسم ذكره المصدر (ولم يُتحقق من اقتباسه) فيبقى كما هو. غيره مبني: تُلحق به التفصيلة، ويُحفظ في
+// details.name_suggested ليُعرف بعد الاعتماد أن اسم المشروع مقترح (فلا يُربط به تحديث تلقائياً — index.ts)
 function setSuggested(
   c: Checker, proposed: Record<string, unknown>, name: string, quote: string, sourceId: string | null, stated: boolean, note: string,
+  detail = "",
 ) {
-  proposed.name = name;
-  c.evidence.name = { quote, page: null, source_id: sourceId, verified: false, suggested: name, ...(stated ? { stated: true } : {}) };
+  // الاسم فيه الرقم نفسه بوحدته («أرض 600 م – حي …»): لا تكرار. رقم آخر («شقة 3 غرف») لا يمنع التفصيلة
+  // بوحدة التفصيلة نفسها («برج الندى 650 ألف» لا يحوي «650م»)، وبفواصل الآلاف («1,200م» = «1200م»)، والوحدة قبل الرقم («م 650»)
+  const digits = (detail.match(/[\d.]+/) ?? [""])[0];
+  const num = digits.replace(".", "\\.");
+  const isArea = detail.endsWith("م");
+  const plainName = asciiDigits(name).replace(/(\d)[,٬](?=\d{3}(?!\d))/g, "$1");
+  const already = digits !== "" && (
+    new RegExp("(^|[^\\d.])" + num + "\\s*(" + (isArea ? "م²|م2|m²|m2|متر|م(?![ء-ي])" : "مليون|ألف|الف") + ")").test(plainName) ||
+    (isArea && new RegExp("(^|[^ء-ي])(م²|م2|متر|م)\\s*" + num + "(?![\\d.])").test(plainName))
+  );
+  const full = !stated && detail && !already && (name + " – " + detail).length <= 80 ? name + " – " + detail : name;
+  proposed.name = full;
+  if (!stated) proposed.details = { ...(proposed.details as Record<string, unknown> | undefined ?? {}), name_suggested: full };
+  c.evidence.name = { quote, page: null, source_id: sourceId, verified: false, suggested: full, ...(stated ? { stated: true } : {}) };
   c.missing = c.missing.filter((k) => k !== "name");
-  c.note({ field: "name", value: name, note, code: "name_suggested" });
+  c.note({ field: "name", value: full, note, code: "name_suggested" });
+}
+
+/* ===================== المسودات المعلّقة المتطابقة ===================== */
+
+export interface DraftFacts {
+  proposed: Record<string, unknown>;
+  evidence?: Record<string, Evidence> | null;
+}
+
+// مفاتيح المطابقة بين مسودتين: normText، ثم الهمزة على ياء أو واو، وهمزة آخر الكلمة («الروضه» = «الروضة»، «الهيئه» = «الهيئة»)
+const twinText = (s: string) =>
+  normText(String(s).replace(/ڤ/g, "ف")).replace(/ئ/g, "ي").replace(/ؤ/g, "و").replace(/(\S)ء(?=\s|$)/g, "$1");
+// كلمات عامة تسبق الاسم أو تلحقه («مشروع جوهرة الصفا» = «جوهرة الصفا»)، إلا قبل رقم: «عمارة 499» غير «برج 499»
+const NAME_FILLER = new Set(["مشروع", "مشاريع", "ابراج", "برج", "مجمع", "سكني", "عماره", "عمائر"]);
+const nameKey = (s: string) => {
+  const words = twinText(s).split(" ").filter(Boolean);
+  const kept = words.filter((w) => !NAME_FILLER.has(w));
+  return (kept.length && !/^\d/.test(kept[0]) ? kept : words).join(" ");
+};
+// النوع بفئته: «فيلا/فيله/فلل/دوبلكس» فيلا واحدة، و«شقة تمليك» شقة. نوعٌ خارج الفئات مجهول لا يمنع المطابقة
+const KIND_CLASS: Record<string, string[]> = {
+  villa: ["فيلا", "فيله", "فله", "فلل", "فلتين", "دوبلكس", "دبلكس", "دوبليكس"],
+  apartment: ["شقه", "شقق", "شقتين"],
+  land: ["ارض", "اراضي", "قطعه"],
+  building: ["عماره", "عمائر", "عمارتين"],
+  floor: ["دور", "ادوار"],
+  shop: ["محل", "محلات", "معرض"],
+  office: ["مكتب", "مكاتب"],
+  rest: ["استراحه", "شاليه"],
+};
+const kindClass = (raw: string) => {
+  for (const word of twinText(kindOf(raw)).split(" ")) {
+    const w = word.replace(/^ال/, "");
+    for (const [cls, words] of Object.entries(KIND_CLASS)) if (words.includes(w)) return cls;
+  }
+  return "";
+};
+// الحي بلا «حي» ولا «ال» ولا المدينة ولا الجهة أينما جاءت («حي السامر، جدة» = «جدة، حي السامر» = «السامر بجدة»
+// = «السامر شمال جدة» = «سامر»). «طريق مكة» طريقٌ لا مدينة. المدينة وحدها ليست حياً: مفتاح فارغ
+const PLACE_GLUE = new Set(["في", "ب", "حي", "بحي", "الحي", "مدينه", "بمدينه", "شمال", "جنوب", "شرق", "غرب", "وسط"]);
+const placeKey = (raw: string) => {
+  const out: string[] = [];
+  for (const part of raw.split(/[،,\-–—|/]/)) {
+    const words = twinText(placeOf(part)).split(" ").filter(Boolean);
+    words.forEach((w, i) => {
+      const road = i > 0 && ["طريق", "شارع"].includes(words[i - 1]);
+      if (PLACE_GLUE.has(w) || (!road && (CITIES.has(w) || CITIES.has(w.replace(/^ب/, ""))))) return;
+      out.push(w.replace(/^ال/, ""));
+    });
+  }
+  return out.join(" ");
+};
+const plain = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+
+// العرض نفسه في مسودتين معلّقتين (نُشر في مجموعتين، أو أُرسل مرتين بصياغة مختلفة):
+//   - اسمان حقيقيان (لا مقترحان ولا عنوانا إعلان) متساويان: «الاسم نفسه» ما لم يناقضه حيّ أو نوع أو رقم.
+//     مختلفان ولا يحوي أحدهما الآخر: عرضان مختلفان.
+//   - وإلا الحي نفسه، مع نوع من الفئة نفسها ورقم واحد متطابق (السعر أو المساحة بهامش 1%)، أو الرقمين معاً إن جُهل النوع.
+//   - رقم يناقض الآخر (مساحة تختلف بأكثر من 1%، أو سعر بأكثر من 15%، أو عدد غرف آخر) ينفي المطابقة:
+//     فيلتان في حي واحد بمساحتين مختلفتين.
+// الاسم المبني وصفٌ لا هوية، فلا يُطابَق به وحده.
+export function twinReason(a: DraftFacts, b: DraftFacts): string | null {
+  if (!plain(a?.proposed) || !plain(b?.proposed)) return null;
+  const realName = (d: DraftFacts) => {
+    const name = d.proposed.name;
+    if (typeof name !== "string") return "";
+    const ev = plain(d.evidence) ? d.evidence.name : undefined;
+    // مبنيٌّ ما دام هو الاسم نفسه؛ اسمٌ كتبه المدير بعده (مسودة معادة) حقيقي
+    if (ev?.suggested && !ev.stated && ev.suggested === name) return "";
+    // عنوان إعلان بقي اسماً (لا حي ولا مدينة يُبنى منهما): «فيلا للبيع فرصة لا تعوض» ليس هوية
+    const place = [d.proposed.district, d.proposed.city].filter((v): v is string => typeof v === "string");
+    return isHeadline(name, place) ? "" : nameKey(name);
+  };
+  const na = realName(a), nb = realName(b);
+  let sameName = false;
+  if (na && nb) {
+    if (na === nb) sameName = true;
+    else if (!(" " + na + " ").includes(" " + nb + " ") && !(" " + nb + " ").includes(" " + na + " ")) return null;
+  }
+  const models = (d: DraftFacts) => {
+    const m = plain(d.proposed.details) ? d.proposed.details.models : undefined;
+    return Array.isArray(m) ? m.filter(plain) : [];
+  };
+  const kind = (d: DraftFacts) => {
+    const t = typeof d.proposed.type === "string" ? d.proposed.type : models(d).map((m) => m.type).find((v) => typeof v === "string");
+    return typeof t === "string" ? kindClass(t) : "";
+  };
+  const num = (d: DraftFacts, key: "price" | "area") => {
+    const v = d.proposed[key];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    const m = models(d);
+    return m.length === 1 && typeof m[0][key] === "number" && Number.isFinite(m[0][key]) ? m[0][key] as number : null;
+  };
+  const rooms = (d: DraftFacts) => {
+    const m = models(d);
+    return m.length === 1 && typeof m[0].rooms === "number" ? m[0].rooms : null;
+  };
+  const pa = placeKey(String(a.proposed.district ?? "")), pb = placeKey(String(b.proposed.district ?? ""));
+  if (pa && pb && pa !== pb) return null;
+  const ka = kind(a), kb = kind(b);
+  if (ka && kb && ka !== kb) return null;
+  const within = (x: number | null, y: number | null, tol: number) => x !== null && y !== null && Math.abs(x - y) <= Math.max(x, y) * tol;
+  const [pA, pB, aA, aB] = [num(a, "price"), num(b, "price"), num(a, "area"), num(b, "area")];
+  if (pA !== null && pB !== null && !within(pA, pB, 0.15)) return null;
+  if (aA !== null && aB !== null && !within(aA, aB, 0.01)) return null;
+  const [rA, rB] = [rooms(a), rooms(b)];
+  if (rA !== null && rB !== null && rA !== rB) return null;
+  if (sameName) return "الاسم نفسه";
+  if (!pa || pa !== pb) return null;
+  const samePrice = within(pA, pB, 0.01);
+  const sameArea = within(aA, aB, 0.01);
+  const typed = Boolean(ka && kb);
+  if (typed ? !samePrice && !sameArea : !(samePrice && sameArea)) return null;
+  return (typed ? "الحي والنوع نفساهما و" : "الحي نفسه و") + (samePrice && sameArea ? "السعر والمساحة" : samePrice ? "السعر" : "المساحة");
 }
 
 /* ===================== السعر لا يضيع بصمت ===================== */

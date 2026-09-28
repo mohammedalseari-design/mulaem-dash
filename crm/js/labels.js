@@ -242,6 +242,7 @@ export const AGENT_FIELD = {
     developer: 'المطوّر', construction_status: 'الحالة الإنشائية', units_count: 'عدد الوحدات',
     description: 'الوصف', models: 'الوحدات', count: 'العدد', project_id: 'المشروع',
     price_per_m: 'سعر المتر',
+    name_suggested: 'اسم مقترح',
     quote: 'الاقتباس', page: 'الصفحة', source_id: 'المصدر', reason: 'السبب', note: 'ملاحظة',
     value: 'القيمة', field: 'الحقل', kind: 'النوع', id: 'المعرّف', label: 'الاسم', units: 'الوحدات', rank: 'الترتيب'
 };

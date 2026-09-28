@@ -2,7 +2,7 @@
 // التشغيل: deno test supabase/functions/_shared/effort-router/
 import { assert, assertEquals, assertFalse, assertRejects } from "jsr:@std/assert@1";
 import {
-  applyPolicy, buildBody, chat, ChatError, classifyFailure, defaultTiers, firstStep, isFailure, nextStep,
+  afterTimeout, applyPolicy, buildBody, chat, ChatError, classifyFailure, defaultTiers, firstStep, isFailure, nextStep,
   outputBudget, parseJson, rawPhones, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step,
   type Tier,
 } from "./mod.ts";
@@ -74,6 +74,23 @@ Deno.test("ladder: deep goes to reason, files go to general, and a failed heavy 
   // PDF لا يذهب إلى الاستدلالية حتى مع «تفكير عميق»، لكنه يُحسب تصعيداً
   const both = firstStep({ deep: true, hasFiles: true, reasoning: false })!;
   assertEquals([both.tier, both.escalation], ["general", true]);
+});
+
+// جوهرة الصفا: ثمانية نماذج (~4.5 ألف رمز) لا تُكتب على السريعة في 110 ثوانٍ، فانتهت ثلاث مرات وفشل الطلب
+Deno.test("ladder: a Flash timeout resumes on the general tier without reasoning; a heavy timeout keeps its step", () => {
+  const s1: Step = { attempt: 1, tier: "fast", reasoning: false, repair: false, escalation: false };
+  assertEquals(afterTimeout(s1), { attempt: 2, tier: "general", reasoning: false, repair: false, escalation: true });
+  // محاولة إصلاح تبقى إصلاحاً، والثالثة لا تتجاوز السقف
+  const s2: Step = { attempt: 2, tier: "fast", reasoning: true, repair: true, escalation: false };
+  assertEquals(afterTimeout(s2), { attempt: 3, tier: "general", reasoning: false, repair: true, escalation: true });
+  assertEquals(afterTimeout({ ...s2, attempt: 3 })!.attempt, 3);
+  // بلا العامة: الاستدلالية؛ بلا ثقيلة: لا تصعيد
+  assertEquals(afterTimeout(s1, ["fast", "reason"])!.tier, "reason");
+  assertEquals(afterTimeout(s1, ["fast"]), null);
+  // طبقة ثقيلة انتهت مهلتها: تُعاد كما هي
+  assertEquals(afterTimeout({ attempt: 2, tier: "general", reasoning: false, repair: false, escalation: true }), null);
+  // الخطوة المحفوظة يقبلها الاستئناف
+  assertEquals(resumeLadder({ step: afterTimeout(s1), notes: [] })!.step, afterTimeout(s1));
 });
 
 Deno.test("ladder: never more than three model attempts", () => {

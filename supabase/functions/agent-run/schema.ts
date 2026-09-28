@@ -168,6 +168,7 @@ Extract only what a source states.
 - If a source does not state a field, set value to null, quote to null, page to null, source to null, inferred to false. Never guess, never fill a plausible value, never carry a value from general knowledge.
 - Every non-null value needs "quote": the shortest exact span copied character-for-character from the source that states it (keep the original digits and spelling), "source": the source id, and "page": the 1-based PDF page, or null for non-PDF sources.
 - If a value is not written explicitly but you derived it (computed it, converted units, read it off a map, assumed a city from a district), set inferred to true. Inferred values are shown to the manager but never saved, so do not present them as stated facts.
+- An area written with a metre sign ("م ١٧٠", "170م", "150 م²", "مساحتها 600 متر") is stated, not inferred.
 - Keep numbers as plain numbers in SAR and square metres (e.g. "1.2 مليون" → 1200000, "950 ألف" → 950000). Dates as YYYY-MM-DD; if only a year or quarter is given, leave the date null and mention it in description or notes.
 - price_per_m is the price per square metre only when a source states it (سعر المتر). Never compute it, and never compute a total price from it; copy each number exactly as the source states it, even if they do not agree.
 - Phone numbers and e-mail addresses in sources appear as placeholders like [PHONE_1] or [EMAIL_1]; copy a placeholder exactly as written wherever you would copy the number or address.

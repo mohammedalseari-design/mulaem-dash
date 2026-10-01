@@ -44,6 +44,32 @@ export async function startExtraction(requestId) {
     }
 }
 
+// بعد حفظ تعديل على مقترح مسودة مشروع جديد: الوظيفة تعيد مطابقتها بالمسودات المعلّقة الأخرى (التوائم) بقيمها الجديدة،
+// فيسقط تنبيه «مسودة مكررة» لم يعد صحيحاً ويظهر تنبيه صار صحيحاً. لا ترمي ولا تنتظر أكثر من RECHECK_MS: تعذّرها (وظيفة
+// منشورة قبل هذا الإجراء، أو انقطاع) يُسجَّل في وحدة التحكم وتبقى سطور التوائم كما كانت. الملخّص، أو null
+const RECHECK_MS = 8000;
+
+export async function recheckTwins(draftId) {
+    let timer = null;
+    const late = new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ data: null, error: new Error('انتهت مهلة إعادة مطابقة التوائم') }), RECHECK_MS);
+    });
+    try {
+        const call = supabase.functions.invoke('agent-run', { body: { action: 'recheck_twins', draft_id: draftId } });
+        const { data, error } = await Promise.race([call, late]);
+        if (error || !data || data.status !== 'success') {
+            console.warn('[CRM] recheck_twins', error || data);
+            return null;
+        }
+        return data;
+    } catch (error) {
+        console.warn('[CRM] recheck_twins', error);
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // الموظف يختار السجل الهدف من المرشّحين الذين كتبهم الخادم؛ القاعدة ترفض ما ليس منهم.
 export async function pickTarget(requestId, target) {
     const { data, error } = await supabase.rpc('agent_pick_target', { p_request: requestId, p_target: target });

@@ -5,9 +5,11 @@ import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { CLIENT_SCHEMA, PROJECT_SCHEMA, UPDATE_SCHEMA } from "./schema.ts";
 import { buildParts, estimateTokens, loadSources, MAX_FILE_BYTES, SourceError, type SourceRow } from "./sources.ts";
 import {
-  buildClientDraft, buildProjectDraft, buildUpdateDraft, type DraftFacts, type Field, fmtArea, fmtPrice, matchUnit, normText,
-  scanSuspicious, type Src, twinReason,
+  buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts, type Field,
+  fmtArea, fmtPrice, matchUnit, normText, rpcMissing, scanSuspicious, type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines,
+  twinPlan, twinReason, twinRecheck, withoutTwin, withTwin,
 } from "./validate.ts";
+import { CODE_CLASS } from "../_shared/effort-router/classify.ts";
 
 // نسخة مطابقة لـ public.normalize_phone في القاعدة (الوظيفة الحقيقية تناديها عبر rpc)
 const normalizePhone = (p: string) => {
@@ -1158,6 +1160,161 @@ Deno.test("twins: district forms, roads, a city alone, rooms, and «ڤيلا»",
   assertEquals(twinReason(facts({ type: "ڤيلا", district: "السامر", area: 650 }), villa("السامر")), "الحي والنوع نفساهما والمساحة");
 });
 
+// الإلحاق الذرّي في القاعدة (agent_link_twin، ترحيل 025) لا يُختبر هنا؛ هذا شرطه نفسه في احتياط الوظيفة قبل الترحيل
+Deno.test("twins: a twin line is appended once per draft id and keeps the other duplicates", () => {
+  const entry = { kind: "draft", id: "req-2", draft_id: "d-2", name: "فيلا – حي السامر – 650م", reason: "الحي والنوع نفساهما والمساحة" };
+  const project = { kind: "project", id: "54", name: "جوهرة الصفا", reason: "الاسم مطابق بعد التطبيع", rank: "1" };
+  const list = [project, { kind: "draft", id: "req-1", draft_id: "d-1", name: null, reason: "الاسم نفسه" }];
+  assertEquals(withTwin(list, entry), [...list, entry]);
+  assertEquals(list.length, 2);
+  // مذكورة من قبل بمعرّف مسودتها، ولو بسبب آخر أو بلا نوع: لا كتابة
+  assertEquals(withTwin([project, { ...entry, reason: "الاسم نفسه" }], entry), null);
+  assertEquals(withTwin([{ draft_id: "d-2" }], entry), null);
+  // مرشّح مشروع رقمه يساوي معرّف المسودة ليس هي
+  assertEquals(withTwin([{ kind: "project", id: "d-2" }], entry), [{ kind: "project", id: "d-2" }, entry]);
+  // قائمة فارغة أو ليست قائمة: تبدأ بالسطر. عناصر تالفة تبقى ولا تمنع الإلحاق
+  assertEquals(withTwin([], entry), [entry]);
+  assertEquals(withTwin(null, entry), [entry]);
+  assertEquals(withTwin({ draft_id: "d-2" }, entry), [entry]);
+  assertEquals(withTwin([null, "d-2", 3], entry), [null, "d-2", 3, entry]);
+});
+
+// والحذف كذلك: agent_unlink_twin في القاعدة، وهذا شرطه في الاحتياط
+Deno.test("twins: unlinking drops only that draft's twin lines and keeps the rest in order", () => {
+  const project = { kind: "project", id: "d-2", name: "جوهرة الصفا", reason: "الاسم مطابق بعد التطبيع", rank: "1" };
+  const twin = (draft_id: string, reason = "الاسم نفسه") => ({ kind: "draft", id: "req-" + draft_id, draft_id, name: null, reason });
+  const list = [twin("d-1"), project, twin("d-2"), twin("d-3"), twin("d-2", "الحي نفسه والسعر والمساحة")];
+  assertEquals(withoutTwin(list, "d-2"), [twin("d-1"), project, twin("d-3")]);
+  assertEquals(list.length, 5);
+  // لا سطر له: لا كتابة. مرشّح مشروع رقمه يساوي المعرّف، وسطر بلا نوع، ليسا سطري توأم
+  assertEquals(withoutTwin(list, "d-9"), null);
+  assertEquals(withoutTwin([project, { draft_id: "d-2" }], "d-2"), null);
+  // ليست قائمة، أو معرّف فارغ: لا كتابة. العناصر التالفة تبقى
+  assertEquals(withoutTwin(null, "d-1"), null);
+  assertEquals(withoutTwin(twin("d-1"), "d-1"), null);
+  assertEquals(withoutTwin(list, ""), null);
+  assertEquals(withoutTwin([null, "d-1", 3, twin("d-1")], "d-1"), [null, "d-1", 3]);
+});
+
+Deno.test("twins: a twin line carries the request, the draft, a text name only, and the reason; only draft lines with an id are twin lines", () => {
+  assertEquals(twinEntry("req-1", "d-1", { name: "فيلا – حي السامر – 650م", area: 650 }, "الحي والنوع نفساهما والمساحة"),
+    { kind: "draft", id: "req-1", draft_id: "d-1", name: "فيلا – حي السامر – 650م", reason: "الحي والنوع نفساهما والمساحة" });
+  for (const proposed of [{}, { name: 650 }, { name: null }, null, "x"]) {
+    assertEquals(twinEntry("req-1", "d-1", proposed, null).name, null, JSON.stringify(proposed));
+  }
+  const line = { kind: "draft", id: "req-1", draft_id: "d-1", name: null, reason: null };
+  assertEquals(twinLines([line, { kind: "project", id: "54" }, { draft_id: "d-2" }, { kind: "draft", id: "req-3" },
+    { kind: "draft", draft_id: "" }, { kind: "draft", draft_id: 7 }, null, "d-1"]), [line]);
+  assertEquals(twinLines({ kind: "draft", draft_id: "d-1" }), []);
+});
+
+// إعادة المطابقة بعد تعديل المدير (recheck_twins): السطر نفسه يبقى، والمطابقة الجديدة تُلحق، والتي سقطت تُفكّ، والسطر الذي
+// تغيّر سببه أو اسمه يُستبدل. مرشّحو المشاريع وما تلف لا يدخلون الخطة
+Deno.test("twins: a recheck keeps unchanged lines, adds new matches, drops stale ones, and replaces changed lines", () => {
+  const line = (draft_id: string, reason: string | null = "الحي والنوع نفساهما والمساحة", name: unknown = "فيلا – حي السامر – 650م"): TwinEntry =>
+    ({ kind: "draft", id: "req-" + draft_id, draft_id, name, reason });
+  const project = { kind: "project", id: "54", name: "جوهرة الصفا", reason: "الاسم مطابق بعد التطبيع", rank: "1" };
+  assertEquals(twinPlan([], [line("d-1")]), { keep: [], add: [line("d-1")], remove: [] });
+  assertEquals(twinPlan([project, line("d-1")], [line("d-1")]), { keep: [line("d-1")], add: [], remove: [] });
+  assertEquals(twinPlan([project, line("d-1")], []), { keep: [], add: [], remove: ["d-1"] });
+  const priced = line("d-1", "الحي والنوع نفساهما والسعر والمساحة");
+  assertEquals(twinPlan([line("d-1")], [priced]), { keep: [], add: [priced], remove: ["d-1"] });
+  const renamed = line("d-1", undefined, "فيلا السامر الفاخرة");
+  assertEquals(twinPlan([line("d-1")], [renamed]), { keep: [], add: [renamed], remove: ["d-1"] });
+  // معاً: d-1 كما هو، و d-2 سقط، و d-3 جديد
+  assertEquals(twinPlan([line("d-1"), project, line("d-2")], [line("d-3"), line("d-1")]),
+    { keep: [line("d-1")], add: [line("d-3")], remove: ["d-2"] });
+  // سطر بلا اسم ولا سبب يساوي null فيهما
+  assertEquals(twinPlan([{ kind: "draft", id: "req-d-1", draft_id: "d-1" }], [line("d-1", null, null)]).keep.length, 1);
+  // مذكور مرتين: يُفكّ مرة ويُلحق مرة، أو يُفكّ مرة إن سقط. وتوأم مكرّر في الفحص يُعدّ مرة
+  assertEquals(twinPlan([line("d-1"), line("d-1")], [line("d-1")]), { keep: [], add: [line("d-1")], remove: ["d-1"] });
+  assertEquals(twinPlan([line("d-1"), line("d-1", "الاسم نفسه")], []), { keep: [], add: [], remove: ["d-1"] });
+  assertEquals(twinPlan([], [line("d-1"), priced]), { keep: [], add: [line("d-1")], remove: [] });
+  // ما ليس قائمة فارغ، والعناصر التالفة لا تدخل الخطة
+  assertEquals(twinPlan(null, [line("d-1")]), { keep: [], add: [line("d-1")], remove: [] });
+  assertEquals(twinPlan([null, "d-1", { kind: "draft", id: "req-x" }], []), { keep: [], add: [], remove: [] });
+  // لا يغيّر ما أُعطي
+  const current = [line("d-2")];
+  const fresh = [line("d-1")];
+  twinPlan(current, fresh);
+  assertEquals(current, [line("d-2")]);
+  assertEquals(fresh, [line("d-1")]);
+});
+
+// السيناريو: فيلا السامر (D) أُرسلت مرتين مع A، واعتُمدت نسخة ثالثة P فصارت مشروعاً. المدير صحّح مساحة D وسعرها
+// (فيلا أخرى)، فصارت تطابق B. سطور D تُكتب من جديد، وسطر D في كل مسودة معلّقة يتبعها
+Deno.test("twins: rechecking an edited draft rewrites its own twin lines and its line in each pending draft", () => {
+  // الاسم المبني بقي كما هو بعد التعديل، فهو وصف لا هوية في المطابقة
+  const villa = (area: number, price: number) => ({ name: "فيلا – حي السامر – 650م", type: "فيلا", district: "السامر", area, price });
+  const before = facts(villa(650, 2_700_000), true);
+  const edited = facts(villa(400, 1_500_000), true);
+  const a = { id: "a", request_id: "req-a", ...facts(villa(650, 2_700_000), true) };
+  const b = { id: "b", request_id: "req-b", ...facts({ ...villa(400, 1_480_000), name: "فيلا – حي السامر – 400م" }, true) };
+  const c = { id: "c", request_id: "req-c", ...facts({ name: "شقة – حي المروة", type: "شقة", district: "المروة", price: 650_000 }, true) };
+  const p = { id: "p", request_id: "req-p", ...facts(villa(650, 2_700_000), true) };
+  const old = "الحي والنوع نفساهما والسعر والمساحة";
+  assertEquals(twinReason(before, a), old);
+  const project = { kind: "project", id: "54", name: "فيلا السامر", reason: "الحي نفسه", rank: "2" };
+  const rejected = twinEntry("req-r", "r", villa(650, 2_700_000), old);
+  const draft = {
+    id: "d", request_id: "req-d", proposed: edited.proposed,
+    duplicates: [project, twinEntry("req-a", "a", a.proposed, old), twinEntry("req-p", "p", p.proposed, old), rejected],
+  };
+  const lineOfD = (reason: string) => twinEntry("req-d", "d", edited.proposed, reason);
+  // B توأمٌ لمسودة ثالثة x: سطرها في B لا يمسّه فحص D
+  const lineX = twinEntry("req-x", "x", { name: "فيلا السامر" }, "الاسم نفسه");
+  const checked: TwinCheck[] = [
+    { ...a, duplicates: [twinEntry("req-d", "d", before.proposed, old)], reason: twinReason(edited, a), pending: true },
+    { ...b, duplicates: [lineX], reason: twinReason(edited, b), pending: true },
+    { ...c, duplicates: [project], reason: twinReason(edited, c), pending: true },
+    // المطبَّقة: لا مكرّرات تُكتب فيها؛ والمرفوضة r لم تُفحص فسطرها يبقى
+    { ...p, duplicates: undefined, reason: twinReason(edited, p), pending: false },
+  ];
+  // السعران متقاربان (أقل من 15%) لا متساويان: المساحة وحدها
+  const nowB = "الحي والنوع نفساهما والمساحة";
+  assertEquals(twinReason(edited, b), nowB);
+  assertEquals([twinReason(edited, a), twinReason(edited, c), twinReason(edited, p)], [null, null, null]);
+  const result = twinRecheck(draft, checked);
+  assertEquals(result.own, { keep: [], add: [twinEntry("req-b", "b", b.proposed, nowB)], remove: ["a", "p"] });
+  assertEquals(result.others, [
+    { draft_id: "a", plan: { keep: [], add: [], remove: ["d"] } },
+    { draft_id: "b", plan: { keep: [], add: [lineOfD(nowB)], remove: [] } },
+  ]);
+  assertEquals([result.twins, result.added, result.removed, result.updated], [1, 1, 2, 0]);
+
+  // المدير سمّى D باسم حقيقي وبقيت تطابق A و P: سطراهما في D كما هما، وسطر D في A يُستبدل باسمها الجديد.
+  // P مطبَّقة (صارت مشروعاً): تبقى في مكرّرات D، ولا يُكتب في مكرّراتها هي شيء ولو لم تذكر D
+  const named = { ...villa(650, 2_700_000), name: "فيلا السامر الفاخرة" };
+  const renamed = {
+    ...draft, proposed: named, duplicates: [twinEntry("req-a", "a", a.proposed, old), twinEntry("req-p", "p", p.proposed, old)],
+  };
+  const again = twinRecheck(renamed, [
+    { ...a, duplicates: [twinEntry("req-d", "d", before.proposed, old)], reason: old, pending: true },
+    { ...p, duplicates: [], reason: old, pending: false },
+  ]);
+  assertEquals(again.own, { keep: [twinEntry("req-a", "a", a.proposed, old), twinEntry("req-p", "p", p.proposed, old)], add: [], remove: [] });
+  assertEquals(again.others, [{ draft_id: "a", plan: { keep: [], add: [twinEntry("req-d", "d", named, old)], remove: ["d"] } }]);
+  assertEquals([again.twins, again.added, again.removed, again.updated], [2, 0, 0, 0]);
+
+  // السبب تغيّر في الجهتين: سطر D يُستبدل ويُعدّ «تغيّر»، لا جديداً ولا ساقطاً. والمسودة نفسها إن مرّت في الفحص تُتجاهل
+  const reason2 = "الحي والنوع نفساهما والسعر";
+  const third = twinRecheck(renamed, [
+    { ...a, duplicates: [twinEntry("req-d", "d", named, old)], reason: reason2, pending: true },
+    { id: "d", request_id: "req-d", proposed: named, duplicates: renamed.duplicates, reason: "الاسم نفسه", pending: true },
+  ]);
+  assertEquals(third.own, { keep: [], add: [twinEntry("req-a", "a", a.proposed, reason2)], remove: ["a"] });
+  assertEquals(third.others, [{ draft_id: "a", plan: { keep: [], add: [twinEntry("req-d", "d", named, reason2)], remove: ["d"] } }]);
+  assertEquals([third.twins, third.added, third.removed, third.updated], [1, 0, 0, 1]);
+});
+
+Deno.test("rpc: only a missing function falls back to the old path (PGRST202, or 42883 from Postgres)", () => {
+  assert(rpcMissing({ code: "PGRST202" }));
+  assert(rpcMissing({ code: "42883" }));
+  for (const error of [null, undefined, {}, { code: null }, { code: "" }, { code: "PGRST116" }, { code: "42501" }, { code: "22P02" }]) {
+    assertFalse(rpcMissing(error), JSON.stringify(error));
+  }
+});
+
 Deno.test("area: only a metre-marked number that equals the value is stated; widths and dimensions stay inferred", async () => {
   const run = async (line: string, quote: string, value: number) => {
     const out = villaOut();
@@ -1213,4 +1370,126 @@ Deno.test("name: a name the model inferred also carries the detail; a digit that
     const dn = await buildProjectDraft(o, [text(name + "\n" + VILLA)], normalizePhone);
     assertEquals(dn.proposed.name, want, name);
   }
+});
+
+/* ===================== الحي من اسم المشروع (الجولة 7: «جوهرة الصفا» عاد بلا حيّ) ===================== */
+
+const JAWHARA = "جوهرة الصفا\nفيلا للبيع بمدينة جدة\nالمساحه 650 متر\nالسعر 2 مليون و 700";
+
+function jawharaOut() {
+  const out = villaOut();
+  out.project.name = f("جوهرة الصفا", "جوهرة الصفا");
+  out.project.district = none();
+  return out;
+}
+const named = (name: string, extra: Record<string, unknown> = {}): DraftFacts => ({ proposed: { name, ...extra } });
+
+Deno.test("district: a real name that names a known district gives the manager a note, never a saved value", async () => {
+  const d = await buildProjectDraft(jawharaOut(), [text(JAWHARA)], normalizePhone);
+  assertEquals(d.proposed.name, "جوهرة الصفا");
+  assert(d.missing.includes("district"));
+  assertEquals(districtHintName(d), "جوهرة الصفا");
+  assertEquals(districtFromName(d, ["الصفا", "السامر"]), "الصفا");
+  // الفحص لا يكتب في المسودة شيئاً: الحي يبقى خارج المقترح
+  assertEquals(d.proposed.district, undefined);
+  assertEquals(d.evidence.district, undefined);
+  const note = districtNote("الصفا");
+  assertEquals([note.field, note.value, note.code], ["district", "الصفا", "district_from_name"]);
+  assert(note.note.includes("«الصفا»") && note.note.includes("تحقق منه") && note.note.includes("بعد الاعتماد"));
+  // ملاحظة لا رفض: رمزها خارج تصنيف الفشل، فلا إعادة ولا تصعيد بسببها
+  assertEquals(CODE_CLASS[note.code!], undefined);
+  // اسمٌ ذكره المصدر ولم يُتحقق من اقتباسه (stated) اسمٌ حقيقي كذلك
+  const out = jawharaOut();
+  out.project.name = f("جوهرة الصفا", "اقتباس لا يوجد في المصدر");
+  const stated = await buildProjectDraft(out, [text(JAWHARA)], normalizePhone);
+  assertEquals([stated.proposed.name, stated.evidence.name.stated], ["جوهرة الصفا", true]);
+  assertEquals(districtFromName(stated, ["الصفا", "السامر"]), "الصفا");
+});
+
+Deno.test("district: a suggested name (offered by the model, or inferred), a headline, or no name is never searched", async () => {
+  // «فيلا – حي الصفا» ركّبه النموذج من كلمات المصدر: اقتراحه هو، لا اسمٌ ذكره المصدر
+  const src = "فيلا للبيع في حي الصفا\nالمساحه 650 متر\nالسعر 2 مليون و 700";
+  const out = villaOut();
+  out.project.name = none();
+  out.project.district = none();
+  out.project.city = none();
+  setP(out, "type", none());
+  setP(out, "suggested_name", f("فيلا – حي الصفا", "فيلا للبيع في حي الصفا"));
+  const d = await buildProjectDraft(out, [text(src)], normalizePhone);
+  assertEquals(base(d.proposed.name), "فيلا – حي الصفا");
+  assertEquals(districtHintName(d), "");
+  assertEquals(districtFromName(d, ["الصفا"]), null);
+  // اسمٌ استنتجه النموذج
+  const inferred = jawharaOut();
+  inferred.project.name = f("جوهرة الصفا", "جوهرة الصفا", "S1", true);
+  const d2 = await buildProjectDraft(inferred, [text(JAWHARA)], normalizePhone);
+  assert(d2.evidence.name.suggested && !d2.evidence.name.stated);
+  assertEquals(districtFromName(d2, ["الصفا"]), null);
+  // عنوان إعلان بقي اسماً، ومسودة بلا اسم أو تالفة
+  assertEquals(districtFromName(named("فيلا للبيع في حي الصفا"), ["الصفا"]), null);
+  assertEquals(districtFromName({ proposed: { type: "فيلا" } }, ["الصفا"]), null);
+  assertEquals(districtFromName({ proposed: null } as unknown as DraftFacts, ["الصفا"]), null);
+  // اسمٌ كتبه المدير بعد الاقتراح (مسودة معادة) حقيقي
+  const renamed = {
+    proposed: { name: "جوهرة الصفا" },
+    evidence: { name: { quote: "", page: null, source_id: null, verified: false, suggested: "فيلا – جدة – 650م" } },
+  } as unknown as DraftFacts;
+  assertEquals(districtFromName(renamed, ["الصفا"]), "الصفا");
+});
+
+// مراجعة الجولة 6: أسماء الشوارع، والحي الوارد مرة، وعلامة الترقيم في آخر الاسم
+Deno.test("district: a street name is not a district, a district needs minProjects projects, trailing punctuation is ignored", () => {
+  const streets = ["الملك فهد", "الملك فهد", "الأمير سلطان", "الأمير سلطان"];
+  assertEquals(districtFromName(named("أبراج طريق الملك فهد"), streets), null);
+  assertEquals(districtFromName(named("برج شارع الأمير سلطان"), streets), null);
+  assertEquals(districtFromName(named("برج الملك فهد"), streets), "الملك فهد");
+  // حيّ في مشروع واحد لا يكفي حين يُطلب مشروعان
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["الصفا", "السامر"], 2), null);
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["الصفا", "حي الصفا", "السامر"], 2), "الصفا");
+  // صيغتا الحي الواحد تُعدّان معاً
+  assertEquals(districtFromName(named("برج الصفا."), ["الصفا"]), "الصفا");
+});
+
+Deno.test("district: two districts, partial words, a bare personal name, or a district already present give nothing", () => {
+  const known = ["الصفا", "المروة", "السامر", "الرحاب"];
+  assertEquals(districtFromName(named("برج الصفا والمروة"), known), null);
+  // كلمات كاملة فقط
+  assertEquals(districtFromName(named("جوهرة الصفاوية"), known), null);
+  assertEquals(districtFromName(named("جوهرة الصفاة"), known), null);
+  // قرار: همزة آخر الكلمة إملاءٌ لا كلمة أخرى (twinText كما في التوائم)، فـ«الصفاء» هو «الصفا» في الجهتين
+  assertEquals(districtFromName(named("جوهرة الصفاء"), known), "الصفا");
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["الصفاء"]), "الصفاء");
+  // الحي مكتوب بـ«ال»: «صفاء» و«سامر» بلا «ال» اسما شخصين، و«رحاب» وصفٌ في «رحاب السامر»
+  assertEquals(districtFromName(named("برج صفاء"), known), null);
+  assertEquals(districtFromName(named("عمارة سامر"), known), null);
+  assertEquals(districtFromName(named("رحاب السامر"), known), "السامر");
+  // في المسودة حيّ مقبول، ولو غير الذي في الاسم: لا ملاحظة. حيّ فارغ كأن لم يكن
+  assertEquals(districtFromName(named("جوهرة الصفا", { district: "الصفا" }), known), null);
+  assertEquals(districtFromName(named("جوهرة الصفا", { district: "السامر" }), known), null);
+  assertEquals(districtHintName(named("جوهرة الصفا", { district: "الصفا" })), "");
+  assertEquals(districtFromName(named("جوهرة الصفا", { district: "  " }), known), "الصفا");
+  // لا أحياء معروفة
+  assertEquals(districtFromName(named("جوهرة الصفا"), []), null);
+});
+
+Deno.test("district: cities, directions, generic or address-like values never match; the longer district wins; spellings merge", () => {
+  const junk = ["جدة", "شمال جدة", "حي", "ال", "مخطط 2", "طريق مكة", "شارع التحلية", "برج النخبة", "خلف مستشفى الملك فهد", "", null, 5];
+  for (const name of ["برج جدة", "مجمع شمال جدة", "عمارة مخطط 2", "أبراج طريق مكة", "أبراج شارع التحلية", "برج النخبة", "برج الملك فهد"]) {
+    assertEquals(districtFromName(named(name), junk), null, name);
+  }
+  // «أبحر» داخل «أبحر الشمالية» في الموضع نفسه: الأطول
+  assertEquals(districtFromName(named("منتجع أبحر الشمالية"), ["أبحر", "أبحر الشمالية"]), "أبحر الشمالية");
+  assertEquals(districtFromName(named("شاليهات أبحر"), ["أبحر", "أبحر الشمالية"]), "أبحر");
+  assertEquals(districtFromName(named("برج درة العروس"), ["درة العروس"]), "درة العروس");
+  // حيّ يُكتب بلا «ال» يطابقه الاسم بها وبدونها؛ وحرفٌ ملتصق بـ«ال» في الاسم لا يمنع
+  assertEquals(districtFromName(named("عمارة مشرفة"), ["مشرفة"]), "مشرفة");
+  assertEquals(districtFromName(named("برج المشرفة"), ["مشرفة"]), "مشرفة");
+  assertEquals(districtFromName(named("إطلالة بالصفا"), ["الصفا"]), "الصفا");
+  // صيغ الحي الواحد تُجمع ويُعرض أكثرها وروداً بلا «حي» ولا مدينة: «جدة - حي الصفا» = «الصفا، جدة» = «الصفا»
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["جدة - حي الصفا", "الصفا، جدة", "الصفاء", "حي السامر شمال جدة"]), "الصفا");
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["الصفاء", "الصفاء", "الصفا"]), "الصفاء");
+  assertEquals(districtFromName(named("جوهرة الصفا"), ["الصفاء", "الصفا", "حي الصفا"]), "الصفا");
+  assertEquals(districtFromName(named("رحاب السامر"), ["حي السامر شمال جدة"]), "السامر");
+  // الإملاء الغالب يحكم «ال»: «صفا» مرة بلا «ال» لا يجعل «صفاء» حيّاً
+  assertEquals(districtFromName(named("برج صفاء"), ["صفا", "الصفا", "الصفا"]), null);
 });

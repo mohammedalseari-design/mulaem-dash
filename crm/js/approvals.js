@@ -13,7 +13,7 @@ import {
     AGENT_KIND, AGENT_APPLY_ERROR, AGENT_APPLIED_FIELDS, AGENT_FIELD,
     DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label
 } from './labels.js';
-import { recordLink, safeUrl, targetRow, valueText } from './agent.js';
+import { recheckTwins, recordLink, safeUrl, targetRow, valueText } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
@@ -732,7 +732,10 @@ function itemText(item) {
     if (!item || typeof item !== 'object') return valueText(item);
     const parts = [];
     for (const key of Object.keys(item)) {
-        parts.push(label(AGENT_FIELD, key, key) + ': ' + valueText(item[key]));
+        // رمز التعارض للنظام لا للقارئ، واسم الحقل يُعرض بالعربية
+        if (key === 'code') continue;
+        const value = key === 'field' && typeof item[key] === 'string' ? label(AGENT_FIELD, item[key], item[key]) : valueText(item[key]);
+        parts.push(label(AGENT_FIELD, key, key) + ': ' + value);
     }
     return parts.join(' — ');
 }
@@ -1014,10 +1017,20 @@ function openDraftEditor(draft, reload) {
             .update({ proposed: next })
             .eq('id', draft.id)
             .select('id');
-        saveBtn.disabled = false;
-        if (saveError) return void fail(saveError, 'تعذّر حفظ المقترح');
-        if (!saved || saved.length === 0) return void notify('لا تملك صلاحية تعديل هذه المسودة', 'error', 8000);
-        closeModal();
+        if (saveError || !saved || saved.length === 0) {
+            saveBtn.disabled = false;
+            if (saveError) return void fail(saveError, 'تعذّر حفظ المقترح');
+            return void notify('لا تملك صلاحية تعديل هذه المسودة', 'error', 8000);
+        }
+        // التوائم (مسودات معلّقة أخرى تطابق هذه) حُسبت على المقترح القديم: تُعاد مطابقتها على الجديد قبل إعادة العرض.
+        // تعذّرها لا يوقف شيئاً — التعديل محفوظ. وإن انتهت المهلة أكمل الخادم الفحص فيظهر أثره عند التحميل التالي.
+        // التعديل حُفظ فعلاً: أزرار النافذة تُعطَّل حتى لا يبدو «إلغاء» تراجعاً عنه
+        if (draft.target_kind === 'project' && !draft.target_id) {
+            for (const button of form.querySelectorAll('button')) button.disabled = true;
+            saveBtn.textContent = 'جارٍ فحص المسودات المكررة…';
+            await recheckTwins(draft.id);
+        }
+        if (form.isConnected) closeModal();
         notify('حُفظ التعديل وأُعيدت المسودة للموظف لإعادة إرسالها', 'success', 9000);
         reload();
     });

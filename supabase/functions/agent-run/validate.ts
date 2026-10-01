@@ -1058,19 +1058,34 @@ const kindClass = (raw: string) => {
 // الحي بلا «حي» ولا «ال» ولا المدينة ولا الجهة أينما جاءت («حي السامر، جدة» = «جدة، حي السامر» = «السامر بجدة»
 // = «السامر شمال جدة» = «سامر»). «طريق مكة» طريقٌ لا مدينة. المدينة وحدها ليست حياً: مفتاح فارغ
 const PLACE_GLUE = new Set(["في", "ب", "حي", "بحي", "الحي", "مدينه", "بمدينه", "شمال", "جنوب", "شرق", "غرب", "وسط"]);
-const placeKey = (raw: string) => {
-  const out: string[] = [];
+// كلمات الحي كما يقارنها placeKey، وكل كلمة بعلامة «ال» التي حُذفت منها (الحي من اسم المشروع يفرّق بين «السامر» و«سامر»)
+type PlaceWord = { word: string; article: boolean };
+const placeWords = (raw: string): PlaceWord[] => {
+  const out: PlaceWord[] = [];
   for (const part of raw.split(/[،,\-–—|/]/)) {
     const words = twinText(placeOf(part)).split(" ").filter(Boolean);
     words.forEach((w, i) => {
       const road = i > 0 && ["طريق", "شارع"].includes(words[i - 1]);
       if (PLACE_GLUE.has(w) || (!road && (CITIES.has(w) || CITIES.has(w.replace(/^ب/, ""))))) return;
-      out.push(w.replace(/^ال/, ""));
+      out.push({ word: w.replace(/^ال/, ""), article: w.startsWith("ال") });
     });
   }
-  return out.join(" ");
+  return out;
 };
+const placeKey = (raw: string) => placeWords(raw).map((w) => w.word).join(" ");
 const plain = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+
+// الاسم الحقيقي لمسودة، أو "": الاسم المبني (evidence.name.suggested) ليس اسماً ما دام هو الاسم نفسه — واسمٌ كتبه المدير
+// بعده (مسودة معادة) حقيقي، وكذلك المذكور في المصدر الذي لم يُتحقق من اقتباسه (stated). وعنوان إعلان بقي اسماً (لا حي ولا
+// مدينة يُبنى منهما): «فيلا للبيع فرصة لا تعوض» ليس اسماً
+function realName(d: DraftFacts): string {
+  const name = d.proposed.name;
+  if (typeof name !== "string") return "";
+  const ev = plain(d.evidence) ? d.evidence.name : undefined;
+  if (ev?.suggested && !ev.stated && ev.suggested === name) return "";
+  const place = [d.proposed.district, d.proposed.city].filter((v): v is string => typeof v === "string");
+  return isHeadline(name, place) ? "" : name;
+}
 
 // العرض نفسه في مسودتين معلّقتين (نُشر في مجموعتين، أو أُرسل مرتين بصياغة مختلفة):
 //   - اسمان حقيقيان (لا مقترحان ولا عنوانا إعلان) متساويان: «الاسم نفسه» ما لم يناقضه حيّ أو نوع أو رقم.
@@ -1081,17 +1096,7 @@ const plain = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof
 // الاسم المبني وصفٌ لا هوية، فلا يُطابَق به وحده.
 export function twinReason(a: DraftFacts, b: DraftFacts): string | null {
   if (!plain(a?.proposed) || !plain(b?.proposed)) return null;
-  const realName = (d: DraftFacts) => {
-    const name = d.proposed.name;
-    if (typeof name !== "string") return "";
-    const ev = plain(d.evidence) ? d.evidence.name : undefined;
-    // مبنيٌّ ما دام هو الاسم نفسه؛ اسمٌ كتبه المدير بعده (مسودة معادة) حقيقي
-    if (ev?.suggested && !ev.stated && ev.suggested === name) return "";
-    // عنوان إعلان بقي اسماً (لا حي ولا مدينة يُبنى منهما): «فيلا للبيع فرصة لا تعوض» ليس هوية
-    const place = [d.proposed.district, d.proposed.city].filter((v): v is string => typeof v === "string");
-    return isHeadline(name, place) ? "" : nameKey(name);
-  };
-  const na = realName(a), nb = realName(b);
+  const na = nameKey(realName(a)), nb = nameKey(realName(b));
   let sameName = false;
   if (na && nb) {
     if (na === nb) sameName = true;
@@ -1133,6 +1138,222 @@ export function twinReason(a: DraftFacts, b: DraftFacts): string | null {
   if (typed ? !samePrice && !sameArea : !(samePrice && sameArea)) return null;
   return (typed ? "الحي والنوع نفساهما و" : "الحي نفسه و") + (samePrice && sameArea ? "السعر والمساحة" : samePrice ? "السعر" : "المساحة");
 }
+
+// سطر التوأم في مكرّرات مسودة: رقم طلبه (لرابطه)، ومعرّف مسودته، واسمها، وسبب المطابقة
+export interface TwinEntry {
+  kind: "draft";
+  id: string;
+  draft_id: string;
+  name: unknown;
+  reason: string | null;
+}
+
+// سطر توأم لمسودة من رقم طلبها ومعرّفها ومقترحها: الاسم إن كان نصاً، وإلا null
+export const twinEntry = (requestId: string, draftId: string, proposed: unknown, reason: string | null): TwinEntry => ({
+  kind: "draft", id: requestId, draft_id: draftId, name: plain(proposed) && typeof proposed.name === "string" ? proposed.name : null, reason,
+});
+
+// سطور التوائم في مكرّرات مسودة: كائن بنوع draft ومعرّف مسودة. مرشّحو المشاريع والعملاء وما تلف ليسوا منها
+type TwinLine = Record<string, unknown> & { draft_id: string };
+export const twinLines = (list: unknown): TwinLine[] =>
+  (Array.isArray(list) ? list : []).filter((x): x is TwinLine =>
+    plain(x) && x.kind === "draft" && typeof x.draft_id === "string" && x.draft_id !== ""
+  );
+
+// مكرّرات مسودة بعد إلحاق سطر توأم بها، أو null إن كانت تذكر مسودته (draft_id) فلا كتابة. ما ليس قائمة يُعدّ فارغاً.
+// شرط agent_link_twin في القاعدة نفسه (ترحيل 025)، لكنه قراءة ثم كتابة: احتياط الوظيفة حين لا تجد الدالة
+export function withTwin(list: unknown, entry: { draft_id: string }): unknown[] | null {
+  const items = Array.isArray(list) ? list : [];
+  return items.some((x) => plain(x) && x.draft_id === entry.draft_id) ? null : [...items, entry];
+}
+
+// مكرّرات مسودة بعد حذف سطور التوأم draftId منها (kind = 'draft' بمعرّف مسودته)، وما سواها يبقى بترتيبه؛ أو null إن لم
+// تذكره فلا كتابة. شرط agent_unlink_twin في القاعدة نفسه (ترحيل 025): احتياط الوظيفة حين لا تجد الدالة
+export function withoutTwin(list: unknown, draftId: string): unknown[] | null {
+  if (!draftId || !Array.isArray(list)) return null;
+  const kept = list.filter((x) => !(plain(x) && x.kind === "draft" && x.draft_id === draftId));
+  return kept.length === list.length ? null : kept;
+}
+
+// ما يُكتب في سطور التوائم لمسودة حين تُعاد مطابقتها:
+//   keep: توأم ما زال يطابق وسطره كما هو — لا كتابة.
+//   add: سطر يُلحق — توأم جديد، أو توأم تغيّر سببه أو اسمه (معرّفه في remove أيضاً: يُفكّ القديم ثم يُلحق الجديد).
+//   remove: معرّفات مسودات تُفكّ سطورها — لم تعد تطابق، أو سطرها يُستبدل، أو مذكورة أكثر من مرة.
+export interface TwinPlan {
+  keep: TwinEntry[];
+  add: TwinEntry[];
+  remove: string[];
+}
+
+// current: مكرّرات المسودة كما هي (لا يُنظر فيها إلا في سطور التوائم، فمرشّحو المشاريع يبقون)، و fresh: التوائم كما يجدها
+// الفحص الآن. توأمٌ مكرّر في fresh يُعدّ مرة
+export function twinPlan(current: unknown, fresh: TwinEntry[]): TwinPlan {
+  const lines = twinLines(current);
+  const same = (x: TwinLine, t: TwinEntry) =>
+    x.id === t.id && (x.name ?? null) === (t.name ?? null) && (x.reason ?? null) === (t.reason ?? null);
+  const plan: TwinPlan = { keep: [], add: [], remove: [] };
+  const seen = new Set<string>();
+  for (const twin of fresh) {
+    if (seen.has(twin.draft_id)) continue;
+    seen.add(twin.draft_id);
+    const now = lines.filter((x) => x.draft_id === twin.draft_id);
+    if (now.length === 1 && same(now[0], twin)) {
+      plan.keep.push(twin);
+      continue;
+    }
+    if (now.length) plan.remove.push(twin.draft_id);
+    plan.add.push(twin);
+  }
+  for (const x of lines) {
+    if (!seen.has(x.draft_id) && !plan.remove.includes(x.draft_id)) plan.remove.push(x.draft_id);
+  }
+  return plan;
+}
+
+// مسودة فُحصت حين أُعيدت مطابقة مسودة عُدّل مقترحها: سبب مطابقتها لها الآن (twinReason؛ null: لا تطابق). المعلّقة
+// (pending) يُكتب سطر المسودة المعدّلة في مكرّراتها أو يُحذف منها. المطبَّقة (صارت مشروعاً) لا يُكتب فيها شيء: يُفحص
+// سطرها في المسودة المعدّلة وحده، فيبقى تنبيه «هذه مكررة لمشروع قائم» ما دامت تطابقه
+export interface TwinCheck {
+  id: string;
+  request_id: string;
+  proposed: unknown;
+  duplicates: unknown;
+  reason: string | null;
+  pending: boolean;
+}
+
+// إعادة المطابقة في الجهتين بلا قاعدة: own لسطور التوائم في مكرّرات المسودة نفسها، و others لسطرها في مكرّرات كل مسودة
+// معلّقة يتغيّر فيها شيء (تُربط بها، أو تُفكّ منها، أو يُحدَّث اسمها أو السبب). سطرٌ لمسودة لم تُفحص (رُفضت، أو حُذفت، أو
+// تعذّر فحصها) يبقى كما هو في الجهتين. الأعداد للملخّص: التوائم الآن، والجديدة، والتي سقطت، والتي تغيّر سطرها
+export function twinRecheck(
+  draft: { id: string; request_id: string; proposed: unknown; duplicates: unknown },
+  checked: TwinCheck[],
+): { own: TwinPlan; others: { draft_id: string; plan: TwinPlan }[]; twins: number; added: number; removed: number; updated: number } {
+  const list = checked.filter((c) => c.id !== draft.id);
+  const ids = new Set(list.map((c) => c.id));
+  const fresh = list.filter((c) => c.reason).map((c) => twinEntry(c.request_id, c.id, c.proposed, c.reason));
+  const own = twinPlan(twinLines(draft.duplicates).filter((x) => ids.has(x.draft_id)), fresh);
+  const others: { draft_id: string; plan: TwinPlan }[] = [];
+  for (const c of list) {
+    if (!c.pending) continue;
+    const want = c.reason ? [twinEntry(draft.request_id, draft.id, draft.proposed, c.reason)] : [];
+    const plan = twinPlan(twinLines(c.duplicates).filter((x) => x.draft_id === draft.id), want);
+    if (plan.add.length || plan.remove.length) others.push({ draft_id: c.id, plan });
+  }
+  const updated = own.add.filter((t) => own.remove.includes(t.draft_id)).length;
+  return {
+    own, others, twins: own.keep.length + own.add.length,
+    added: own.add.length - updated, removed: own.remove.length - updated, updated,
+  };
+}
+
+// الدالة غير موجودة في القاعدة: PGRST202 من PostgREST (لا يجدها في ذاكرة المخطط)، أو 42883 من Postgres ومن نسخ
+// PostgREST القديمة. وظيفةٌ نُشرت قبل ترحيل دالتها تعود إلى طريقها القديم بدل أن يتعطل ما تفعله
+export const rpcMissing = (error: { code?: string | null } | null | undefined): boolean =>
+  error?.code === "PGRST202" || error?.code === "42883";
+
+/* ===================== الحي من اسم المشروع ===================== */
+
+// «جوهرة الصفا» بلا حيّ، ومشروع قائم في حي الصفا: النموذج أصاب حين لم يذكر حيّاً لا يذكره المصدر، والمستنتج لا يُحفظ.
+// فتُضاف للمدير ملاحظة (district_from_name) والحي لا يدخل المقترح أبداً.
+
+// اسم المسودة الذي يُبحث فيه عن حيّ: اسمها الحقيقي (realName) إن لم يكن فيها حيّ مقبول، وإلا "" فلا تُقرأ الأحياء
+export function districtHintName(d: DraftFacts): string {
+  if (!plain(d?.proposed)) return "";
+  const district = d.proposed.district;
+  return typeof district === "string" && district.trim() ? "" : realName(d);
+}
+
+// كلمات الاسم كما يقارنها الحي: nameKey (بلا «مشروع/برج/مجمع…»)، وكل كلمة بلا «ال» وما يلتصق بها من حرف («بالصفا»،
+// «للصفا»، «والصفا» ← صفا) وبعلامة التعريف
+const nameWords = (name: string): PlaceWord[] =>
+  nameKey(name).split(" ").map((w) => w.replace(/[.@+]+/g, "")).filter(Boolean).map((w) => {
+    const m = w.match(/^(?:[وفبكل]?ال|لل)(.+)$/);
+    return m ? { word: m[1], article: true } : { word: w, article: false };
+  });
+
+const inPlaceSet = (set: Set<string>, w: string) => set.has(w) || set.has("ال" + w);
+// كلمة لا تدل وحدها على حيّ بعينه: رقم، أو وصف إعلان، أو ربط («حي»، «مدينة»، «مخطط»)، أو مدينة، أو جهة
+const genericPlace = (w: string) => /^\d+$/.test(w) || [DESCRIPTIVE, GLUE, CITIES, PLACE_GLUE].some((s) => inPlaceSet(s, w));
+// كلمة تجعل القيمة عنواناً أو اسم مبنى لا حيّاً (عنوانٌ كُتب في حقل الحي): نوع عقار أو مبنى («برج النخبة»)، أو شارع
+// أو طريق أو موضع («شارع التحلية»، «خلف المستشفى»)
+const NOT_PLACE = new Set(["شارع", "شوارع", "طريق", "خلف", "بجوار", "جوار", "قرب", "بالقرب", "امام", "مقابل", "تقاطع"]);
+const notPlace = (w: string) => inPlaceSet(PROPERTY, w) || inPlaceSet(NAME_FILLER, w) || NOT_PLACE.has(w);
+// كلمة في الاسم تجعل ما بعدها اسم شارع (كلمات الاسم بلا «ال»: «الطريق» ← طريق)
+const STREET_BEFORE = new Set(["شارع", "طريق", "تقاطع"]);
+
+// الحي للعرض بإملائه: أجزاؤه بلا «حي» ولا مدينة أو جهة في طرفي كل جزء ولا ترقيم («جدة - حي الصفا» ← الصفا،
+// «السامر شمال جدة» ← السامر)
+const placeShown = (raw: string) =>
+  raw.split(/[،,\-–—|/]/).map((part) => {
+    const words = placeOf(part).split(/\s+/).filter(Boolean);
+    const edge = (w: string) => {
+      const t = twinText(w);
+      return !t || PLACE_GLUE.has(t) || CITIES.has(t) || CITIES.has(t.replace(/^ب/, ""));
+    };
+    while (words.length && edge(words[words.length - 1])) words.pop();
+    while (words.length && edge(words[0])) words.shift();
+    return words.join(" ");
+  }).filter(Boolean).join(" ");
+
+// الحي الذي يذكره الاسم الحقيقي لمسودة بلا حيّ، من أحياء المشاريع القائمة (known: قيمة district لكل مشروع)، أو null:
+//   - الحي بمفتاحه كما في فحص التوائم (placeKey): بلا «حي» ولا المدينة ولا الجهة، والهمزات والتاء المربوطة لا تفرّق،
+//     وكذلك همزة آخر الكلمة: «الصفاء» هو «الصفا» بإملاء آخر لا كلمة أخرى. صيغ الحي الواحد حيّ واحد، يُعرض بأكثرها
+//     وروداً (placeShown).
+//   - كلمات كاملة متتالية: «الصفاوية» و«الصفاة» ليستا «الصفا»، و«درة العروس» بكلمتيها.
+//   - «ال» تفرّق: الحي المكتوب بها («السامر») لا يطابقه إلا المعرّف، فـ«سامر» و«صفاء» بلا «ال» اسما شخصين على الأرجح.
+//     والمكتوب بلا «ال» («مشرفة») يطابقه الاسم بها وبدونها.
+//   - لا يُبحث عن حيّ كل كلماته عامة («مخطط 2»)، ولا عن مدينة أو جهة وحدها، ولا عمّا دون ثلاثة أحرف، ولا عن عنوان أو
+//     اسم مبنى كُتب حيّاً («شارع التحلية»، «طريق مكة»، «برج النخبة»).
+//   - حيّ داخل حيّ أطول طابق في الموضع نفسه يسقط للأطول («أبحر» في «أبحر الشمالية»).
+//   - حيّ واحد فقط: اسم يذكر حيّين («برج الصفا والمروة») لا يُحكم منه بشيء.
+//   - ما يلي «شارع/طريق/تقاطع» في الاسم اسمُ شارع لا حيّ («أبراج طريق الملك فهد»، «برج شارع الأمير سلطان»).
+//   - minProjects: حيّ ورد في مشاريع أقل من هذا العدد لا يُقترح (اسمٌ ورد مرة قد يكون اسم مبنى كُتب حيّاً).
+export function districtFromName(d: DraftFacts, known: readonly unknown[], minProjects = 1): string | null {
+  const name = districtHintName(d);
+  if (!name || !Array.isArray(known)) return null;
+  // صيغ كل حيّ بمفتاحه: كلماتها وعدد ورودها
+  type Form = { words: PlaceWord[]; count: number };
+  const forms = new Map<string, Map<string, Form>>();
+  for (const raw of known) {
+    if (typeof raw !== "string") continue;
+    const words = placeWords(raw).filter((w) => w.word);
+    const key = words.map((w) => w.word).join(" ");
+    const shown = placeShown(raw);
+    if (!shown || key.replace(/ /g, "").length < 3) continue;
+    if (words.some((w) => notPlace(w.word)) || words.every((w) => genericPlace(w.word))) continue;
+    const variants = forms.get(key) ?? new Map<string, Form>();
+    const form = variants.get(shown) ?? { words, count: 0 };
+    form.count++;
+    variants.set(shown, form);
+    forms.set(key, variants);
+  }
+  const inName = nameWords(name);
+  const hits: { key: string; shown: string; from: number; to: number }[] = [];
+  for (const [key, variants] of forms) {
+    if ([...variants.values()].reduce((n, f) => n + f.count, 0) < minProjects) continue;
+    // الصيغة المعروضة: الأكثر وروداً، والأسبق في القائمة عند التعادل. و«ال» في كلماتها تحكم المطابقة
+    const [shown, { words }] = [...variants].reduce((a, b) => (b[1].count > a[1].count ? b : a));
+    for (let i = 0; i + words.length <= inName.length; i++) {
+      if (i > 0 && STREET_BEFORE.has(inName[i - 1].word)) continue;
+      const at = inName.slice(i, i + words.length);
+      if (words.every((w, j) => at[j].word === w.word && (at[j].article || !w.article))) {
+        hits.push({ key, shown, from: i, to: i + words.length });
+      }
+    }
+  }
+  const kept = hits.filter((h) => !hits.some((o) => o.from <= h.from && o.to >= h.to && o.to - o.from > h.to - h.from));
+  const found = new Map(kept.map((h) => [h.key, h.shown] as const));
+  return found.size === 1 ? [...found.values()][0] : null;
+}
+
+// ملاحظة للمدير لا قيمة تُحفظ: تُعرض في «تعارضات»، ولا تُحسب رفضاً (رمزها ليس في CODE_CLASS)، والحي لا يدخل المقترح
+export const districtNote = (district: string): Conflict => ({
+  field: "district",
+  value: district,
+  note: "لم يُستخرج حيّ، واسم المشروع يذكر «" + district + "» وهو حيّ مشاريع قائمة — تحقق منه، وأضفه للمشروع بعد الاعتماد إن كان صحيحاً",
+  code: "district_from_name",
+});
 
 /* ===================== السعر لا يضيع بصمت ===================== */
 

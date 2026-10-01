@@ -1,8 +1,10 @@
 // نظام ملائم العقاري — وظيفة الاستخراج agent-run (الجولة B من docs/TASK_AGENT.md، والموجّه من docs/TASK_ROUTER.md)
 //
-// ثلاثة أفعال:
+// أربعة أفعال:
 //   status — للمستخدم المسجَّل: هل الاستخراج مفعَّل (هل ضُبط OPENROUTER_API_KEY)؟
 //   run    — للمستخدم الذي يرى الطلب: يبدأ التنفيذ ويعود فوراً؛ العمل يكمل في الخلفية.
+//   recheck_twins — للمدير بعد تعديل مقترح مسودة مشروع جديد: يعيد مطابقتها بالمسودات
+//            المعلّقة الأخرى (التوائم) بقيمها الجديدة، ولا يكتب إلا سطور التوائم في المكرّرات. بلا نموذج ولا تكلفة.
 //   sweep  — لمهمة pg_cron فقط (سر في Vault): يعيد استدعاء الطلبات العالقة، ويذكر أسماء
 //            الإعدادات المضبوطة (الأسماء فقط، لا القيم).
 //
@@ -22,8 +24,10 @@ import {
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { buildParts, estimateTokens, hasFiles, loadSources, SourceError, type SourceRow } from "./sources.ts";
 import {
-  buildClientDraft, buildProjectDraft, buildUpdateDraft, type DraftSpec, fmtArea, fmtPrice, hasProjectChanges, hasUnitChanges,
-  matchUnit, type PhoneNormalizer, type Restore, type Src, twinReason, updateTarget,
+  buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
+  type DraftSpec, fmtArea, fmtPrice, hasProjectChanges, hasUnitChanges, matchUnit, normText, type PhoneNormalizer, type Restore, rpcMissing,
+  type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines, type TwinPlan, twinReason, twinRecheck, updateTarget, withoutTwin,
+  withTwin,
 } from "./validate.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -36,6 +40,9 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
 const fail = (message: string, status = 400) => json({ status: "error", message }, status);
+const UUID = /^[0-9a-f-]{36}$/i;
+// المسودة المعلّقة: مسودة، أو بانتظار الاعتماد، أو معادة للموظف
+const OPEN_DRAFT = ["draft", "submitted", "returned"];
 
 /* ===================== الإعدادات وضبط التكلفة ===================== */
 
@@ -131,11 +138,31 @@ Deno.serve(async (req) => {
 
     if (action === "run") {
       const id = String(body.request_id ?? "");
-      if (!/^[0-9a-f-]{36}$/i.test(id)) return fail("طلب غير صالح");
+      if (!UUID.test(id)) return fail("طلب غير صالح");
       const { data: request } = await db.from("agent_requests").select("id, requested_by, status").eq("id", id).maybeSingle();
       if (!request || (request.requested_by !== me.id && me.role !== "admin")) return fail("الطلب غير موجود", 404);
       EdgeRuntime.waitUntil(processRequest(db, id, Date.now() + RUN_BUDGET_MS));
       return json({ status: "accepted", enabled: apiKey() !== "" }, 202);
+    }
+
+    // بعد حفظ تعديل على مقترح مسودة (approvals.js): للمدير وحده. المسودة مشروع جديد معلّق وحدها لها توائم
+    if (action === "recheck_twins") {
+      const draftId = String(body.draft_id ?? "");
+      if (!UUID.test(draftId)) return fail("مسودة غير صالحة");
+      const { data: draft, error: draftErr } = await db.from("agent_drafts")
+        .select("id, request_id, target_kind, target_id, status, proposed, evidence, duplicates").eq("id", draftId).maybeSingle();
+      if (draftErr) return fail("تعذّر قراءة المسودة", 500);
+      if (!draft) return fail("المسودة غير موجودة", 404);
+      // للمدير وحده: لو أتيح لمقدّم الطلب لعدّل مسودته وأعاد الفحص ليقرأ في مكرّراته أسماء مسودات زملائه المعلّقة
+      // بأي حيّ أو سعر يجرّبه، بلا استخراج مدفوع ولا سقف يومي. محرّر المسودة (approvals.js) للمدير وحده أصلاً
+      if (me.role !== "admin") return fail("المسودة غير موجودة", 404);
+      if (draft.target_kind !== "project" || draft.target_id !== null || !OPEN_DRAFT.includes(draft.status)) {
+        return json({ status: "skipped", message: "ليست مسودة مشروع جديد معلّقة — لا توائم تُعاد مطابقتها" });
+      }
+      const done = await recheckTwins(db, draft);
+      if (!done) return fail("تعذّر قراءة المسودات المعلّقة — لم يتغيّر شيء", 500);
+      if (done.failed) return json({ status: "error", message: "تعذّرت كتابة بعض سطور التوائم", ...done }, 500);
+      return json({ status: "success", ...done });
     }
 
     return fail("إجراء غير معروف");
@@ -170,6 +197,9 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
 
   const spent = { tokens: request.tokens_used ?? 0, cost: Number(request.cost_usd ?? 0) };
   const inserted: string[] = [];
+  // أحياء المشاريع القائمة لملاحظة «الحي من الاسم»: تُقرأ مرة في التشغيل، وحين تحتاجها مسودة فقط
+  let districtList: Promise<KnownDistrict[] | null> | undefined;
+  const districts = () => districtList ??= knownDistricts(db, id);
   try {
     const key = apiKey();
     if (!key) throw new Stop(DISABLED_AR);
@@ -269,7 +299,7 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       spent.cost += result.usage.costUsd ?? 0;
 
       await stage(db, id, "validating");
-      const ev = await evaluate(db, id, request, result, seen, restore);
+      const ev = await evaluate(db, id, request, result, seen, restore, districts);
       const failed = isFailure(ev.outcome, MAX_REJECT_RATIO);
       const failure = failed ? classifyFailure(ev.outcome) : null;
       await logCall(db, id, step, tier, effort, result, failed ? "invalid" : "ok", failure);
@@ -352,6 +382,7 @@ function shapeOk(kind: string, out: unknown): boolean {
 async function evaluate(
   // deno-lint-ignore no-explicit-any
   db: SupabaseClient, id: string, request: any, result: ChatResult, seen: Src[], restore: Restore,
+  districts: () => Promise<KnownDistrict[] | null>,
 ): Promise<Evaluation> {
   if (result.finishReason === "length") return hard("truncated", "الناتج مقطوع لأنه بلغ سقف الطول — اختصر الناتج ولا تكرر النصوص");
   let out: unknown;
@@ -380,6 +411,7 @@ async function evaluate(
     const probe = generated ? { ...draft.proposed, name: undefined } : draft.proposed;
     const { data: dups } = await db.rpc("agent_find_duplicates", { p_kind: "project", p: probe });
     draft.duplicates = [...(Array.isArray(dups) ? dups : []), ...await pendingTwins(db, id, draft)];
+    await noteDistrictFromName(id, draft, districts);
     drafts = [draft];
   } else {
     const picked = await buildUpdateDrafts(db, id, request.target_id, out, seen, normalizePhone, restore);
@@ -583,59 +615,206 @@ async function attachClientDuplicates(db: SupabaseClient, draft: DraftSpec) {
 
 /* ===================== المسودات المعلّقة المتطابقة ===================== */
 
-// مسودات مشاريع جديدة معلّقة (مسودة، بانتظار الاعتماد، أو معادة للموظف) في طلبات أخرى تطابق هذه المسودة:
-// العرض نفسه منشوراً في مجموعتين أو مرسلاً مرتين. تُذكر في مكرّراتها بنوع draft ورابط طلبها.
-async function pendingTwins(db: SupabaseClient, id: string, draft: DraftSpec): Promise<unknown[]> {
-  const { data, error } = await db.from("agent_drafts").select("id, request_id, proposed, evidence")
-    .eq("target_kind", "project").is("target_id", null).in("status", ["draft", "submitted", "returned"])
+// مسودات مشاريع جديدة معلّقة (مسودة، بانتظار الاعتماد، أو معادة للموظف) في طلبات غير الطلب id، الأحدث أولاً،
+// بمكرّراتها (إعادة المطابقة تكتب فيها). null: تعذّرت القراءة
+async function pendingDrafts(db: SupabaseClient, id: string) {
+  const { data, error } = await db.from("agent_drafts").select("id, request_id, proposed, evidence, duplicates")
+    .eq("target_kind", "project").is("target_id", null).in("status", OPEN_DRAFT)
     .neq("request_id", id).order("created_at", { ascending: false }).limit(500);
   if (error) {
     console.error("agent-run twins", id, error.message);
-    return [];
+    return null;
   }
-  const out: unknown[] = [];
-  for (const row of data ?? []) {
-    let reason: string | null = null;
-    try {
-      reason = twinReason(draft, row);
-    } catch (e) {
-      console.error("agent-run twins row", row.id, String((e as Error)?.message ?? e).slice(0, 200));
-    }
-    if (reason) {
-      const name = typeof row.proposed?.name === "string" ? row.proposed.name : null;
-      out.push({ kind: "draft", id: row.request_id, draft_id: row.id, name, reason });
-    }
+  return data ?? [];
+}
+
+// سبب مطابقة مسودة أخرى لهذه المسودة، أو null. undefined: صفٌّ أسقط الفحص — يُسجَّل، ولا يُحكم عليه بمطابقة ولا بعدمها
+// deno-lint-ignore no-explicit-any
+function checkTwin(draft: DraftFacts, row: any): string | null | undefined {
+  try {
+    return twinReason(draft, row);
+  } catch (e) {
+    console.error("agent-run twins row", row?.id, String((e as Error)?.message ?? e).slice(0, 200));
+    return undefined;
+  }
+}
+
+// مسودات مشاريع جديدة معلّقة (مسودة، بانتظار الاعتماد، أو معادة للموظف) في طلبات أخرى تطابق هذه المسودة:
+// العرض نفسه منشوراً في مجموعتين أو مرسلاً مرتين. تُذكر في مكرّراتها بنوع draft ورابط طلبها.
+async function pendingTwins(db: SupabaseClient, id: string, draft: DraftFacts): Promise<TwinEntry[]> {
+  const out: TwinEntry[] = [];
+  for (const row of await pendingDrafts(db, id) ?? []) {
+    const reason = checkTwin(draft, row);
+    if (reason) out.push(twinEntry(row.request_id, row.id, row.proposed, reason));
   }
   return out;
 }
 
 // التنبيه على المسودتين: المسودة الأقدم تُضاف إليها الجديدة في مكرّراتها (وظيفة الخدمة وحدها تكتبه؛ الحارس يمنع غيرها).
 // يُعاد الفحص بعد الحفظ: نسختان من العرض نفسه تُستخرجان معاً (إرسال دفعة من واتساب) لا ترى إحداهما الأخرى في فحص
-// التقييم، فالتي تصل هنا بعد حفظ الأخرى تراها وتربط الاثنتين
+// التقييم، فالتي تصل هنا بعد حفظ الأخرى تراها وتربط الاثنتين.
+// كل سطر يُلحق وحده (linkTwin)، في مكرّرات التوأم وفي مكرّرات المسودة نفسها: لا تُكتب قائمة كاملة فوق ما كتبه تشغيل متزامن
 async function linkTwins(db: SupabaseClient, id: string, drafts: DraftSpec[], ids: string[], isProject: boolean) {
-  type Twin = { kind?: string; draft_id?: string; reason?: string };
+  type Twin = { kind?: string; draft_id?: string; reason?: string | null };
   for (let i = 0; i < drafts.length; i++) {
     if (!ids[i]) continue;
     const twins = drafts[i].duplicates as Twin[];
     if (isProject && drafts[i].target_kind === "project" && !drafts[i].target_id) {
-      const late = (await pendingTwins(db, id, drafts[i]) as Twin[])
+      const late = (await pendingTwins(db, id, drafts[i]))
         .filter((t) => !twins.some((k) => k?.kind === "draft" && k.draft_id === t.draft_id));
-      if (late.length) {
-        twins.push(...late);
-        const { error } = await db.from("agent_drafts").update({ duplicates: twins }).eq("id", ids[i]);
-        if (error) console.error("agent-run twins late", id, error.message);
+      for (const twin of late) {
+        twins.push(twin);
+        await linkTwin(db, id, ids[i], twin);
       }
     }
     for (const twin of twins) {
       if (twin?.kind !== "draft" || !twin.draft_id) continue;
-      const { data: other } = await db.from("agent_drafts").select("duplicates").eq("id", twin.draft_id).maybeSingle();
-      if (!other) continue;
-      const list: { draft_id?: string }[] = Array.isArray(other.duplicates) ? other.duplicates : [];
-      if (list.some((x) => x?.draft_id === ids[i])) continue;
-      const entry = { kind: "draft", id, draft_id: ids[i], name: drafts[i].proposed.name ?? null, reason: twin.reason ?? null };
-      const { error } = await db.from("agent_drafts").update({ duplicates: [...list, entry] }).eq("id", twin.draft_id);
-      if (error) console.error("agent-run twins link", id, error.message);
+      await linkTwin(db, id, twin.draft_id, twinEntry(id, ids[i], drafts[i].proposed, twin.reason ?? null));
     }
+  }
+}
+
+// سطر توأم يُلحق بمكرّرات مسودة. agent_link_twin (ترحيل 025) تلحقه في UPDATE واحد ما لم تذكر المسودة مسودته، فتشغيلان
+// متزامنان لا يمحو أحدهما سطر الآخر. وظيفةٌ نُشرت قبل الترحيل لا تجد الدالة، فتقرأ ثم تكتب كما كانت حتى يُطبَّق
+function linkTwin(db: SupabaseClient, id: string, draftId: string, entry: TwinEntry): Promise<boolean> {
+  return twinWrite(db, id, draftId, "agent_link_twin", { p_draft: draftId, p_entry: entry }, (list) => withTwin(list, entry));
+}
+
+// سطور التوأم twinDraftId تُحذف من مكرّرات مسودة، وما سواها يبقى بترتيبه: agent_unlink_twin (ترحيل 025)، أو قبله قراءة ثم كتابة
+function unlinkTwin(db: SupabaseClient, id: string, draftId: string, twinDraftId: string): Promise<boolean> {
+  return twinWrite(db, id, draftId, "agent_unlink_twin", { p_draft: draftId, p_twin_draft: twinDraftId }, (list) => withoutTwin(list, twinDraftId));
+}
+
+// كتابة سطر توأم واحد بدالة القاعدة، أو بالطريق القديم (change تعيد المكرّرات الجديدة، أو null فلا كتابة) إن لم تجدها.
+// false: فشلت الكتابة (مسجَّلة)
+async function twinWrite(
+  db: SupabaseClient, id: string, draftId: string, fn: string, args: Record<string, unknown>,
+  change: (list: unknown) => unknown[] | null,
+): Promise<boolean> {
+  const { error } = await db.rpc(fn, args);
+  if (!error) return true;
+  if (!rpcMissing(error)) {
+    console.error("agent-run twins", fn, id, error.message);
+    return false;
+  }
+  console.error("agent-run twins:", fn, "missing (migration 025 not applied), read-modify-write", id);
+  const { data: other, error: readErr } = await db.from("agent_drafts").select("duplicates").eq("id", draftId).maybeSingle();
+  if (readErr) {
+    console.error("agent-run twins", fn, id, readErr.message);
+    return false;
+  }
+  const list = other ? change(other.duplicates) : null;
+  if (!list) return true;
+  const { error: writeErr } = await db.from("agent_drafts").update({ duplicates: list }).eq("id", draftId);
+  if (writeErr) console.error("agent-run twins", fn, id, writeErr.message);
+  return !writeErr;
+}
+
+// خطة twinPlan على مكرّرات مسودة: ما في remove يُفكّ أولاً (فسطرٌ تغيّر يُستبدل ولا يمنع إلحاقَ الجديد)، ثم يُلحق ما في add.
+// عدد الكتابات التي فشلت
+async function applyTwinPlan(db: SupabaseClient, id: string, draftId: string, plan: TwinPlan): Promise<number> {
+  let failed = 0;
+  for (const twinDraftId of plan.remove) if (!await unlinkTwin(db, id, draftId, twinDraftId)) failed++;
+  for (const entry of plan.add) if (!await linkTwin(db, id, draftId, entry)) failed++;
+  return failed;
+}
+
+// إعادة مطابقة مسودة مشروع جديد معلّقة بمقترحها الحالي بعد تعديله (التوائم حُسبت عند إنشائها، والتعديل قد يُسقط
+// مطابقةً أو يُنشئ أخرى). سطور التوائم في مكرّراتها تُعاد كتابتها، وتُفكّ من مكرّرات المسودات التي لم تعد تطابقها
+// وتُربط بالتي صارت تطابقها (twinRecheck). مرشّحو المشاريع في المكرّرات يبقون كما هم. توأمٌ اعتُمد وصار مشروعاً يُفحص
+// ليبقى سطره ما دام يطابق أو يسقط، ولا يُكتب في مكرّراته. كل سطر يُكتب وحده، فلا تُمحى سطور يلحقها تشغيل متزامن.
+// null: تعذّرت قراءة المسودات، فلا كتابة (فشل القراءة لا يعني أن التوائم كلها سقطت)
+// deno-lint-ignore no-explicit-any
+async function recheckTwins(db: SupabaseClient, draft: any) {
+  const rows = await pendingDrafts(db, draft.request_id);
+  if (!rows) return null;
+  // سطور المسودة تُقرأ بعد قائمة المعلّقة: سطرٌ أضافه استخراجٌ متزامن بين القراءتين يدخل المطابقة فيُزال إن لم يعد يطابق
+  const { data: fresh, error: freshErr } = await db.from("agent_drafts").select("duplicates").eq("id", draft.id).maybeSingle();
+  if (freshErr || !fresh) return null;
+  draft.duplicates = fresh.duplicates;
+  // سطور المسودة لمسودات ليست بين المعلّقة: المطبَّقة منها تُفحص، وما سواها (مرفوضة أو محذوفة) يبقى
+  const known = new Set(rows.map((r) => r.id));
+  const elsewhere = twinLines(draft.duplicates).map((t) => t.draft_id).filter((x) => !known.has(x) && UUID.test(x));
+  // deno-lint-ignore no-explicit-any
+  let applied: any[] = [];
+  if (elsewhere.length) {
+    const { data, error } = await db.from("agent_drafts").select("id, request_id, proposed, evidence")
+      .in("id", elsewhere).eq("status", "applied");
+    if (error) {
+      console.error("agent-run twins recheck", draft.id, error.message);
+      return null;
+    }
+    applied = data ?? [];
+  }
+  const checked: TwinCheck[] = [];
+  // deno-lint-ignore no-explicit-any
+  const check = (row: any, pending: boolean) => {
+    const reason = checkTwin(draft, row);
+    if (reason !== undefined) {
+      checked.push({ id: row.id, request_id: row.request_id, proposed: row.proposed, duplicates: row.duplicates, reason, pending });
+    }
+  };
+  rows.forEach((row) => check(row, true));
+  applied.forEach((row) => check(row, false));
+  const { own, others, ...summary } = twinRecheck(draft, checked);
+  let failed = await applyTwinPlan(db, draft.request_id, draft.id, own);
+  for (const other of others) failed += await applyTwinPlan(db, draft.request_id, other.draft_id, other.plan);
+  return { ...summary, failed };
+}
+
+/* ===================== الحي من اسم المشروع ===================== */
+
+// أحياء المشاريع القائمة كما تعرضها قائمة الأحياء في الـ CRM (crm_districts: المعتمدة غير المحذوفة)، قيمةً لكل مشروع
+// فيُعرض الحي بإملائه الأكثر وروداً. صفحةً صفحة بسقف صفوف PostgREST (1000). null: تعذّرت القراءة، فلا ملاحظة
+interface KnownDistrict {
+  district: string;
+  city: string | null;
+}
+
+async function knownDistricts(db: SupabaseClient, id: string): Promise<KnownDistrict[] | null> {
+  const PAGE = 1000;
+  const out: KnownDistrict[] = [];
+  for (let from = 0; from < 20 * PAGE; from += PAGE) {
+    const { data, error } = await db.from("projects").select("district, city")
+      .not("district", "is", null).eq("status", "approved").is("deleted_at", null)
+      .order("id").range(from, from + PAGE - 1);
+    if (error) {
+      console.error("agent-run districts", id, error.message);
+      return null;
+    }
+    const rows = (data ?? []) as { district: unknown; city: unknown }[];
+    for (const r of rows) {
+      if (typeof r.district === "string") out.push({ district: r.district, city: typeof r.city === "string" ? r.city : null });
+    }
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+// المدينة للمقارنة: «جدة» = «مدينة جدة» = «جده»
+const cityKey = (raw: unknown) =>
+  typeof raw === "string" ? normText(raw).split(" ").filter((w) => w && w !== "مدينه" && w !== "بمدينه").join(" ") : "";
+
+// مسودة مشروع جديد بلا حيّ واسمها الحقيقي يذكر حيّاً واحداً من أحياء المشاريع القائمة («جوهرة الصفا»): ملاحظة للمدير
+// (district_from_name، validate.ts) لا قيمة — الحي لا يدخل المقترح. الأحياء لا تُقرأ إلا لمسودة كهذه. الملاحظة إضافة لا
+// يتوقف عليها شيء: تعذّر القراءة أو خطأٌ في الفحص يُسجَّل ولا يوقف الاستخراج
+// ضجيج أقل: لا ملاحظة إن كان في المسودة عنوان (موضعها مذكور فيه على الأرجح) أو تعارضٌ على الحي (ذكره المصدر ورُفض أو
+// استُنتج، فالمدير يراه). أحياء مدينة المسودة وحدها إن عُرفت مدينتها، وحيٌّ في مشروعين قائمين على الأقل
+// (اسمٌ ورد مرة قد يكون اسم مبنى كُتب حيّاً)
+async function noteDistrictFromName(id: string, draft: DraftSpec, districts: () => Promise<KnownDistrict[] | null>) {
+  try {
+    if (!districtHintName(draft)) return;
+    const address = draft.proposed.address;
+    if (typeof address === "string" && address.trim()) return;
+    if (draft.conflicts.some((c) => c.field === "district")) return;
+    const all = await districts();
+    if (!all) return;
+    const city = cityKey(draft.proposed.city);
+    const known = all.filter((k) => !city || !k.city || cityKey(k.city) === city).map((k) => k.district);
+    const district = districtFromName(draft, known, 2);
+    if (district) draft.conflicts.push(districtNote(district));
+  } catch (e) {
+    console.error("agent-run districts", id, String((e as Error)?.message ?? e).slice(0, 200));
   }
 }
 

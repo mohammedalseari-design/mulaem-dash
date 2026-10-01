@@ -13,11 +13,11 @@ import {
     AGENT_KIND, AGENT_APPLY_ERROR, AGENT_APPLIED_FIELDS, AGENT_FIELD,
     DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label
 } from './labels.js';
-import { recordLink, targetRow, valueText } from './agent.js';
+import { recordLink, safeUrl, targetRow, valueText } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, fmtDateTime
+    select, optionList, openModal, closeModal, notify, fail, fmtDateTime, toAsciiDigits
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -123,7 +123,7 @@ async function cleanDuplicateProjects(reload) {
         for (const project of pending) {
             const original = findOriginalProject(project, approved);
             if (!original) continue;
-            const details = Object.assign({}, original.details || {}, project.details || {});
+            const details = mergedDetails(original, project);
             const patch = {
                 details,
                 address: project.address || original.address,
@@ -134,7 +134,7 @@ async function cleanDuplicateProjects(reload) {
                 area: project.area === null || project.area === undefined ? original.area : project.area,
                 rooms: project.rooms === null || project.rooms === undefined ? original.rooms : project.rooms,
                 notes: project.notes || original.notes,
-                images: project.images && project.images.length ? project.images : original.images
+                images: carriedImages(project, original)
             };
             const updated = await supabase.from('projects').update(patch).eq('id', original.id).eq('status', 'approved');
             if (updated.error) throw updated.error;
@@ -202,12 +202,26 @@ function projectApprovalSection(rows, reload) {
     for (const project of rows) {
         const details = project.details || {};
         const images = Array.isArray(project.images) ? project.images : [];
-        const imageUrl = images[0] || details.image_url;
+        // الصور والروابط هنا من إدخال موظف أو ملف مستورد لم يراجعه المدير بعد: لا يدخل منها src أو href
+        // إلا ما قبله safeUrl (http/https فقط)، والصورة https فقط كما في اللوحة (shownImage)، وtel: لرقم
+        // هاتف واحد مقروء فقط، وmailto: لعنوان سليم فقط (safeEmail). كل مرشّح يُفحص وحده، فإن رُفض الأول
+        // بقي البديل الصالح بعده. والقيمة المرفوضة تُعرض نصاً (invalidLink) ولا تختفي عن المدير،
+        // والفارغة أو المسافات وحدها كأنها غير موجودة (present).
+        const rawImage = present(images[0]) ? images[0] : present(details.image_url) ? details.image_url : null;
+        const imageUrl = shownImage(images[0]) || shownImage(details.image_url);
         const image = imageUrl ? el('img', { class: 'crm-approval-project-image', src: imageUrl, alt: project.name || 'صورة المشروع' }) : null;
-        const sourceUrl = details.source_url || project.notes?.match(/https?:\/\/\S+/)?.[0];
+        const sourceUrl = safeUrl(details.source_url);
+        const notesUrl = project.notes?.match(/https?:\/\/\S+/)?.[0];
+        const contactUrl = safeUrl(details.contact_url);
+        const brochureUrl = safeUrl(details.brochure_url);
+        // tel: لرقم واحد فقط: بعد حذف المسافات و- و. والأقواس لا يبقى إلا + في أوله و6 إلى 15 رقماً. ما فيه
+        // أحرف أو / أو رقمان («0551234567 / 0569876543») يبقى نصاً، فأرقامه وحدها كانت تتصل برقم غير الظاهر
+        const phoneDigits = toAsciiDigits(details.contact_phone).replace(/[\s\-().]/g, '');
+        const phone = /^\+?\d{6,15}$/.test(phoneDigits) ? phoneDigits : '';
+        const email = safeEmail(details.contact_email);
         const description = details.description || project.notes;
         list.appendChild(el('article', { class: 'crm-approval-project' }, [
-            image || el('div', { class: 'crm-approval-project-image crm-approval-project-placeholder', text: 'بدون صورة' }),
+            image || el('div', { class: 'crm-approval-project-image crm-approval-project-placeholder', text: rawImage ? 'صورة غير صالحة' : 'بدون صورة' }),
             el('div', { class: 'crm-approval-project-info' }, [
                 el('strong', { text: project.name || 'مشروع بلا اسم' }),
                 el('div', { class: 'crm-subtle', text: [project.type, project.city, project.district].filter(Boolean).join(' · ') || 'بيانات موقع غير مكتملة' }),
@@ -219,11 +233,26 @@ function projectApprovalSection(rows, reload) {
                     project.area ? Number(project.area).toLocaleString('en-US') + ' م²' : null
                 ].filter(Boolean).join(' · ') || 'تفاصيل الوحدات غير منشورة' }),
                 description ? el('div', { class: 'crm-subtle', text: description }) : null,
-                details.contact_phone ? el('a', { class: 'crm-subtle', href: 'tel:' + details.contact_phone, text: 'اتصال: ' + details.contact_phone }) : null,
-                details.contact_email ? el('a', { class: 'crm-subtle', href: 'mailto:' + details.contact_email, text: details.contact_email }) : null,
-                details.contact_url ? el('a', { class: 'crm-subtle', href: details.contact_url, target: '_blank', rel: 'noopener', text: 'صفحة التواصل' }) : null,
-                details.brochure_url ? el('a', { class: 'crm-subtle', href: details.brochure_url, target: '_blank', rel: 'noopener', text: 'فتح البروشور PDF' }) : null,
-                sourceUrl ? el('a', { class: 'crm-subtle', href: sourceUrl, target: '_blank', rel: 'noopener', text: 'المصدر الرسمي' }) : el('div', { class: 'crm-subtle', text: 'لا يوجد رابط مصدر' })
+                // شبكة اللوحة لا تعرض إلا images[0]: إن رُفضت ذُكرت دائماً ولو ظهرت هنا صورة image_url بدلاً
+                // منها، وتلك البديلة تُعلَّم بأنها لن تظهر هناك
+                present(images[0]) && !shownImage(images[0]) ? invalidLink('الصورة', images[0])
+                    : !imageUrl && rawImage ? invalidLink('الصورة', rawImage) : null,
+                imageUrl && !shownImage(images[0])
+                    ? el('div', { class: 'crm-subtle', text: 'الصورة من رابط image_url — لن تظهر في اللوحة ما لم تُضف إلى صور المشروع' }) : null,
+                phone ? el('a', { class: 'crm-subtle', href: 'tel:' + phone, text: 'اتصال: ' + details.contact_phone })
+                    : present(details.contact_phone) ? el('div', { class: 'crm-subtle', text: 'اتصال: ' + details.contact_phone }) : null,
+                email ? el('a', { class: 'crm-subtle', href: 'mailto:' + email, text: email })
+                    : present(details.contact_email) ? invalidLink('البريد', details.contact_email) : null,
+                contactUrl ? el('a', { class: 'crm-subtle', href: contactUrl, target: '_blank', rel: 'noopener', text: 'صفحة التواصل' })
+                    : present(details.contact_url) ? invalidLink('صفحة التواصل', details.contact_url) : null,
+                brochureUrl ? el('a', { class: 'crm-subtle', href: brochureUrl, target: '_blank', rel: 'noopener', text: 'فتح البروشور PDF' })
+                    : present(details.brochure_url) ? invalidLink('البروشور', details.brochure_url) : null,
+                // رابط في الملاحظات ليس المصدر الرسمي، فيُسمّى باسمه. والمصدر المرفوض يبقى ظاهراً بجانبه
+                sourceUrl ? el('a', { class: 'crm-subtle', href: sourceUrl, target: '_blank', rel: 'noopener', text: 'المصدر الرسمي' })
+                    : notesUrl ? el('a', { class: 'crm-subtle', href: notesUrl, target: '_blank', rel: 'noopener', text: 'رابط من الملاحظات' })
+                    : present(details.source_url) ? null
+                    : el('div', { class: 'crm-subtle', text: 'لا يوجد رابط مصدر' }),
+                present(details.source_url) && !sourceUrl ? invalidLink('المصدر الرسمي', details.source_url) : null
             ]),
             el('div', { class: 'crm-approval-project-actions' }, [
                 el('button', { type: 'button', class: 'btn btn-secondary btn-xs', text: 'مطابقة مع الأصل', onclick: () => matchPendingProject(project, reload) }),
@@ -234,6 +263,56 @@ function projectApprovalSection(rows, reload) {
     }
     section.appendChild(list);
     return section;
+}
+
+// قيمة رابط مرفوضة (مثل www.… بلا http، أو javascript:، أو بريد فيه ?bcc=): تُعرض نصاً فقط لا رابطاً،
+// حتى لا تختفي عن المدير
+function invalidLink(name, value) {
+    return el('div', { class: 'crm-subtle' }, [
+        el('span', { text: 'رابط ' + name + ' غير صالح: ' }),
+        el('span', { dir: 'auto', style: 'word-break:break-word', text: valueText(value) })
+    ]);
+}
+
+// قيمة فارغة أو مسافات فقط (خلية CSV فيها مسافة مثلاً) كأنها غير موجودة: لا سطر «غير صالح» فارغ،
+// ولا «اتصال:» بلا رقم، ولا تحجب «لا يوجد رابط مصدر»
+function present(value) {
+    return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+// صورة المشروع تظهر بعد الاعتماد في شبكة اللوحة، وهي لا تعرض إلا https (safeUrl في js/script.js):
+// فلا نعرض هنا صورة لن تظهر هناك (وبديل image_url يُعلَّم في البطاقة بأنه لن يظهر)، ولا ننقلها إلى
+// المشروع الأصلي فوق صوره الصالحة
+function shownImage(value) {
+    const url = safeUrl(value);
+    return url && /^https:\/\//i.test(url) ? url : null;
+}
+
+// صور النسخة المعلّقة التي تظهر فعلاً، وإن لم يبقَ منها شيء تبقى صور الأصل كما هي
+function carriedImages(project, original) {
+    const usable = (Array.isArray(project.images) ? project.images : []).filter((url) => shownImage(url));
+    return usable.length ? usable : original.images;
+}
+
+// تفاصيل النسخة المعلّقة فوق تفاصيل الأصل، إلا رابطاً أو بريداً ترفضه هذه الشاشة: يبقى مكانه ما في
+// الأصل، كما تبقى صور الأصل في carriedImages
+function mergedDetails(original, project) {
+    const base = original.details || {};
+    const merged = Object.assign({}, base, project.details || {});
+    for (const key of ['source_url', 'contact_url', 'brochure_url']) {
+        if (merged[key] && !safeUrl(merged[key])) merged[key] = base[key] ?? null;
+    }
+    if (merged.image_url && !shownImage(merged.image_url)) merged.image_url = base.image_url ?? null;
+    if (merged.contact_email && !safeEmail(merged.contact_email)) merged.contact_email = base.contact_email ?? null;
+    return merged;
+}
+
+// بريد لم يراجعه أحد: لا يدخل mailto: إلا عنوان واحد بلا مسافات وبلا ? & # % , ; — وإلا أضاف
+// للرسالة رؤوساً لا يراها المدير (info@dev.sa?bcc=…) فتذهب نسخة منها إلى طرف آخر. ولا محارف اتجاه
+// أو محارف خفية (U+061C، U+200B–U+200F، U+202A–U+202E، U+2060–U+2069): تُظهر للمدير عنواناً غير الذي يُرسَل إليه
+function safeEmail(value) {
+    const text = String(value || '').trim();
+    return /^[^\s@?&#%,;\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069]+@[^\s@?&#%,;\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069]+\.[^\s@?&#%,;\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069]+$/.test(text) ? text : null;
 }
 
 async function matchPendingProject(project, reload) {
@@ -259,7 +338,7 @@ async function matchPendingProject(project, reload) {
         event.preventDefault();
         const original = originals.find((row) => String(row.id) === originalBox.value);
         if (!original) return void notify('اختر مشروعًا أصليًا أولًا', 'error');
-        const details = Object.assign({}, original.details || {}, project.details || {});
+        const details = mergedDetails(original, project);
         const updated = await supabase.from('projects').update({
             details,
             address: project.address || original.address,
@@ -271,7 +350,7 @@ async function matchPendingProject(project, reload) {
             area: project.area === null || project.area === undefined ? original.area : project.area,
             rooms: project.rooms === null || project.rooms === undefined ? original.rooms : project.rooms,
             notes: project.notes || original.notes,
-            images: project.images && project.images.length ? project.images : original.images
+            images: carriedImages(project, original)
         }).eq('id', original.id).eq('status', 'approved');
         if (updated.error) return void fail(updated.error, 'تعذّر تحديث المشروع الأصلي');
         const removed = await supabase.from('projects').delete().eq('id', project.id).eq('status', 'pending');

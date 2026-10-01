@@ -2085,6 +2085,38 @@ a.opportunity-item:hover {
     border-color: transparent;
 }
 
+/* ترقيم شبكة المشاريع، بنفس شكل crm-pager في crm/crm.css. الشريط فارغ في عرض الأعمدة
+   وحين تكفي صفحة واحدة، فيختفي بهامشه وخطه العلوي */
+.projects-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-light);
+}
+
+.projects-pager:empty { display: none; }
+
+/* زرّا الترقيم بعرض نصّهما، لا بعرض .btn الكامل (100%) ولا بتمدّد .btn-small (flex: 1) */
+.projects-pager .btn-small { width: auto; flex: 0 0 auto; }
+
+.projects-pager span { color: var(--text-secondary); font-size: 0.9em; font-weight: 600; }
+
+/* قلب الصفحة يمرّر إلى أول الشبكة، والهامش يُبقي الصف الأول تحت شريط التنقل الثابت لا خلفه */
+.projects-grid { scroll-margin-top: 88px; }
+
+/* وينقل التركيز إليها (tabindex=-1) ليبدأ Tab من أول بطاقة. لا إطار حول الشبكة كلها:
+   أول زر يصله Tab يُظهر إطاره المعتاد */
+.projects-grid:focus { outline: none; }
+
+/* الجوال: «صفحة X من Y» في سطر، والزرّان معاً تحته */
+@media (max-width: 768px) {
+    .projects-pager span { order: -1; flex-basis: 100%; text-align: center; }
+}
+
 /* Status Badges */
 .status-badge {
     display: inline-flex;

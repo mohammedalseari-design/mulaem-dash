@@ -542,9 +542,13 @@
                     </button>
                 </div>
 
-                <div class="projects-grid" id="projectsGrid">
+                <!-- tabindex=-1: قلب الصفحة ينقل التركيز إلى الشبكة (showProjectPage)، واسمها يحمل رقم الصفحة -->
+                <div class="projects-grid" id="projectsGrid" role="region" aria-label="المشاريع" tabindex="-1">
                     <div class="loading">جاري تحميل المشاريع</div>
                 </div>
+
+                <!-- ترقيم الشبكة (js/script.js: renderProjectPager). يبقى فارغاً ومخفياً ما لم تزد النتائج عن صفحة -->
+                <nav class="projects-pager" id="projectsPager" aria-label="صفحات المشاريع"></nav>
 
                 <div class="kanban-board" id="kanbanBoard" style="display: none;"></div>
             </div>

@@ -261,6 +261,10 @@ async function endSession() {
     await signOut().catch(() => {});
 }
 
+// حذف mulaem-auth في تبويب آخر وهذا التبويب ما زال يقرأ الجلسة (appReady=false): يُتذكَّر، فيعيد boot
+// التحميل بدل أن يعرض التطبيق لجلسة لم تعد محفوظة
+let authDropped = false;
+
 async function boot() {
     initModal();
     wireTheme();
@@ -272,6 +276,13 @@ async function boot() {
     // لعرض سبب المنع فلا يُعاد التحميل معه، وإلا ضاعت الرسالة قبل أن تُقرأ.
     supabase.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT' && !selfSignOut) location.reload();
+    });
+    // خروج اللوحة القديمة: يحذف الشيم mulaem-auth بنفسه ولا يُبثّ SIGNED_OUT (dropSession في
+    // js/supabase-shim.js). حدث storage يصل هذا التبويب أياً كان من حذف المفتاح، فلا تبقى بيانات العملاء ظاهرة
+    window.addEventListener('storage', (event) => {
+        if (event.key !== 'mulaem-auth' || event.newValue !== null) return;
+        if (appReady) location.reload();
+        else authDropped = true;
     });
 
     let profile;
@@ -291,6 +302,7 @@ async function boot() {
         await endSession();
         return showLogin('هذا الحساب موقوف. راجع المدير.');
     }
+    if (authDropped) return void location.reload();
     showApp();
 }
 

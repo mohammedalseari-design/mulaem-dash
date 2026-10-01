@@ -76,6 +76,9 @@
             timestamp: stamp(a.timestamp), user_name: a.user_name
         };
     }
+    function sessionUserOut(p) {
+        return { id: str(p.legacy_id), username: p.username, fullname: p.fullname, role: p.role };
+    }
 
     function fileNames(images) {
         return (Array.isArray(images) ? images : []).map(function (u) {
@@ -110,12 +113,53 @@
         return init.body; // FormData
     }
 
+    // خطأ من auth-js غير الشبكة (رمز تجديد مرفوض أو منتهٍ، حساب أوقفه المدير، جلسة مفقودة):
+    // auth-js حذف الجلسة بنفسه قبل أن يعيده، فهي «لا جلسة» لا عطل عابر
+    function sessionEnded(error) {
+        return /^Auth/.test(error.name || '') && error.name !== 'AuthRetryableFetchError';
+    }
+
+    // الجلسة ثم صف profiles. null = لا جلسة، أو جلسة بلا صف (حساب غير مفعّل).
+    // أي خطأ آخر يُرمى (فيرد api/login.php بـ 500) ولا يُخلط بـ«لا جلسة»: اللوحة تُخرج
+    // المستخدم عند not_found، فانقطاع عابر في الشبكة يجب ألا يصلها بهذا الشكل.
     async function myProfile() {
         var s = await sb.auth.getSession();
+        if (s.error && !sessionEnded(s.error)) throw s.error;
         var session = s.data && s.data.session;
         if (!session) return null;
         var r = await sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+        if (r.error) throw r.error;
         return r.data || null;
+    }
+
+    // أقصى انتظار لإلغاء الجلسة عند الخادم في dropSession
+    var SIGN_OUT_WAIT_MS = 3000;
+
+    // إنهاء الجلسة دون أن يرمي أبداً، وفي وقت محدود. نُلغيها عند الخادم بـ auth.admin.signOut(رمزها):
+    // طلب POST /logout وحده لا يمسّ التخزين. أما auth.signOut فيحذف عند انتهائه ما في mulaem-auth ساعتها
+    // أياً كان، فلو جاء ردّه بعد المهلة (بلا شبكة قد يتأخر نحو 25 ثانية) لمسح جلسة من دخل بعدنا.
+    // ننتظر الطلب SIGN_OUT_WAIT_MS على الأكثر (صاحب الجلسة يظن أنه خرج فيغلق التبويب)، ثم نحذف
+    // المفتاح بأنفسنا في كل الأحوال حتى لا يدخل بها التحميل التالي. حذفنا لا يبثّ SIGNED_OUT، فتلتقطه
+    // التبويبات الأخرى بحدث storage (js/script.js و crm/js/app.js). بلا جلسة محفوظة لا طلب.
+    // التخزين المحجوب وحده يُبقي الجلسة في ذاكرة auth-js، فلا يُنهيها إلا auth.signOut.
+    async function dropSession() {
+        var raw = null, token = null, blocked = false;
+        try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { blocked = true; }
+        try { token = raw ? JSON.parse(raw).access_token || null : null; } catch (e) { /* قيمة تالفة: لا رمز نُلغيه */ }
+        if (token || blocked) {
+            var timedOut = {};
+            try {
+                var out = await Promise.race([
+                    token ? sb.auth.admin.signOut(token, 'local') : sb.auth.signOut({ scope: 'local' }),
+                    new Promise(function (resolve) { setTimeout(resolve, SIGN_OUT_WAIT_MS, timedOut); })
+                ]);
+                if (out === timedOut) console.warn('[mulaem] signOut still pending after ' + SIGN_OUT_WAIT_MS + 'ms');
+                else if (out && out.error) console.warn('[mulaem] signOut failed:', out.error);
+            } catch (e) {
+                console.warn('[mulaem] signOut failed:', e);
+            }
+        }
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
     }
 
     async function callAdmin(payload) {
@@ -139,18 +183,57 @@
         // تسجيل الدخول + فحص الحظر
         login: async function (method, q, init) {
             if (method === 'GET') {
+                // فحص الجلسة الحالية: الهوية من الخادم لا من المتصفح. لا يُنهي جلسة بنفسه؛
+                // الواجهة تُنهيها عبر logout.php حتى لا تُعاد الصفحة قبل أن يُقرأ سبب الخروج
                 var p = await myProfile();
                 if (!p) return reply({ status: 'not_found' });
-                return reply({ status: p.is_blocked ? 'blocked' : 'ok' });
+                // اسم الحساب مع الحظر: من يفتح الصفحة على جهاز مشترك قد لا يكون صاحب الجلسة المحفوظة
+                if (p.is_blocked) return reply({ status: 'blocked', username: p.username });
+                return reply({ status: 'ok', user: sessionUserOut(p) });
             }
             var b = readBody(init);
             if (!b.username || !b.password) return fail('أدخل اسم المستخدم وكلمة المرور');
             var res = await sb.auth.signInWithPassword({ email: toEmail(b.username), password: b.password });
-            if (res.error) return fail('اسم المستخدم أو كلمة المرور غير صحيحة');
-            var profile = await myProfile();
-            if (!profile) { await sb.auth.signOut({ scope: 'local' }); return fail('الحساب غير مفعّل في النظام. تواصل مع المدير.'); }
-            if (profile.is_blocked) { await sb.auth.signOut({ scope: 'local' }); return fail('تم تعطيل حسابك من قبل الإدارة. تواصل مع المدير.'); }
-            return ok({ user: { id: str(profile.legacy_id), username: profile.username, fullname: profile.fullname, role: profile.role } });
+            if (res.error) {
+                // انقطاع الشبكة، أو ردّ لا يُقرأ (صفحة HTML من وسيط أو بوابة شبكة)، أو عطل في الخادم: ليس كلمة
+                // مرور خاطئة. والحساب الموقوف يرفضه Supabase Auth نفسه (toggle_block يحظر مستخدم auth)، فلا
+                // يصل فحص is_blocked أدناه: سبب المنع يُقرأ من الخطأ
+                var authError = res.error;
+                if (authError.name === 'AuthRetryableFetchError' || authError.name === 'AuthUnknownError' || authError.status >= 500) {
+                    return fail('تعذر الاتصال بالخادم. أعد المحاولة.', 500);
+                }
+                if (authError.code === 'user_banned' || /banned/i.test(authError.message || '')) {
+                    return fail('تم تعطيل حسابك من قبل الإدارة. تواصل مع المدير.');
+                }
+                // حدّ محاولات الدخول في Supabase Auth لكل عنوان IP (مكتب كامل خلف عنوان واحد): كلمة المرور
+                // قد تكون صحيحة، وإعادة المحاولة فوراً تُطيل المنع
+                if (authError.status === 429 || authError.code === 'over_request_rate_limit') {
+                    return fail('محاولات دخول كثيرة من هذه الشبكة. انتظر بضع دقائق ثم أعد المحاولة.');
+                }
+                return fail('اسم المستخدم أو كلمة المرور غير صحيحة');
+            }
+            var profile;
+            try {
+                profile = await myProfile();
+            } catch (e) {
+                // دخول ناجح تعذّرت بعده قراءة الملف: لا نترك في mulaem-auth جلسة يظن صاحبها
+                // أن دخوله فشل، فيدخل بها مباشرة من يفتح الصفحة بعده
+                console.error('[mulaem] profile read after login failed:', e);
+                await dropSession();
+                return fail('تعذر التحقق من حسابك. أعد المحاولة.', 500);
+            }
+            if (!profile) { await dropSession(); return fail('الحساب غير مفعّل في النظام. تواصل مع المدير.'); }
+            if (profile.is_blocked) { await dropSession(); return fail('تم تعطيل حسابك من قبل الإدارة. تواصل مع المدير.'); }
+            return ok({ user: sessionUserOut(profile) });
+        },
+
+        // تسجيل الخروج: تناديه الواجهة بعد نافذة التأكيد وبعد تسجيل النشاط، لا قبلهما.
+        // كان هنا مستمع نقرات على #logoutBtn يُنهي الجلسة قبل التأكيد، فمن ضغط «إلغاء»
+        // بقي في لوحة بلا جلسة، وخرجت معه تبويبات /crm/ المفتوحة.
+        logout: async function (method) {
+            if (method !== 'POST') return fail('طلب غير مدعوم', 405);
+            await dropSession();
+            return ok();
         },
 
         setup_check: async function () {
@@ -246,12 +329,4 @@
             return fail('تعذر الاتصال بالخادم', 500);
         });
     };
-
-    // تسجيل الخروج: الواجهة تمسح sessionStorage، ونحن ننهي جلسة Supabase أيضاً
-    document.addEventListener('click', function (e) {
-        var btn = e.target && e.target.closest ? e.target.closest('#logoutBtn') : null;
-        if (!btn) return;
-        try { localStorage.removeItem(STORAGE_KEY); } catch (err) { /* ignore */ }
-        sb.auth.signOut({ scope: 'local' }).catch(function () {});
-    }, true);
 })();

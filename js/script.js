@@ -7,6 +7,10 @@ let markerClusterGroup = null;
 let selectionMarker = null;
 let viewMode = 'grid'; // Default view mode
 let modelIndex = 0; // Index counter for unit models
+// ترقيم شبكة المشاريع في المتصفح: 25 بطاقة في الصفحة كجداول /crm/
+const PROJECT_PAGE_SIZE = 25;
+let projectPage = 0; // الصفحة الحالية، تبدأ من 0
+let lastFilteredProjects = []; // آخر نتيجة فلترة: الترقيم يقلب صفحاتها دون فلترة جديدة
 
 // Base API URL - relative path works since frontend and backend are on same domain
 const API_URL = 'api';
@@ -54,33 +58,93 @@ async function logActivity(action, details) {
     }
 }
 
+// ── الجلسة ────────────────────────────────────────────────────────────────────
+// الهوية من جلسة Supabase وصف profiles عبر api/login.php، لا من sessionStorage
+// (قيمة يعدّلها المتصفح). الجلسة محفوظة في mulaem-auth، فتبويب جديد أو إعادة تشغيل
+// المتصفح يدخل مباشرة ما دامت قائمة، كما في /crm/.
+
+// فحص الجلسة عند الخادم: ok (ومعه المستخدم) أو blocked أو not_found (لا جلسة، أو جلسة
+// بلا ملف مستخدم). غير ذلك خطأ عابر يُرمى، فلا يُعامَل انقطاع الشبكة كأنه خروج.
+async function checkSession() {
+    const res = await fetch(`${API_URL}/login.php`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.status === 'blocked' || data.status === 'not_found') return data;
+    if (data.status === 'ok' && data.user) return data;
+    throw new Error('ردّ غير متوقع من فحص الجلسة');
+}
+
+// إنهاء الجلسة دون أن يرمي أبداً (مثل endSession في crm/js/app.js): الشيم يُنهي جلسة
+// Supabase ويحذف mulaem-auth حتى لو فشل signOut بلا شبكة أو تأخر (ينتظره 3 ثوانٍ على الأكثر).
+// currentUser يُفرَّغ أولاً حتى يتجاهل مستمعا الخروج أدناه خروجاً بدأناه نحن، وإلا أعادا التحميل
+// قبل أن تُقرأ رسالتنا.
+async function endSession() {
+    currentUser = null;
+    try { sessionStorage.removeItem('currentUser'); } catch (e) { /* بقايا النسخة السابقة */ }
+    try {
+        await fetch(`${API_URL}/logout.php`, { method: 'POST' });
+    } catch (e) {
+        console.warn('Sign-out failed:', e);
+    }
+}
+
+// خروج من تبويب آخر يشارك الجلسة، أو فشل تجديد رمز حساب أوقفه المدير: نعيد التحميل
+// فتظهر شاشة الدخول بدل لوحة بلا جلسة. ولا نعيده وشاشة الدخول ظاهرة (currentUser فارغ):
+// الشيم يُنهي الجلسة حين يرفض الدخول، ورسالة الرفض يجب أن تبقى أمام المستخدم.
+if (window.mulaemSupabase) {
+    window.mulaemSupabase.auth.onAuthStateChange(function (event) {
+        if (event === 'SIGNED_OUT' && currentUser) location.reload();
+    });
+}
+
+// خروج اللوحة في تبويب آخر لا يبثّ SIGNED_OUT: الشيم يحذف mulaem-auth بنفسه (dropSession).
+// حدث storage يصل كل التبويبات الأخرى أياً كان من حذف المفتاح، فنعيد التحميل كما فوق
+window.addEventListener('storage', function (event) {
+    if (event.key === 'mulaem-auth' && event.newValue === null && currentUser) location.reload();
+});
+
+// زر الدخول معطّل حتى ينتهي فحص الجلسة عند التحميل (ومعه إنهاء جلسة مرفوضة): دخول من النموذج
+// أثناء الفحص كان يبني اللوحة مرتين، فترفض Leaflet تهيئة الخريطة الثانية ويبقى المستخدم الجديد
+// بأدوار السابق، أو يجد إنهاءُ الجلسة المرفوضة جلسةَ الداخل الجديد فيُنهيها
+let sessionCheckPending = true;
+const loginButton = document.getElementById('loginBtn');
+loginButton.disabled = true;
+loginButton.innerHTML = '<span>جاري التحقق من الجلسة...</span>';
+
+function finishSessionCheck() {
+    sessionCheckPending = false;
+    loginButton.disabled = false;
+    loginButton.innerHTML = '<span>تسجيل الدخول</span>';
+}
+
 // Check session on load — verifies account is still active before showing the app
 window.addEventListener('load', async function () {
-    const saved = sessionStorage.getItem('currentUser');
-    if (!saved) return;
-
-    currentUser = JSON.parse(saved);
-
-    // Verify the account hasn't been blocked since last login
+    let check = null;
     try {
-        const vRes = await fetch(`${API_URL}/login.php?u=${encodeURIComponent(currentUser.username)}`);
-        const vData = await vRes.json();
-        if (vData.status === 'blocked') {
-            sessionStorage.removeItem('currentUser');
-            const errEl = document.getElementById('loginError');
-            errEl.textContent = 'تم تعطيل حسابك من قبل الإدارة. تواصل مع المدير.';
-            errEl.style.display = 'block';
-            return; // Stay on login screen
-        }
-        if (vData.status === 'not_found') {
-            sessionStorage.removeItem('currentUser');
-            return;
-        }
+        check = await checkSession();
     } catch (e) {
-        // Network issue — proceed anyway to avoid locking out users offline
-        console.warn('Session verify skipped (network):', e);
+        console.error('Session check failed:', e);
     }
 
+    if (!check) {
+        showLoginNotice('تعذّر التحقق من جلستك. أعد تحميل الصفحة أو سجّل الدخول من جديد.');
+        finishSessionCheck();
+        return;
+    }
+    if (check.status !== 'ok') {
+        // حساب موقوف، أو جلسة بلا ملف مستخدم: تُنهى ونبقى على شاشة الدخول
+        await endSession();
+        // على جهاز مشترك قد لا يكون الجالس أمام الشاشة صاحب الجلسة المحفوظة: نسمّي الحساب
+        if (check.status === 'blocked') {
+            const account = check.username ? `حساب «${check.username}»` : 'الحساب';
+            showLoginNotice(`تم تعطيل ${account} من قبل الإدارة. تواصل مع المدير.`);
+        }
+        finishSessionCheck();
+        return;
+    }
+
+    finishSessionCheck();
+    currentUser = check.user;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appContainer').classList.add('active');
     setUserBadge();
@@ -90,6 +154,7 @@ window.addEventListener('load', async function () {
 // Login Logic
 document.getElementById('loginForm').addEventListener('submit', async function (e) {
     e.preventDefault();
+    if (sessionCheckPending) return; // الزر معطّل حتى ينتهي فحص التحميل؛ وهذا لـ Enter في الحقول
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
     const loginBtn = document.getElementById('loginBtn');
@@ -108,7 +173,6 @@ document.getElementById('loginForm').addEventListener('submit', async function (
 
         if (result.status === 'success') {
             currentUser = result.user;
-            sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
 
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('appContainer').classList.add('active');
@@ -154,6 +218,13 @@ function showError(msg) {
     }, 3000);
 }
 
+// رسالة ثابتة على شاشة الدخول (showError تخفي رسالتها بعد 3 ثوانٍ)
+function showLoginNotice(msg) {
+    const box = document.getElementById('loginError');
+    box.textContent = msg;
+    box.style.display = 'block';
+}
+
 // Set colored role badge in header
 function setUserBadge() {
     const badge = document.getElementById('currentUser');
@@ -187,6 +258,7 @@ function animateCounter(el, target, duration) {
 }
 
 // Logout
+// لا شيء يمسّ الجلسة قبل التأكيد: «إلغاء» يُبقي المستخدم داخل اللوحة بجلسة سليمة
 document.getElementById('logoutBtn').addEventListener('click', function () {
     Swal.fire({
         title: 'هل تريد تسجيل الخروج؟',
@@ -198,8 +270,23 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
         cancelButtonText: 'إلغاء'
     }).then(async (result) => {
         if (result.isConfirmed) {
-            await logActivity('تسجيل خروج', `غادر الموظف ${currentUser.username} المنصة`);
-            sessionStorage.removeItem('currentUser');
+            // نافذة انتظار لا تُغلق حتى تُعاد الصفحة: لوحة تبدو معلّقة بعد «نعم» يُغلق تبويبها والجلسة
+            // ما زالت محفوظة، فيدخل بها من يفتح اللوحة بعده. وكل انتظار بعدها محدود
+            Swal.fire({
+                title: 'جاري تسجيل الخروج...',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                didOpen: () => Swal.showLoading()
+            });
+            // النشاط أولاً والجلسة قائمة: إدراج activities مسموح للمستخدم المسجّل وحده.
+            // ننتظره 3 ثوانٍ على الأكثر، وsignOut في الشيم مثلها
+            if (currentUser) {
+                await Promise.race([
+                    logActivity('تسجيل خروج', `غادر الموظف ${currentUser.username} المنصة`),
+                    new Promise((resolve) => setTimeout(resolve, 3000))
+                ]);
+            }
+            await endSession();
             location.reload();
         }
     });
@@ -278,26 +365,48 @@ function initMap() {
 async function loadProjects() {
     const grid = document.getElementById('projectsGrid');
     grid.innerHTML = '<div class="loading">جاري تحميل المشاريع...</div>';
+    // أزرار صفحات القائمة السابقة لا تبقى تحت رسالة التحميل
+    clearProjectPager();
 
     try {
-        // Periodic block check — catches accounts blocked while user is already inside
+        // Periodic block check — catches accounts blocked (or sessions ended) while user is already inside
         if (currentUser) {
+            let check = null;
             try {
-                const vRes = await fetch(`${API_URL}/login.php?u=${encodeURIComponent(currentUser.username)}`);
-                const vData = await vRes.json();
-                if (vData.status === 'blocked') {
-                    sessionStorage.removeItem('currentUser');
-                    Swal.fire({
-                        title: 'تم تعطيل الحساب',
-                        text: 'قام المدير بتعطيل حسابك. سيتم تسجيل خروجك الآن.',
-                        icon: 'warning',
-                        confirmButtonColor: '#C9A961',
-                        confirmButtonText: 'موافق',
-                        allowOutsideClick: false
-                    }).then(() => location.reload());
-                    return;
-                }
-            } catch (ve) { /* network issue — skip silently */ }
+                check = await checkSession();
+            } catch (ve) {
+                // خطأ عابر في الشبكة أو الخادم: لا نُخرج أحداً بسببه، ونكمل التحميل
+                console.warn('Account check failed:', ve);
+                // لا مؤقت يعيد الفحص: يُعاد مع التحميل التالي للمشاريع (حفظ أو حذف أو اعتماد) أو تحديث الصفحة
+                showNotification('تعذّر التحقق من حالة الحساب الآن، وسنعيد التحقق عند التحديث القادم.', 'info');
+            }
+            // النتيجة تُعالَج خارج try أعلاه: endSession لا يرمي، فرسالة التعطيل تظهر دائماً
+            // ولا يكمل التحميل لحساب موقوف حتى لو فشل signOut
+            if (check && check.status === 'blocked') {
+                await endSession();
+                Swal.fire({
+                    title: 'تم تعطيل الحساب',
+                    text: 'قام المدير بتعطيل حسابك. سيتم تسجيل خروجك الآن.',
+                    icon: 'warning',
+                    confirmButtonColor: '#C9A961',
+                    confirmButtonText: 'موافق',
+                    allowOutsideClick: false
+                }).then(() => location.reload());
+                return;
+            }
+            // not_found: الجلسة انتهت أو أُلغيت، أو حُذف ملف المستخدم
+            if (check && check.status === 'not_found') {
+                await endSession();
+                Swal.fire({
+                    title: 'انتهت الجلسة',
+                    text: 'سجّل الدخول من جديد للمتابعة.',
+                    icon: 'info',
+                    confirmButtonColor: '#C9A961',
+                    confirmButtonText: 'موافق',
+                    allowOutsideClick: false
+                }).then(() => location.reload());
+                return;
+            }
         }
 
         const role = currentUser ? currentUser.role : 'callcenter';
@@ -327,6 +436,8 @@ async function loadProjects() {
             ? 'خطأ في البيانات القادمة من السيرفر — تواصل مع الدعم'
             : 'فشل تحميل البيانات — تحقق من الاتصال وأعد المحاولة';
         grid.innerHTML = `<div class="loading" style="color:#ef4444;">${msg}</div>`;
+        // فلتر أثناء التحميل قد يكون رسم ترقيماً للقائمة القديمة: لا يبقى تحت رسالة الخطأ
+        clearProjectPager();
     }
 }
 
@@ -335,6 +446,79 @@ function updateUI() {
     renderSalesOverview();
     displayProjects();
     loadMyProjects();
+}
+
+// ── ترقيم شبكة المشاريع ──────────────────────────────────────────────────────
+// الترقيم على مستوى العرض فقط: القائمة كاملة تبقى في الذاكرة لأن الخريطة
+// والإحصائيات والموافقات و«مشاريعي» تُحسب كلها منها. عرض الأعمدة بلا ترقيم.
+
+// فلتر أو بحث أو تبويب جديد: النتائج تبدأ من صفحتها الأولى
+function resetToFirstPage() {
+    projectPage = 0;
+    displayProjects();
+}
+
+// الشريط الفارغ يخفيه :empty في css/style.css
+function clearProjectPager() {
+    const pager = document.getElementById('projectsPager');
+    if (pager) pager.innerHTML = '';
+}
+
+// يرسم العرض الحالي من آخر نتيجة فلترة: صفحة من الشبكة وتحتها الترقيم، أو الأعمدة كاملة.
+// لا يمسّ الخريطة، فقلب الصفحة لا يعيد بناء الدبابيس ولا يغلق نافذة مفتوحة عليها.
+function renderProjectsView() {
+    clearProjectPager();
+    try {
+        if (viewMode === 'grid') {
+            const start = projectPage * PROJECT_PAGE_SIZE;
+            renderGridView(lastFilteredProjects.slice(start, start + PROJECT_PAGE_SIZE));
+            // بعد نجاح رسم الشبكة فقط: لا أزرار صفحات تحت رسالة الخطأ
+            renderProjectPager(lastFilteredProjects.length);
+        } else {
+            renderKanbanBoard(lastFilteredProjects);
+        }
+    } catch (e) {
+        console.error('Display error (non-fatal):', e);
+        document.getElementById('projectsGrid').innerHTML = '<div class="loading">حدث خطأ في العرض، يرجى تحديث الصفحة</div>';
+    }
+}
+
+// «السابق · صفحة X من Y — N مشروع · التالي» كـ pager() في crm/js/ui.js، ولا يظهر لصفحة واحدة
+function renderProjectPager(total) {
+    const pager = document.getElementById('projectsPager');
+    const pages = Math.ceil(total / PROJECT_PAGE_SIZE);
+    // اسم الشبكة عند قارئ الشاشة يحمل الصفحة الحالية، فيُعلن حين ينتقل إليها التركيز بعد قلب الصفحة
+    document.getElementById('projectsGrid').setAttribute('aria-label', pages > 1 ? `المشاريع، صفحة ${projectPage + 1} من ${pages}` : 'المشاريع');
+    if (!pager || pages <= 1) return;
+
+    const pageButton = (text, page, disabled) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-outline btn-small';
+        button.textContent = text;
+        button.disabled = disabled;
+        button.addEventListener('click', () => showProjectPage(page));
+        return button;
+    };
+    const label = document.createElement('span');
+    label.textContent = `صفحة ${projectPage + 1} من ${pages} — ${total} مشروع`;
+
+    pager.append(
+        pageButton('السابق', projectPage - 1, projectPage <= 0),
+        label,
+        pageButton('التالي', projectPage + 1, projectPage >= pages - 1)
+    );
+}
+
+// قلب الصفحة: الشبكة والترقيم فقط، ثم أول الشبكة إلى الشاشة. الزر المضغوط حُذف مع إعادة رسم
+// الترقيم، فننقل التركيز إلى الشبكة نفسها (tabindex=-1) لا إلى body: Tab التالي يبدأ من أول بطاقة
+// في الصفحة الجديدة لا من أسفلها، وقارئ الشاشة يعلن «المشاريع، صفحة X من Y»
+function showProjectPage(page) {
+    projectPage = page;
+    renderProjectsView();
+    const grid = document.getElementById('projectsGrid');
+    grid.focus({ preventScroll: true });
+    grid.scrollIntoView({ behavior: 'smooth' });
 }
 
 /* ── نظرة سريعة للمسوقين (القسم الأعلى في اللوحة) ─────────────────────────────
@@ -768,7 +952,7 @@ function setCategoryFilter(construction, support) {
             if (btn.dataset.c === construction && btn.dataset.s === support) btn.classList.add('active');
         });
     }
-    displayProjects();
+    resetToFirstPage();
 }
 
 // Display Projects
@@ -829,18 +1013,14 @@ function displayProjects() {
         });
     }
 
-    try {
-        if (viewMode === 'grid') {
-            renderGridView(filtered);
-        } else {
-            renderKanbanBoard(filtered);
-        }
-    } catch (e) {
-        console.error('Display error (non-fatal):', e);
-        document.getElementById('projectsGrid').innerHTML = '<div class="loading">حدث خطأ في العرض، يرجى تحديث الصفحة</div>';
-    }
+    lastFilteredProjects = filtered;
+    // إن قلّصت الفلاتر أو الحذف النتائج تحت الصفحة الحالية نرجع لآخر صفحة صالحة
+    const pages = Math.max(1, Math.ceil(filtered.length / PROJECT_PAGE_SIZE));
+    if (projectPage >= pages) projectPage = pages - 1;
 
-    // Refresh Map Markers visually sync
+    renderProjectsView();
+
+    // الخريطة تعرض كل النتائج المفلترة لا صفحة الشبكة فقط
     clearMarkers();
     filtered.forEach(p => addMarker(p));
 }
@@ -1025,7 +1205,7 @@ document.getElementById('projectForm').addEventListener('submit', async function
             if (editId) {
                 cancelEdit();
             } else {
-                localStorage.removeItem('project_draft'); // Clear draft on success
+                localStorage.removeItem(draftKey()); // Clear draft on success
                 document.getElementById('projectForm').reset();
                 document.getElementById('imagePreview').innerHTML = '';
                 document.getElementById('coordinates').value = '';
@@ -1033,6 +1213,8 @@ document.getElementById('projectForm').addEventListener('submit', async function
                     map.removeLayer(selectionMarker);
                     selectionMarker = null;
                 }
+                // المشروع الجديد أول القائمة (الأحدث أولاً)، فنعود للصفحة الأولى حيث يظهر
+                projectPage = 0;
             }
             loadProjects();
         } else {
@@ -2474,7 +2656,7 @@ document.getElementById('resetBtn').addEventListener('click', function() {
     }
     window.editingProjectImages = [];
     document.getElementById('unitModelsContainer').innerHTML = '';
-    localStorage.removeItem('project_draft');
+    localStorage.removeItem(draftKey());
 });
 
 // Switch View Mode (Grid vs Kanban)
@@ -2605,7 +2787,7 @@ function renderGridView(filtered) {
         // رابط الصورة يُرفض ما لم يكن https، وعندها يُعرض البديل بدلاً منه
         const imgUrl = safeUrl(firstImage);
         const imgHtml = imgUrl
-            ? `<img src="${esc(imgUrl)}" class="project-image" alt="${esc(project.name)}" onclick="viewProject(${project.id})" style="cursor:pointer;">`
+            ? `<img src="${esc(imgUrl)}" class="project-image" loading="lazy" alt="${esc(project.name)}" onclick="viewProject(${project.id})" style="cursor:pointer;">`
             : `<div class="project-img-placeholder" onclick="viewProject(${project.id})" style="cursor:pointer;"></div>`;
 
         card.innerHTML = `
@@ -2840,7 +3022,13 @@ function renderKanbanBoard(filteredProjects) {
 }
 
 // Auto-Save Draft Functions
+// المسودة باسم الموظف: على جهاز مشترك لا تُعرض لمن يدخل بعده (فيها أرقام الملاك والأسعار والعمولات)
+function draftKey() {
+    return 'project_draft:' + (currentUser ? currentUser.id : '');
+}
+
 function saveFormDraft() {
+    if (!currentUser) return;
     const editId = document.getElementById('editProjectId').value;
     if (editId) return; // Do not save drafts for editing existing projects
 
@@ -2888,11 +3076,13 @@ function saveFormDraft() {
         });
     });
 
-    localStorage.setItem('project_draft', JSON.stringify(draft));
+    localStorage.setItem(draftKey(), JSON.stringify(draft));
 }
 
 function checkAndLoadDraft() {
-    const saved = localStorage.getItem('project_draft');
+    // مسودة النسخة السابقة محفوظة بلا صاحب، فلا نعرف لمن هي: تُحذف ولا تُعرض لأحد
+    localStorage.removeItem('project_draft');
+    const saved = localStorage.getItem(draftKey());
     if (!saved) return;
 
     let draft;
@@ -2924,7 +3114,7 @@ function checkAndLoadDraft() {
         if (result.isConfirmed) {
             restoreDraft(draft);
         } else {
-            localStorage.removeItem('project_draft');
+            localStorage.removeItem(draftKey());
         }
     });
 }
@@ -2999,12 +3189,12 @@ document.addEventListener('wheel', function (e) {
     }
 }, { passive: true });
 
-// Live Filter Input Event Listeners
-document.getElementById('filterType').addEventListener('change', displayProjects);
-document.getElementById('filterAvailability').addEventListener('change', displayProjects);
-document.getElementById('filterMinPrice').addEventListener('input', displayProjects);
-document.getElementById('filterMaxPrice').addEventListener('input', displayProjects);
-document.getElementById('searchBox').addEventListener('input', displayProjects);
+// Live Filter Input Event Listeners — النتائج الجديدة تبدأ من صفحتها الأولى
+document.getElementById('filterType').addEventListener('change', resetToFirstPage);
+document.getElementById('filterAvailability').addEventListener('change', resetToFirstPage);
+document.getElementById('filterMinPrice').addEventListener('input', resetToFirstPage);
+document.getElementById('filterMaxPrice').addEventListener('input', resetToFirstPage);
+document.getElementById('searchBox').addEventListener('input', resetToFirstPage);
 
 // ── Construction status → update support type options ──────────────────────
 document.getElementById('constructionStatus').addEventListener('change', function () {

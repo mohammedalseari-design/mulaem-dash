@@ -667,4 +667,20 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
 .wa-bar-info { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-weight: 600; }
 .wa-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 body.crm-dark .wa-link { color: #d9bf8f; }
+/* فرز Jev (whatsapp-triage.js): وضع الفرز، وسطر Jev وتصحيحه على البطاقة، وبطاقة «دقة Jev» */
+.wa-jev-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 12px; }
+.wa-jev-mode[hidden], .wa-jev-report[hidden] { display: none; }
+.wa-jev-pick { display: inline-flex; align-items: center; gap: 8px; }
+.wa-jev-pick .wa-kind { margin-inline-start: 0; }
+.wa-jev { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.wa-jev .wa-kind { margin-inline-start: 0; padding: 2px 6px; font-size: 0.85em; }
+/* «حفظ» بجانب «تصحيح Jev» وقائمة الوضع: يظهر حين تختلف القيمة عن المحفوظة */
+.wa-fix { display: inline-flex; align-items: center; gap: 6px; }
+.wa-fix .btn-xs { padding: 2px 10px; }
+.wa-jev-mode .btn-xs { padding: 4px 12px; }
+.wa-fix .btn-xs[hidden], .wa-jev-mode .btn-xs[hidden] { display: none; }
+.wa-jev-report summary { cursor: pointer; font-weight: 700; color: var(--text-primary); }
+.wa-jev-report[open] summary { margin-bottom: 8px; }
+.wa-jev-table { margin-top: 14px; }
+.wa-jev-table h4 { margin: 0 0 6px; font-size: 0.95em; color: var(--text-secondary); }
 a.agent-tile { text-decoration: none; color: inherit; }

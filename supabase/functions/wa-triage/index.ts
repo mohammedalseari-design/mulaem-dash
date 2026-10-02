@@ -102,7 +102,7 @@ async function readBody(req: Request): Promise<Record<string, unknown>> {
 
 // نص خطأ من المزوّد أو القاعدة قبل تسجيله أو حفظه: الجوالات والبريد مُخفاة، وما بقي من أرقام طويلة x، والنص العربي
 // (ما قد يردّده المزوّد من الرسالة نفسها) محذوف، والطول محدود
-const ARABIC_RUN = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]+/g;
+const ARABIC_RUN = /\p{scx=Arabic}+/gu;
 export function safeErrorText(text: string, max = 300): string {
   return scrubPhones(new Redactor().redact(capRuns(String(text ?? ""))))
     .replace(ARABIC_RUN, "…")

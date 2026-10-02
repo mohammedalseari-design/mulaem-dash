@@ -15,9 +15,10 @@ import {
 } from './labels.js';
 import { recheckTwins, recordLink, safeUrl, targetRow, valueText } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
+import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, fmtDateTime, toAsciiDigits
+    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -50,7 +51,13 @@ export async function renderApprovals(root) {
             ])
         ]),
         el('p', { class: 'crm-subtle', text: 'لا يدخل النظام سجلٌّ من المساعد قبل اعتماد المدير. الاعتماد يكتب السجل مرة واحدة ويُسجَّل في سجل الأحداث.' }),
-        el('div', { class: 'crm-toolbar' }, [statusBox, el('div', { class: 'crm-spacer' })]),
+        el('div', { class: 'crm-toolbar' }, [statusBox, el('div', { class: 'crm-spacer' }),
+            el('button', {
+                type: 'button', class: 'btn btn-outline btn-sm', text: 'ارفض المكررات',
+                title: 'رفض مسودات المشاريع الجديدة المكررة لمشروع قائم دفعة واحدة — الاعتماد يبقى واحدة واحدة',
+                onclick: (event) => rejectDuplicates(event.currentTarget, load)
+            })
+        ]),
         body
     ]));
 
@@ -428,10 +435,20 @@ function draftTwins(draft) {
 // حالة التوائم الآن: قد تكون اعتُمدت أو رُفضت أو حُذفت بعد تسجيلها. null إن تعذّرت القراءة (يُعرض ما سُجّل)
 async function twinStatuses(drafts) {
     const ids = [...new Set(drafts.flatMap(draftTwins).map((t) => t.draft_id).filter(Boolean))];
-    if (!ids.length) return new Map();
-    const { data, error } = await supabase.from('agent_drafts').select('id, status, applied_record').in('id', ids);
+    const { data, error } = await rowsByIds('agent_drafts', 'id, status, applied_record', ids);
     if (error) return null;
-    return new Map((data || []).map((row) => [row.id, row]));
+    return new Map(data.map((row) => [row.id, row]));
+}
+
+// صفوف بقائمة معرّفات، مئةً مئة: قائمة in تُرسل في الرابط، والطابور كله (رفض المكررات) قد يذكر مئات المعرّفات
+async function rowsByIds(table, columns, ids) {
+    const data = [];
+    for (let i = 0; i < ids.length; i += 100) {
+        const result = await supabase.from(table).select(columns).in('id', ids.slice(i, i + 100));
+        if (result.error) return { data: null, error: result.error };
+        data.push(...(result.data || []));
+    }
+    return { data, error: null };
 }
 
 // التوائم التي تستحق التنبيه: ما زالت معلّقة، أو طُبّقت (فهذه مكررة لمشروع صار قائماً). المرفوضة والمحذوفة تسقط
@@ -909,27 +926,179 @@ function openDecision(draft, decision, reload) {
         if (decision === 'reject' && !text) return void notify('السبب مطلوب عند الرفض', 'error');
 
         saveBtn.disabled = true;
-        // القرار أولاً ببصمة ما رآه المدير، ثم الحالة بشرط أن البصمة لم تتغيّر
-        const { error: decisionError } = await supabase.from('agent_decisions')
-            .insert({ draft_id: draft.id, decision: decision, reason: text || null, content_hash: draft.content_hash });
-        if (decisionError) {
-            saveBtn.disabled = false;
-            return void fail(decisionError, 'تعذّر تسجيل القرار');
-        }
-        const { data, error } = await supabase.from('agent_drafts')
-            .update({ status: decision === 'reject' ? 'rejected' : 'returned' })
-            .eq('id', draft.id)
-            .eq('content_hash', draft.content_hash)
-            .select('id');
+        const failure = await recordDecision(draft, decision, text);
         saveBtn.disabled = false;
-        if (error) return void fail(error, 'تعذّر حفظ القرار');
-        if (!data || data.length === 0) return void notify('لا تملك صلاحية أو تغيّرت المسودة', 'error', 8000);
+        if (failure && failure.error) return void fail(failure.error, failure.prefix);
+        if (failure) return void notify(failure.message, 'error', 8000);
         closeModal();
         notify(decision === 'reject' ? 'رُفضت المسودة' : 'أُعيدت المسودة للموظف', 'success');
         reload();
     });
 
     openModal(decision === 'reject' ? 'رفض المسودة' : 'إعادة المسودة للموظف', form, { narrow: true });
+}
+
+// القرار أولاً ببصمة ما رآه المدير، ثم الحالة بشرط أن البصمة لم تتغيّر. رفض المكررات يمرّ من هنا أيضاً.
+// null: نجح. وإلا { error, prefix } لخطأ من الخادم، أو { message } إن لم يتغيّر صف
+async function recordDecision(draft, decision, text) {
+    const { error: decisionError } = await supabase.from('agent_decisions')
+        .insert({ draft_id: draft.id, decision: decision, reason: text || null, content_hash: draft.content_hash });
+    if (decisionError) return { error: decisionError, prefix: 'تعذّر تسجيل القرار' };
+    const { data, error } = await supabase.from('agent_drafts')
+        .update({ status: decision === 'reject' ? 'rejected' : 'returned' })
+        .eq('id', draft.id)
+        .eq('content_hash', draft.content_hash)
+        .select('id');
+    if (error) return { error, prefix: 'تعذّر حفظ القرار' };
+    if (!data || data.length === 0) return { message: 'لا تملك صلاحية أو تغيّرت المسودة' };
+    return null;
+}
+
+/* ===================== رفض المكررات ===================== */
+// مسودات مشاريع جديدة بانتظار الاعتماد تكرّر مشروعاً قائماً أو توأماً طُبّق (dupes.js): تُقرأ من الطابور كله لا من
+// الصفحة المعروضة، ويُبقي المدير علامة ما يرفضه، ثم تُرفض واحدة بعد أخرى بمسار زر الرفض نفسه (recordDecision).
+// لا اعتماد جماعي: مدقّق نظيف لا يعني بيانات صحيحة، والمشروع المعتمد يصل للعملاء بروابط المشاركة.
+// الطابور يُقرأ صفحةً صفحة (500 في القراءة): ما ليس مكرراً يبقى بانتظار الاعتماد، فلا يحجب أقدمُه ما بعده. السقف احتياط
+const DUPES_PAGE = 500;
+const DUPES_PAGES = 20;
+
+async function rejectDuplicates(button, reload) {
+    const caption = button.textContent;
+    button.disabled = true;
+    button.textContent = 'جارٍ الفحص…';
+    let found = null;
+    try {
+        found = await duplicateCandidates();
+    } catch (error) {
+        fail(error, 'تعذّر فحص المكررات');
+    } finally {
+        button.disabled = false;
+        button.textContent = caption;
+    }
+    if (!found) return;
+    if (!found.list.length) {
+        return void notify(!found.checked ? 'لا مسودات مشاريع جديدة بانتظار الاعتماد'
+            : 'لا مكرر واضح بين ' + (found.capped ? 'أقدم ' : '') + found.checked + ' مسودة مشروع جديد بانتظار الاعتماد'
+                + (found.capped ? ' — ما بعدها لم يُفحص' : ''), 'info');
+    }
+    openDuplicates(found, reload);
+}
+
+// { list: [{ draft, reason }], checked: عدد المسودات المفحوصة, capped: بلغت السقف }، أو null بعد إبلاغ الخطأ
+async function duplicateCandidates() {
+    const drafts = [];
+    for (let page = 0; page < DUPES_PAGES; page++) {
+        const [from, to] = pageRange(page, DUPES_PAGE);
+        const { data, error } = await supabase.from('agent_drafts')
+            .select('id, request_id, status, target_kind, target_id, content_hash, conflicts, duplicates,'
+                + ' name:proposed->>name, city:proposed->>city, district:proposed->>district')
+            .eq('target_kind', 'project').is('target_id', null).eq('status', REJECTABLE)
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to);
+        if (error) return fail(error, 'تعذّر تحميل المسودات');
+        drafts.push(...(data || []));
+        if (!data || data.length < DUPES_PAGE) break;
+    }
+    const twins = await twinStatuses(drafts);
+    if (!twins) {
+        notify('تعذّرت قراءة حالة المسودات المطابقة — أعد المحاولة', 'error', 8000);
+        return null;
+    }
+    // مرشّح التكرار سُجّل عند إنشاء المسودة، والمشروع قد يُحذف أو يُرفض بعدها: تُقرأ حالته الآن
+    const live = await rowsByIds('projects', 'id, status, deleted_at', projectRefs(drafts, twins));
+    if (live.error) return fail(live.error, 'تعذّر تحميل المشاريع المطابقة');
+    const projects = new Map(live.data.map((row) => [String(row.id), row]));
+    return { list: clearDuplicates(drafts, twins, projects), checked: drafts.length, capped: drafts.length >= DUPES_PAGE * DUPES_PAGES };
+}
+
+function openDuplicates(found, reload) {
+    const rows = found.list.map((item) => {
+        const draft = item.draft;
+        const box = el('input', { type: 'checkbox', checked: true });
+        const mark = el('span');
+        const place = [draft.district, draft.city].filter(Boolean).join(' · ');
+        return { item, box, mark, line: el('li', {}, [
+            el('label', {}, [box, ' ', el('strong', { text: draft.name || 'بلا اسم' })]),
+            place ? el('span', { class: 'crm-subtle', text: place }) : null,
+            el('span', { text: '— ' + item.reason }),
+            // تبويب جديد: الانتقال في هذا التبويب يغلق النافذة وتضيع العلامات
+            el('a', { class: 'btn btn-outline btn-xs', href: '#/approvals/' + encodeURIComponent(draft.request_id),
+                target: '_blank', rel: 'noopener', text: 'فتح الطلب' }),
+            mark
+        ]) };
+    });
+    const reason = el('textarea', { rows: 2, required: true, value: 'مكرر مع مشروع موجود' });
+    const saveBtn = el('button', { type: 'submit', class: 'btn btn-danger btn-sm' });
+    const cancelBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal });
+    const footer = el('div', {}, el('div', { class: 'btn-row btn-row-end' }, [cancelBtn, saveBtn]));
+    const chosen = () => rows.filter((row) => row.box.checked);
+    const count = () => {
+        saveBtn.textContent = 'رفض المحدد (' + chosen().length + ')';
+        saveBtn.disabled = chosen().length === 0;
+    };
+    for (const row of rows) row.box.addEventListener('change', count);
+    count();
+
+    const form = el('form', {}, [
+        el('p', { class: 'crm-subtle', text: 'من ' + found.checked + ' مسودة مشروع جديد بانتظار الاعتماد، هذه ' + rows.length
+            + ' مكررة بوضوح: يطابق اسمها مشروعاً قائماً لا يناقضه حيّها، أو طُبّقت مسودة بالاسم نفسه. '
+            + 'أزل العلامة عمّا لا تريد رفضه، وافتح الطلب عند الشك. الاعتماد لا يكون جماعياً.' }),
+        found.capped ? el('p', { class: 'crm-subtle', text: 'فُحصت أقدم ' + found.checked + ' مسودة فقط — أعد الفحص بعد الرفض لما بعدها.' }) : null,
+        el('div', { style: 'max-height:50vh;overflow:auto' }, el('ul', { class: 'agent-list' }, rows.map((row) => row.line))),
+        el('div', { class: 'form-grid' }, field('سبب الرفض', reason, {
+            span2: true, required: true,
+            hint: 'يُسجَّل لكل مسودة مع سبب تكرارها، ويظهر للموظف في سجل المسودة.'
+        })),
+        footer
+    ]);
+
+    // إغلاق النافذة أثناء الرفض (إيقاف، Esc، أو الانتقال لصفحة أخرى) يوقفه بعد المسودة الجارية
+    let closed = false;
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const text = reason.value.trim();
+        if (!text) return void notify('السبب مطلوب عند الرفض', 'error');
+        const picked = chosen();
+        if (!picked.length) return;
+
+        for (const control of form.querySelectorAll('input, textarea')) control.disabled = true;
+        saveBtn.disabled = true;
+        cancelBtn.textContent = 'إيقاف';
+        const failed = [];
+        let done = 0;
+        for (const [i, row] of picked.entries()) {
+            if (closed) break;
+            saveBtn.textContent = 'جارٍ الرفض ' + (i + 1) + ' من ' + picked.length + '…';
+            let failure;
+            try {
+                failure = await recordDecision(row.item.draft, 'reject', text + ' — ' + row.item.reason);
+            } catch (error) {
+                failure = { error, prefix: 'تعذّر الرفض' };
+            }
+            if (failure && failure.error) console.error('[CRM]', failure.error);
+            if (failure) failed.push({ row, text: failure.error ? failure.prefix + ': ' + errorText(failure.error) : failure.message });
+            else done += 1;
+            replace(row.mark, failure ? badge('تعذّر الرفض', 'orange') : badge(label(DRAFT_STATUS, 'rejected'), DRAFT_STATUS_TONE.rejected));
+        }
+
+        reload();
+        const tally = 'رُفضت ' + done + ' من ' + picked.length + (failed.length ? '، وتعذّر رفض ' + failed.length : '');
+        const stopped = done + failed.length < picked.length;
+        notify((stopped ? 'أُوقف رفض المكررات: ' : '') + tally, failed.length ? 'error' : stopped ? 'info' : 'success', 9000);
+        if (closed) return;
+        replace(footer, [
+            el('div', { class: failed.length ? 'crm-warn-box' : 'crm-subtle' }, [
+                el('div', { text: tally + (failed.length ? ':' : '.') }),
+                failed.length ? el('ul', { class: 'agent-list' }, failed.map((f) =>
+                    el('li', { text: (f.row.item.draft.name || 'بلا اسم') + ' — ' + f.text }))) : null
+            ]),
+            el('div', { class: 'btn-row btn-row-end' },
+                el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'إغلاق', onclick: closeModal }))
+        ]);
+    });
+
+    openModal('رفض المسودات المكررة', form, { onClose: () => { closed = true; } });
 }
 
 /* ===================== تعديل المسودة ===================== */

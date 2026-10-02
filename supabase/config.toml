@@ -1,0 +1,7 @@
+# إعدادات Supabase CLI لنشر agent-run من GitHub Actions (.github/workflows/deploy-agent-run.yml). لا تشغيل محلياً.
+project_id = "niykzsspdehexphewlxa"
+
+# agent-run تتحقق من المتصل بنفسها: رمز جلسة المستخدم، أو سر pg_cron من Vault بلا أي JWT.
+# التحقق من JWT في المنصة يرفض دورة المُجدوِل (كل خمس دقائق) قبل أن تصل إلى الكود، فيبقى false.
+[functions.agent-run]
+verify_jwt = false

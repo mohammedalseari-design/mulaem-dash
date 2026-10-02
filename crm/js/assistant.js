@@ -414,7 +414,10 @@ function progressSteps(request) {
 
 // الوكيل لم يجزم بالمشروع أو الوحدة: الموظف يختار من المرشّحين الذين كتبهم الخادم فقط،
 // ثم يعود الطلب إلى الانتظار ويُعاد تنفيذه على السجل المختار.
+// طلب مشروع اسمه يطابق مشروعاً قائماً لم تُنشأ له مسودة: خياره الوحيد «أنشئه مشروعاً جديداً» (project_new)، والرسالة
+// (error_ar) تسمّي المشروع القائم وتدلّ على طلب التحديث
 function candidatePicker(request, candidates, reload) {
+    const onlyNew = candidates.every((c) => c && c.kind === 'project_new');
     const list = el('div', { class: 'agent-list' });
     const buttons = [];
     for (const c of candidates) {
@@ -440,7 +443,7 @@ function candidatePicker(request, candidates, reload) {
         });
         buttons.push(button);
         list.appendChild(el('div', { class: 'agent-source-head' }, [
-            badge(c.kind === 'unit' ? 'وحدة' : 'مشروع', 'blue'),
+            badge(c.kind === 'unit' ? 'وحدة' : c.kind === 'project_new' ? 'مشروع جديد' : 'مشروع', 'blue'),
             el('strong', { text: dash(c.label) }),
             el('span', { class: 'crm-subtle', text: dash(c.reason) }),
             button
@@ -448,7 +451,10 @@ function candidatePicker(request, candidates, reload) {
     }
     return el('div', { class: 'crm-warn-box' }, [
         el('strong', { text: request.error_ar || 'اختر السجل المقصود' }),
-        el('div', { class: 'crm-subtle', text: 'لن يُخمَّن السجل نيابةً عنك. إن لم يكن المقصود في القائمة فأعد صياغة التعليمات أو أرفق مصدراً أوضح.' }),
+        el('div', { class: 'crm-subtle', text: onlyNew
+            ? 'لن يُنشأ مشروع ثانٍ بالاسم نفسه إلا باختيارك. إن كان العرض للمشروع القائم فلا تختر شيئاً هنا، وأنشئ طلب «'
+                + AGENT_KIND.update + '» بالمصدر نفسه.'
+            : 'لن يُخمَّن السجل نيابةً عنك. إن لم يكن المقصود في القائمة فأعد صياغة التعليمات أو أرفق مصدراً أوضح.' }),
         list
     ]);
 }

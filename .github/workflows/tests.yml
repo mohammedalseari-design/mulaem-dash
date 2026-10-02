@@ -1,0 +1,82 @@
+# بوابة الاختبارات: كل دفعة إلى main، وكل طلب دمج، وتشغيل يدوي — بلا أي سر.
+# الأوامر نفسها التي تُشغَّل محلياً قبل الدفع: فحص أنواع كل وظيفة Edge، واللينتر، واختبارات Deno كلها،
+# ثم كل اختبارات Node في tests/. النشر (deploy-agent-run.yml) يعيد بوابة agent-run على ما سيُنشر بعينه.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# تشغيل واحد لكل فرع أو طلب دمج؛ الدفعة الأحدث تلغي ما قبلها
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+# bash -eo pipefail: أول أمر يفشل يُسقط الخطوة
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.9.7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # كل وظيفة مدخلها index.ts؛ المجلدات التي تبدأ بـ _ مكتبات مشتركة تُفحص عبر من يستوردها
+      - name: Type-check every edge function
+        run: |
+          shopt -s nullglob
+          checked=0
+          for entry in supabase/functions/*/index.ts; do
+            case "$entry" in supabase/functions/_*) continue ;; esac
+            deno check "$entry"
+            checked=$((checked + 1))
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::no supabase/functions/*/index.ts found"
+            exit 1
+          fi
+
+      - name: Lint the edge functions
+        run: deno lint supabase/functions
+
+      - name: Deno tests
+        run: deno test --allow-read --allow-env supabase/functions/
+
+      # nullglob: نمط بلا ملفات لا يصل إلى node حرفياً، وصفر ملفات فشلٌ لا نجاح صامت.
+      # رمز الخروج وحده لا يكفي: وعدٌ لا يُحسم في tests/shim.test.js يُفرغ حلقة الأحداث فيخرج node بـ 0
+      # قبل ملخصه، فالشرط أن يكون آخر سطر ملخصاً بصفر فشل («N passed, 0 failed» أو «passed N, failed 0»)
+      - name: Node tests
+        run: |
+          shopt -s nullglob
+          files=(tests/*.test.js tests/*.test.mjs)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no tests/*.test.js or tests/*.test.mjs found"
+            exit 1
+          fi
+          log="$RUNNER_TEMP/node-test.log"
+          for file in "${files[@]}"; do
+            echo "== node $file"
+            node "$file" | tee "$log"
+            if ! tail -n 1 "$log" | grep -Eqx '[0-9]+ passed, 0 failed|passed [0-9]+, failed 0'; then
+              echo "::error::$file stopped before a summary line reporting 0 failed"
+              exit 1
+            fi
+          done

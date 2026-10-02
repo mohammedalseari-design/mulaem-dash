@@ -5,9 +5,9 @@ import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { CLIENT_SCHEMA, PROJECT_SCHEMA, UPDATE_SCHEMA } from "./schema.ts";
 import { buildParts, estimateTokens, loadSources, MAX_FILE_BYTES, SourceError, type SourceRow } from "./sources.ts";
 import {
-  buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts, type Field,
-  fmtArea, fmtPrice, matchUnit, normText, rpcMissing, scanSuspicious, type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines,
-  twinPlan, twinReason, twinRecheck, withoutTwin, withTwin,
+  buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
+  existingProjectMatch, type Field, fmtArea, fmtPrice, forcedNewNote, matchUnit, NEW_PROJECT, normText, rpcMissing, scanSuspicious,
+  type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines, twinPlan, twinReason, twinRecheck, withoutTwin, withTwin,
 } from "./validate.ts";
 import { CODE_CLASS } from "../_shared/effort-router/classify.ts";
 
@@ -1492,4 +1492,134 @@ Deno.test("district: cities, directions, generic or address-like values never ma
   assertEquals(districtFromName(named("رحاب السامر"), ["حي السامر شمال جدة"]), "السامر");
   // الإملاء الغالب يحكم «ال»: «صفا» مرة بلا «ال» لا يجعل «صفاء» حيّاً
   assertEquals(districtFromName(named("برج صفاء"), ["صفا", "الصفا", "الصفا"]), null);
+});
+
+/* ===================== مشروع قائم بالاسم نفسه (464 من 529 عرضاً قديماً كانت لمشاريع قائمة) ===================== */
+
+// مرشّح مشروع كما تعيده agent_find_duplicates (rank 1: الاسم مطابق بعد التطبيع)
+const existing = (id: string, name: string, district: string | null, extra: Record<string, unknown> = {}) => ({
+  kind: "project", id, name, district, type: "فيلا", status: "approved", units: 0, reason: "الاسم مطابق بعد التطبيع", rank: "1", ...extra,
+});
+const SAFA = existing("54", "جوهرة الصفا", "الصفا", { units: 8 });
+
+Deno.test("existing: a real name equal to an existing project asks the requester with one «new» option instead of a draft", async () => {
+  const d = await buildProjectDraft(jawharaOut(), [text(JAWHARA)], normalizePhone);
+  const m = existingProjectMatch(d, [SAFA], null);
+  assert(m);
+  assertEquals(m.matches, [{ id: "54", name: "جوهرة الصفا", district: "الصفا" }]);
+  assertEquals(m.candidates.map((c) => [c.id, c.kind, c.label]), [["new", "project_new", "أنشئه مشروعاً جديداً رغم تطابق الاسم"]]);
+  assertEquals(NEW_PROJECT, "new");
+  assert(m.candidates[0].reason.length > 0);
+  // الرسالة: القائم برقمه وحيّه، ولا مسودة، والتحديث بطلبه، والخيار إن كان مشروعاً آخر بالاسم نفسه
+  for (const part of ["«جوهرة الصفا» (#54، الصفا)", "لم تُنشأ مسودة مشروع جديد", "بطلب «تحديث مشروع أو وحدة»", "«أنشئه مشروعاً جديداً»"]) {
+    assert(m.message.includes(part), part);
+  }
+  assertEquals(existingProjectMatch(d, [SAFA], undefined)?.matches.length, 1);
+});
+
+Deno.test("existing: a stated name whose quote was not verified is the source's own name and blocks too", async () => {
+  const out = jawharaOut();
+  out.project.name = f("جوهرة الصفا", "اقتباس لا يوجد في المصدر");
+  const d = await buildProjectDraft(out, [text(JAWHARA)], normalizePhone);
+  assertEquals([d.proposed.name, d.evidence.name.stated], ["جوهرة الصفا", true]);
+  assertEquals(existingProjectMatch(d, [SAFA], null)?.matches.map((p) => p.id), ["54"]);
+});
+
+Deno.test("existing: a generated or inferred name, a headline, or no name never blocks, whatever the candidates say", async () => {
+  const villa = await buildProjectDraft(villaOut(), [text(VILLA)], normalizePhone);
+  assert(villa.evidence.name.suggested && !villa.evidence.name.stated);
+  assertEquals(existingProjectMatch(villa, [existing("7", String(villa.proposed.name), "السامر")], null), null);
+  const inferred = jawharaOut();
+  inferred.project.name = f("جوهرة الصفا", "جوهرة الصفا", "S1", true);
+  const d = await buildProjectDraft(inferred, [text(JAWHARA)], normalizePhone);
+  assert(d.evidence.name.suggested && !d.evidence.name.stated);
+  assertEquals(existingProjectMatch(d, [SAFA], null), null);
+  assertEquals(existingProjectMatch(named("فيلا للبيع في حي الصفا"), [existing("9", "فيلا للبيع في حي الصفا", "الصفا")], null), null);
+  assertEquals(existingProjectMatch({ proposed: { type: "فيلا" } }, [SAFA], null), null);
+  assertEquals(existingProjectMatch({ proposed: null } as unknown as DraftFacts, [SAFA], null), null);
+});
+
+Deno.test("existing: another district does not block; an empty district on either side does; district spellings are one district", () => {
+  assertEquals(existingProjectMatch(named("جوهرة الصفا", { district: "السامر" }), [SAFA], null), null);
+  for (const d of [named("جوهرة الصفا"), named("جوهرة الصفا", { district: "" }), named("جوهرة الصفا", { district: "  " })]) {
+    assertEquals(existingProjectMatch(d, [SAFA], null)?.matches.map((p) => p.id), ["54"]);
+  }
+  for (const district of [null, "", " "]) {
+    const m = existingProjectMatch(named("جوهرة الصفا", { district: "الصفا" }), [existing("54", "جوهرة الصفا", district)], null);
+    assertEquals(m?.matches, [{ id: "54", name: "جوهرة الصفا", district: "" }], String(district));
+    assert(m?.message.includes("«جوهرة الصفا» (#54)"));
+  }
+  // مفتاح الحي كما في التوائم (placeKey): «حي الصفا، جدة» = «الصفا»، والمدينة وحدها ليست حياً
+  assertEquals(existingProjectMatch(named("جوهرة الصفا", { district: "حي الصفا، جدة" }), [SAFA], null)?.matches.length, 1);
+  assertEquals(existingProjectMatch(named("جوهرة الصفا", { district: "جدة" }), [SAFA], null)?.matches.length, 1);
+});
+
+Deno.test("existing: a rejected project, a close name (rank 2) or a location or district match (rank 3, 4) does not block", () => {
+  const d = named("جوهرة الصفا", { district: "الصفا" });
+  assertEquals(existingProjectMatch(d, [existing("54", "جوهرة الصفا", "الصفا", { status: "rejected" })], null), null);
+  assertEquals(existingProjectMatch(d, [existing("61", "جوهرة الصفا 2", "الصفا", { rank: "2", reason: "الاسم متقارب" })], null), null);
+  assertEquals(existingProjectMatch(d, [existing("63", "برج النخبة", "الصفا", { rank: "3" }), existing("70", "درة الصفا", "الصفا", { rank: "4" })], null), null);
+  // مشروع بانتظار الاعتماد قائمٌ في النظام: يمنع. والمرفوض بين غيره يسقط وحده
+  const rows = [existing("54", "جوهرة الصفا", "الصفا", { status: "rejected" }), existing("88", "جوهره الصفا", "الصفا", { status: "pending" })];
+  assertEquals(existingProjectMatch(d, rows, null)?.matches.map((p) => p.id), ["88"]);
+});
+
+Deno.test("existing: two projects with the same name are both listed, each once; malformed rows and twin lines are skipped", () => {
+  const d = named("جوهرة الصفا");
+  const m = existingProjectMatch(d, [SAFA, existing("120", "مشروع جوهره الصفا", null), existing("54", "جوهرة الصفا", "الصفا")], null);
+  assertEquals(m?.matches.map((p) => p.id), ["54", "120"]);
+  for (const part of ["مشاريع قائمة", "«جوهرة الصفا» (#54، الصفا)، «مشروع جوهره الصفا» (#120)", "لتحديث أحدها"]) {
+    assert(m?.message.includes(part), part);
+  }
+  const junk = [null, "54", { rank: "1" }, { kind: "client", id: "5", rank: "1" }, { kind: "draft", id: "r1", draft_id: "d1", rank: "1" }, existing("", "جوهرة الصفا", null)];
+  assertEquals(existingProjectMatch(d, junk, null), null);
+  assertEquals(existingProjectMatch(d, null, null), null);
+  assertEquals(existingProjectMatch(d, { 0: SAFA }, null), null);
+});
+
+// مراجعة: تطبيع القاعدة يحذف «برج/مجمع/مشروع» أينما جاءت، فـ«برج 12» و«مجمع 12» عنده اسم واحد (rank 1)
+Deno.test("existing: a filler word before a number is part of the name — «برج 12» is not «مجمع 12», as in twins", () => {
+  const majma = existing("80", "مجمع 12", "النرجس");
+  for (const d of [named("برج 12", { district: "النرجس" }), named("برج 12"), named("12")]) {
+    assertEquals(existingProjectMatch(d, [majma], null), null, String(d.proposed.name));
+  }
+  assertEquals(twinReason(named("برج 12"), named("مجمع 12")), null);
+  // الكلمة نفسها والرقم نفسه بأرقام أخرى أو بهمزة: يمنع، ومن مرشّحين بالرتبة 1 يبقى صاحب الكلمة نفسها وحده
+  assertEquals(existingProjectMatch(named("برج 12"), [existing("81", "برج ١٢", "النرجس")], null)?.matches.map((p) => p.id), ["81"]);
+  assertEquals(existingProjectMatch(named("أبراج 7"), [existing("82", "ابراج 7", null)], null)?.matches.map((p) => p.id), ["82"]);
+  assertEquals(existingProjectMatch(named("برج 12"), [majma, existing("81", "برج 12", "النرجس")], null)?.matches.map((p) => p.id), ["81"]);
+  // قبل غير الرقم لا تفرّق الكلمة العامة: «مشروع جوهرة الصفا» هو «جوهرة الصفا»
+  assertEquals(existingProjectMatch(named("مشروع جوهرة الصفا"), [SAFA], null)?.matches.map((p) => p.id), ["54"]);
+  // ولا تسمّي ملاحظة «جديد» مشروعاً بكلمة أخرى
+  assert(!forcedNewNote(named("برج 12"), [majma]).note.includes("#80"));
+});
+
+Deno.test("existing: after the requester picks «new» nothing blocks, and the draft always carries a forced_new note for the manager", async () => {
+  const d = await buildProjectDraft(jawharaOut(), [text(JAWHARA)], normalizePhone);
+  assertEquals(existingProjectMatch(d, [SAFA], NEW_PROJECT), null);
+  const note = forcedNewNote(d, [SAFA]);
+  assertEquals([note.field, note.code], ["name", "forced_new"]);
+  assert(note.note.includes("«جوهرة الصفا» (#54، الصفا)") && note.note.includes("باختيار مقدّم الطلب"), note.note);
+  // ملاحظة لا رفض: رمزها خارج تصنيف الفشل، فلا إعادة ولا تصعيد بسببها
+  assertEquals(CODE_CLASS[note.code!], undefined);
+  // إعادة التشغيل تبدأ السلّم من أوله: الاسم نفسه «مستنتجاً» صار مبنياً (لا يُطابَق به ولا يُرسل لفحص التكرار)، أو اسماً لا
+  // يطابق (rank 2)، أو حيّاً يناقض القائم، أو لا مرشّح. الملاحظة باقية، عامةً بلا مشروع
+  const inferred = jawharaOut();
+  inferred.project.name = f("جوهرة الصفا", "جوهرة الصفا", "S1", true);
+  const rerun = await buildProjectDraft(inferred, [text(JAWHARA)], normalizePhone);
+  assertEquals(rerun.proposed.name, "جوهرة الصفا – 650م");
+  const villa = await buildProjectDraft(villaOut(), [text(VILLA)], normalizePhone);
+  const cases: [DraftFacts, unknown][] = [
+    [rerun, [{ ...SAFA, rank: "4", reason: "نفس الحي ونفس النوع" }]],
+    [d, [existing("61", "جوهرة الصفا 2", "الصفا", { rank: "2" })]],
+    [named("جوهرة الصفا", { district: "السامر" }), [SAFA]],
+    [villa, [existing("7", String(villa.proposed.name), "السامر")]],
+    [d, []],
+    [d, null],
+  ];
+  for (const [draft, dups] of cases) {
+    const generic = forcedNewNote(draft, dups);
+    assertEquals([generic.field, generic.code], ["name", "forced_new"]);
+    assert(generic.note.includes("اختار مقدّم الطلب إنشاءه مشروعاً جديداً") && !generic.note.includes("#"), generic.note);
+  }
 });

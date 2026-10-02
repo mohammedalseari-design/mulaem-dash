@@ -1355,6 +1355,87 @@ export const districtNote = (district: string): Conflict => ({
   code: "district_from_name",
 });
 
+/* ===================== مشروع قائم بالاسم نفسه ===================== */
+
+// عرضٌ لمشروع قائم كان يصير مسودة «مشروع جديد» يرفضها المدير (464 من 529 رسالة واتساب قديمة؛ «جوهرة الصفا» هو المشروع 54).
+// فلا تُنشأ المسودة أصلاً حين يطابق اسمُها الحقيقي (realName: لا المبني ولا عنوان الإعلان؛ والمذكور الذي لم يُتحقق من اقتباسه
+// حقيقي) بعد التطبيع (rank 1 من agent_find_duplicates) مشروعاً قائماً غير مرفوض لا يناقضه حيّها: مفتاح الحي كما في التوائم
+// (placeKey)، وحيٌّ فارغ في أي جهة لا يمنع. يُسأل مقدّم الطلب بخيار واحد «أنشئه مشروعاً جديداً» (NEW_PROJECT)، فإن اختاره
+// (agent_pick_target ← target_id = 'new') بُنيت المسودة وعليها ملاحظة forced_new للمدير.
+export const NEW_PROJECT = "new";
+
+interface SameName {
+  id: string;
+  name: string;
+  district: string;
+}
+
+// مفتاح اسمٍ أبقى كلمة عامة (nameKey يبقيها قبل رقم): الكلمة جزء من هويته
+const keepsFiller = (key: string) => key.split(" ").some((w) => NAME_FILLER.has(w));
+
+// المشاريع القائمة بالاسم الحقيقي نفسه في حيّ لا يناقض حيّ المسودة، من مرشّحي agent_find_duplicates، بترتيبها ومرةً لكل مشروع.
+// تطبيع القاعدة (rank 1) يحذف «برج/مجمع/مشروع» أينما جاءت فـ«برج 12» و«مجمع 12» عنده اسم واحد، وهما اسمان كما في التوائم
+// (nameKey): إن أبقى مفتاحُ أحدهما كلمة عامة اشتُرط المفتاح نفسه
+function sameNameProjects(d: DraftFacts, dups: unknown): SameName[] {
+  if (!plain(d?.proposed) || !Array.isArray(dups) || !realName(d)) return [];
+  const mine = placeKey(String(d.proposed.district ?? ""));
+  const key = nameKey(realName(d));
+  const out: SameName[] = [];
+  for (const x of dups) {
+    if (!plain(x) || x.kind !== "project" || String(x.rank) !== "1" || x.status === "rejected") continue;
+    const id = String(x.id ?? "").trim();
+    const name = typeof x.name === "string" ? x.name.replace(/\s+/g, " ").trim() : "";
+    const district = typeof x.district === "string" ? x.district.replace(/\s+/g, " ").trim() : "";
+    const theirs = placeKey(district);
+    if (!id || out.some((p) => p.id === id) || (mine && theirs && mine !== theirs)) continue;
+    const other = nameKey(name);
+    if (other !== key && (keepsFiller(key) || keepsFiller(other))) continue;
+    out.push({ id, name, district });
+  }
+  return out;
+}
+
+// «جوهرة الصفا» (#54، الصفا)
+const sameNameText = (list: SameName[]) => list.map((p) => "«" + p.name + "» (#" + p.id + (p.district ? "، " + p.district : "") + ")").join("، ");
+
+// سؤال مقدّم الطلب حين يطابق اسمُ المسودة مشروعاً قائماً: المشاريع، والرسالة (error_ar)، والخيار الوحيد. null: لا مطابقة، أو
+// اختار «جديد» من قبل (targetId = NEW_PROJECT). «تحديث مشروع أو وحدة» اسم طلب التحديث في المساعد (AGENT_KIND في labels.js)
+export function existingProjectMatch(
+  d: DraftFacts, dups: unknown, targetId: string | null | undefined,
+): { matches: SameName[]; message: string; candidates: Record<string, string>[] } | null {
+  if (targetId === NEW_PROJECT) return null;
+  const matches = sameNameProjects(d, dups);
+  if (!matches.length) return null;
+  const one = matches.length === 1;
+  return {
+    matches,
+    message: "اسم العرض «" + String(d.proposed.name) + "» يطابق " + (one ? "مشروعاً قائماً: " : "مشاريع قائمة: ") + sameNameText(matches) +
+      " — لم تُنشأ مسودة مشروع جديد. لتحديث " + (one ? "المشروع القائم" : "أحدها") + " أرسل المصدر نفسه بطلب «تحديث مشروع أو وحدة»، " +
+      "وإن كان مشروعاً آخر بالاسم نفسه فاختر «أنشئه مشروعاً جديداً».",
+    candidates: [{
+      id: NEW_PROJECT,
+      kind: "project_new",
+      label: "أنشئه مشروعاً جديداً رغم تطابق الاسم",
+      reason: "مشروع آخر بالاسم نفسه — تُبنى مسودته ويُنبَّه المدير عند الاعتماد",
+    }],
+  };
+}
+
+// مسودة بُنيت مشروعاً جديداً باختيار مقدّم الطلب بعد أن طابق اسمُها مشروعاً قائماً: ملاحظة للمدير تظهر عند الاعتماد، دائماً.
+// تسمّي القائم إن بقي الاسم يطابقه، وإلا فعامة: إعادة التشغيل تبدأ السلّم من أوله، وقد يعيد النموذج اسماً آخر أو مستنتجاً
+// (مبنياً لا يُطابَق به). لا تُحسب رفضاً (رمزها خارج CODE_CLASS)
+export function forcedNewNote(d: DraftFacts, dups: unknown): Conflict {
+  const matches = sameNameProjects(d, dups);
+  return {
+    field: "name",
+    note: matches.length
+      ? "أُنشئت مسودة مشروع جديد رغم أن اسمه يطابق " + sameNameText(matches) +
+        "، باختيار مقدّم الطلب — تحقق أنه مشروع آخر لا عرضٌ للقائم قبل الاعتماد"
+      : "اختار مقدّم الطلب إنشاءه مشروعاً جديداً بعد أن طابق اسمُه مشروعاً قائماً — تحقق أنه ليس عرضاً لمشروع قائم قبل الاعتماد",
+    code: "forced_new",
+  };
+}
+
 /* ===================== السعر لا يضيع بصمت ===================== */
 
 // نص السعر كما نقله النموذج (price_text): يُقبل إن وُجد اقتباسه في نص المصدر، أو كان مصدره PDF أو صورة

@@ -25,9 +25,9 @@ import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { buildParts, estimateTokens, hasFiles, loadSources, SourceError, type SourceRow } from "./sources.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
-  type DraftSpec, fmtArea, fmtPrice, hasProjectChanges, hasUnitChanges, matchUnit, normText, type PhoneNormalizer, type Restore, rpcMissing,
-  type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines, type TwinPlan, twinReason, twinRecheck, updateTarget, withoutTwin,
-  withTwin,
+  type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
+  normText, type PhoneNormalizer, type Restore, rpcMissing, type Src, type TwinCheck, type TwinEntry, twinEntry, twinLines, type TwinPlan,
+  twinReason, twinRecheck, updateTarget, withoutTwin, withTwin,
 } from "./validate.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -410,7 +410,17 @@ async function evaluate(
     const generated = draft.evidence.name?.suggested && !draft.evidence.name.stated;
     const probe = generated ? { ...draft.proposed, name: undefined } : draft.proposed;
     const { data: dups } = await db.rpc("agent_find_duplicates", { p_kind: "project", p: probe });
-    draft.duplicates = [...(Array.isArray(dups) ? dups : []), ...await pendingTwins(db, id, draft)];
+    const found = Array.isArray(dups) ? dups : [];
+    // الاسم يطابق مشروعاً قائماً: لا مسودة، ويُسأل مقدّم الطلب كما في التحديث (يرسله تحديثاً، أو يختار «أنشئه مشروعاً جديداً»
+    // فتُبنى المسودة وعليها ملاحظة للمدير). خيار واحد دائماً، فلا يعود askUser بفشل
+    const existing = existingProjectMatch(draft, found, request.target_id);
+    if (existing) {
+      await askUser(db, id, existing.candidates, existing.message, "");
+      return { outcome: { returned: 0, rejected: 0, rejections: [] }, drafts: "asked", notes: [] };
+    }
+    // اختار «جديد»: الملاحظة دائماً، ولو أعاد النموذج بعد الاختيار اسماً لا يطابق
+    if (request.target_id === NEW_PROJECT) draft.conflicts.push(forcedNewNote(draft, found));
+    draft.duplicates = [...found, ...await pendingTwins(db, id, draft)];
     await noteDistrictFromName(id, draft, districts);
     drafts = [draft];
   } else {

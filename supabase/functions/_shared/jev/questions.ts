@@ -200,9 +200,9 @@ const DIGIT = /\p{Nd}/gu;
 const shapeOf = (run: string) =>
   asciiDigits(run)
     .replace(/[\p{Cf}\p{M}]/gu, "")
-    .replace(/[\p{Pd}\u2212ـ]/gu, "-")
-    .replace(/[،\u066c]/g, ",")
-    .replace(/\u066b/g, ".")
+    .replace(/[\p{Pd}−ـ]/gu, "-")
+    .replace(/[،٬]/g, ",")
+    .replace(/٫/g, ".")
     .replace(/\s/g, " ");
 
 // ما ليس جوالاً ولو بلغ 8 أرقام: تاريخ (2026-09-27، 27/09/2026)، وعدد مجمّع بفاصل آلاف واحد لا يبدأ بصفر (12,500,000،

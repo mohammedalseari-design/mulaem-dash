@@ -21,9 +21,10 @@ import {
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, defaultTiers, type Effort, firstStep, isFailure, nextStep,
   parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
 } from "../_shared/effort-router/mod.ts";
-import { fetchUrlSource, LINK_BUDGET_MS, UrlError } from "./fetch.ts";
+import { fetchUrlSource } from "./fetch.ts";
+import { LinkRetry, openLinks } from "./links.ts";
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
-import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, sha256Hex, SourceError, type SourceRow } from "./sources.ts";
+import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, pdfPages, SourceError, type SourceRow } from "./sources.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
@@ -209,15 +210,31 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     if (!schema) throw new Stop("نوع طلب غير مدعوم");
 
     // 1) قراءة المصادر: الروابط التي لم تُفتح بعد تُفتح أولاً وتُحفظ صفحاتها في المخزن (مرة واحدة للطلب)
-    const { data: rows, error: srcErr } = await db.from("agent_sources")
-      .select("id, kind, storage_path, url, bytes, pages, sha256, title, fetch_error")
-      .eq("request_id", id).order("created_at", { ascending: true });
-    if (srcErr) throw new Stop("تعذّر قراءة مصادر الطلب", true);
-    if (!rows || rows.length === 0) throw new Stop("لا مصادر على هذا الطلب");
+    const { rows, linksReady } = await readSources(db, id);
+    if (!rows) throw new Stop("تعذّر قراءة مصادر الطلب", true);
+    if (rows.length === 0) throw new Stop("لا مصادر على هذا الطلب");
 
-    await stage(db, id, "reading");
-    await openLinks(db, id, rows as SourceRow[], deadline);
-    const loaded = await loadSources(rows as SourceRow[], async (path) => {
+    let openedNow = 0;
+    if (linksReady) {
+      try {
+        openedNow = await openLinks(id, rows, {
+          fetchPage: (url, budgetMs) => fetchUrlSource(url, (u, init) => fetch(u, init), { budgetMs }),
+          store: async (path, bytes, contentType) =>
+            !(await db.storage.from("agent-sources").upload(path, bytes, { contentType, upsert: true })).error,
+          save: async (sourceId, patch) => {
+            const { error } = await db.from("agent_sources").update(patch).eq("id", sourceId);
+            if (error) console.error("agent-run source", id, error.message);
+            return !error;
+          },
+          countPages: pdfPages,
+          left: () => deadline - Date.now() - MIN_CALL_MS,
+        });
+      } catch (e) {
+        if (e instanceof LinkRetry) throw new Stop(e.message, true);
+        throw e;
+      }
+    }
+    const loaded = await loadSources(rows, async (path) => {
       const { data, error } = await db.storage.from("agent-sources").download(path);
       if (error || !data) throw new Stop("تعذّر تحميل ملف من المخزن", true);
       return new Uint8Array(await data.arrayBuffer());
@@ -266,6 +283,11 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       await checkBudget(db, step, notes);
       const remaining = deadline - Date.now();
       if (remaining < MIN_CALL_MS) throw new Stop("انتهى وقت التشغيل قبل اكتمال المحاولات", true);
+      // رابط فُتح في هذا التشغيل وأخذ من وقته: نداء بمهلة ناقصة يُقطع ويُحسب ولا يُصعَّد، فيُكمل الطلب في الدورة
+      // التالية بمهلته كاملة (الصفحة محفوظة ولا تُفتح ثانية)
+      if (openedNow > 0 && remaining < (step.tier === "fast" ? FAST_WINDOW_MS : HEAVY_WINDOW_MS) + 5_000) {
+        throw new Stop("قُرئ الرابط، ويُكمل الاستخراج في الدورة التالية", true);
+      }
 
       await stage(db, id, "extracting");
       const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content }];
@@ -359,37 +381,19 @@ async function needsHeavyWindow(db: SupabaseClient, id: string): Promise<boolean
     sources.some((s) => s?.kind === "pdf" || s?.kind === "image" || (s?.kind === "url" && /\.pdf$/i.test(s.storage_path ?? "")));
 }
 
-// فتح روابط الطلب التي لم تُفتح بعد (fetch.ts) وحفظ ما قُرئ في المخزن الخاص تحت مجلد الطلب: نصاً، أو ملف PDF
-// كما وصل. يحدث مرة واحدة للرابط: في المحاولات التالية يُقرأ المحفوظ، فتبقى الاقتباسات ثابتة ولا يُطرق الموقع
-// مرتين. الرفض النهائي (robots.txt، تسجيل دخول، صفحة فارغة…) يُسجَّل على المصدر ويُعرض للموظف، ويكمل الطلب
-// بمصادره الأخرى إن وُجدت؛ التعذّر العابر (الموقع لا يستجيب) يعيد الطلب إلى الانتظار.
-async function openLinks(db: SupabaseClient, id: string, rows: SourceRow[], deadline: number) {
-  for (const row of rows) {
-    if (row.kind !== "url" || row.storage_path || row.fetch_error) continue;
-    // للرابط مهلته الكلية (تحويلات وrobots.txt) داخل ما بقي من وقت التشغيل، مع إبقاء ما يكفي لنداء النموذج
-    const left = deadline - Date.now() - MIN_CALL_MS;
-    if (left < 30_000) throw new Stop("انتهى وقت التشغيل قبل فتح الروابط", true);
-    const fetched_at = new Date().toISOString();
-    try {
-      const page = await fetchUrlSource(row.url ?? "", (u, init) => fetch(u, init), { budgetMs: Math.min(LINK_BUDGET_MS, left) });
-      const path = `${id}/url-${row.id.slice(0, 8)}.${page.kind === "pdf" ? "pdf" : "txt"}`;
-      const { error: upErr } = await db.storage.from("agent-sources").upload(path, page.bytes, {
-        contentType: page.kind === "pdf" ? "application/pdf" : "text/plain;charset=utf-8", upsert: true,
-      });
-      if (upErr) throw new Stop("تعذّر حفظ الصفحة المقروءة في المخزن", true);
-      const patch = { storage_path: path, bytes: page.bytes.byteLength, sha256: await sha256Hex(page.bytes), title: page.title, fetched_at, fetch_error: null };
-      const { error } = await db.from("agent_sources").update(patch).eq("id", row.id);
-      if (error) throw new Stop("تعذّر تسجيل الصفحة المقروءة", true);
-      Object.assign(row, patch);
-    } catch (e) {
-      if (!(e instanceof UrlError)) throw e;
-      if (e.retry) throw new Stop(e.message, true);
-      // فشل تسجيل الرفض لا يوقف الطلب (يُقرأ من مصادره الأخرى)، لكنه يُسجَّل: الرابط سيُطرق مرة أخرى في المحاولة التالية
-      const { error } = await db.from("agent_sources").update({ fetch_error: e.message, fetched_at }).eq("id", row.id);
-      if (error) console.error("agent-run fetch_error", id, error.message);
-      row.fetch_error = e.message;
-    }
-  }
+// مصادر الطلب بترتيب إضافتها. أعمدة قراءة الروابط (الهجرة 028) تُطلب أولاً؛ إن لم تكن الهجرة مطبَّقة بعد (عمود
+// غير معروف) تُقرأ الأعمدة القديمة وتعمل الوظيفة كما كانت قبلها: الروابط مراجع لا تُفتح (linksReady = false)،
+// ولا يتعطل طلب واحد بسبب ترتيب النشر.
+const SOURCE_COLUMNS = "id, kind, storage_path, url, bytes, pages, sha256";
+const columnMissing = (e: { code?: string; message?: string }) => e.code === "42703" || /column .* does not exist/i.test(e.message ?? "");
+
+async function readSources(db: SupabaseClient, id: string): Promise<{ rows: SourceRow[] | null; linksReady: boolean }> {
+  const read = (columns: string) => db.from("agent_sources").select(columns).eq("request_id", id).order("created_at", { ascending: true });
+  const full = await read(SOURCE_COLUMNS + ", title, fetch_error");
+  if (!full.error) return { rows: full.data as unknown as SourceRow[], linksReady: true };
+  if (!columnMissing(full.error)) return { rows: null, linksReady: true };
+  const legacy = await read(SOURCE_COLUMNS);
+  return { rows: legacy.error ? null : legacy.data as unknown as SourceRow[], linksReady: false };
 }
 
 // بقي في سقف التصعيد اليومي متسع (تعذّرت القراءة: لا)

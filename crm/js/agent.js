@@ -161,6 +161,17 @@ export async function sourceText(path) {
     return response.text();
 }
 
+// مصادر الطلب للعرض، بترتيب إضافتها. أعمدة قراءة الروابط (الهجرة 028) تُطلب أولاً؛ قاعدة لم تُطبَّق عليها
+// الهجرة بعد (عمود غير معروف، 42703) تُقرأ بالأعمدة القديمة بدل أن تتعطل الصفحة.
+const SOURCE_COLUMNS = 'id, kind, storage_path, url, bytes, pages';
+export async function sourceRows(requestId) {
+    const read = (columns) => supabase.from('agent_sources').select(columns)
+        .eq('request_id', requestId).order('created_at', { ascending: true });
+    const full = await read(SOURCE_COLUMNS + ', title, fetched_at, fetch_error');
+    if (!full.error || full.error.code !== '42703') return full;
+    return read(SOURCE_COLUMNS);
+}
+
 /* ===================== قراءة القيم للعرض ===================== */
 
 // قيمة من jsonb: نص للعرض فقط، ويوضع دائماً في textContent.

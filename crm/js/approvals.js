@@ -13,7 +13,7 @@ import {
     AGENT_KIND, AGENT_APPLY_ERROR, AGENT_APPLIED_FIELDS, AGENT_FIELD,
     DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label
 } from './labels.js';
-import { recheckTwins, recordLink, safeUrl, targetRow, valueText } from './agent.js';
+import { recheckTwins, recordLink, safeUrl, sourceRows, targetRow, valueText } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
 import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
 import {
@@ -486,8 +486,7 @@ export async function renderApproval(root, requestId) {
     if (!request) return void replace(root, empty('الطلب غير موجود'));
 
     const [sources, drafts, names] = await Promise.all([
-        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages, title, fetched_at, fetch_error')
-            .eq('request_id', requestId).order('created_at', { ascending: true }),
+        sourceRows(requestId),
         supabase.from('agent_drafts')
             .select('id, target_kind, target_id, proposed, evidence, missing, conflicts, duplicates, suspicious,'
                 + ' baseline_hash, content_hash, status, applied_record, created_by, updated_at')
@@ -517,7 +516,7 @@ export async function renderApproval(root, requestId) {
         ]),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, el('h2', { text: 'المصدر' })),
-            sourcesList(sources.data || [], sources.error)
+            sourcesList(sources.data || [], sources.error, request.status)
         ]),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, el('h2', { text: 'الحقول المستخرجة' })),

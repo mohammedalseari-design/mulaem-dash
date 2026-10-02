@@ -172,11 +172,22 @@ export function robotsAllows(robotsTxt: string, path: string, agent = "mulaemass
   return best ? best.allow : true;
 }
 
+// مطابقة خطية بلا تعبير نمطي يكتبه الموقع (نجوم كثيرة تجعل التعبير أُسّي الزمن): الأجزاء بين النجوم تُبحث
+// بالتتابع من اليسار، و$ تثبّت الجزء الأخير في نهاية المسار.
 function patternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith("$");
-  const body = anchored ? pattern.slice(0, -1) : pattern;
-  const re = "^" + body.split("*").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + (anchored ? "$" : "");
-  return new RegExp(re).test(path);
+  const parts = (anchored ? pattern.slice(0, -1) : pattern).split("*");
+  if (!path.startsWith(parts[0])) return false;
+  let at = parts[0].length;
+  if (parts.length === 1) return !anchored || at === path.length;
+  for (let i = 1; i < parts.length; i++) {
+    const part = parts[i];
+    if (anchored && i === parts.length - 1) return path.length - part.length >= at && path.endsWith(part);
+    const found = path.indexOf(part, at);
+    if (found < 0) return false;
+    at = found + part.length;
+  }
+  return true;
 }
 
 /* ===================== HTML إلى نص ===================== */
@@ -200,9 +211,57 @@ export function decodeEntities(s: string): string {
 
 // ما لا يُعرض أصلاً يُحذف بمحتواه؛ الوسم المغلق ذاتياً (<svg …/>) لا يبدأ كتلة. القوائم والتذييل تبقى:
 // صندوق السعر وجوال المكتب يكونان فيها أحياناً، ولا يُحذف نص ظاهر بصمت
-const DROP_BLOCKS = /<(script|style|noscript|template|svg|iframe|canvas|video|audio|select)\b(?![^>]*\/>)[^>]*>[\s\S]*?<\/\1\s*>/gi;
-const BLOCK_TAGS = /<\/?(p|div|br|li|ul|ol|h[1-6]|tr|table|thead|tbody|section|article|header|footer|nav|aside|main|dl|dd|dt|blockquote|pre|hr|figure|figcaption|address|details|summary)\b[^>]*>/gi;
-const CELL_TAGS = /<\/?(td|th)\b[^>]*>/gi;
+const DROP_NAME = /<(script|style|noscript|template|svg|iframe|canvas|video|audio|select)\b/gi;
+const MAX_TAG_CHARS = 4000; // وسم فتح أطول من هذا ليس وسماً حقيقياً
+const BLOCK_TAGS = /<\/?(p|div|br|li|ul|ol|h[1-6]|tr|table|thead|tbody|section|article|header|footer|nav|aside|main|dl|dd|dt|blockquote|pre|hr|figure|figcaption|address|details|summary)\b[^<>]*>/gi;
+const CELL_TAGS = /<\/?(td|th)\b[^<>]*>/gi;
+
+// مسح خطي (صفحة معادية بآلاف الوسوم غير المغلقة لا تُعلّق الوظيفة): لكل وسم فتح يُبحث عن إغلاقه مرة واحدة،
+// والوسم الذي لا إغلاق له في الصفحة لا يُبحث له ثانية ويبقى ما بعده نصاً.
+function dropBlocks(html: string): string {
+  const name = new RegExp(DROP_NAME.source, "gi");
+  const unclosed = new Set<string>();
+  let out = "";
+  let at = 0;
+  let gt = -1; // أقرب «>» معروف بعد الموضع الحالي؛ يُعاد استعماله فلا يُمسح النص نفسه مرتين
+  let m: RegExpExecArray | null;
+  while ((m = name.exec(html)) !== null) {
+    const tag = m[1].toLowerCase();
+    const afterName = name.lastIndex;
+    if (gt < afterName) {
+      gt = html.indexOf(">", afterName);
+      if (gt < 0) break;
+    }
+    // وسم مغلق ذاتياً (<svg …/>) لا يبدأ كتلة
+    if (gt - afterName > MAX_TAG_CHARS || html[gt - 1] === "/" || unclosed.has(tag)) continue;
+    const closer = new RegExp(`</${tag}\\s*>`, "gi");
+    closer.lastIndex = gt + 1;
+    const end = closer.exec(html);
+    if (!end) {
+      unclosed.add(tag);
+      continue;
+    }
+    out += html.slice(at, m.index) + " ";
+    at = end.index + end[0].length;
+    name.lastIndex = at;
+  }
+  return out + html.slice(at);
+}
+
+// تعليقات HTML: مسح خطي كذلك؛ تعليق بلا إغلاق يُترك كما هو
+function dropComments(html: string): string {
+  let out = "";
+  let at = 0;
+  while (true) {
+    const start = html.indexOf("<!--", at);
+    if (start < 0) break;
+    const end = html.indexOf("-->", start + 4);
+    if (end < 0) break;
+    out += html.slice(at, start) + " ";
+    at = end + 3;
+  }
+  return out + html.slice(at);
+}
 
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i"));
@@ -215,10 +274,10 @@ function collapse(s: string): string {
 
 // عنوان الصفحة ووصفها: <title> ثم og:title؛ الوصف من description أو og:description
 export function pageTitle(html: string): string | null {
-  const t = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
-  const title = t ? collapse(t[1].replace(/<[^>]+>/g, " ")) : "";
+  const t = html.match(/<title\b[^<>]*>([\s\S]{0,2000}?)<\/title\s*>/i);
+  const title = t ? collapse(t[1].replace(/<[^<>]+>/g, " ")) : "";
   if (title) return title.slice(0, 300);
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+  for (const tag of html.match(/<meta\b[^<>]*>/gi) ?? []) {
     if ((attr(tag, "property") ?? attr(tag, "name") ?? "").toLowerCase() === "og:title") {
       const c = collapse(attr(tag, "content") ?? "");
       if (c) return c.slice(0, 300);
@@ -228,7 +287,7 @@ export function pageTitle(html: string): string | null {
 }
 
 function metaDescription(html: string): string | null {
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+  for (const tag of html.match(/<meta\b[^<>]*>/gi) ?? []) {
     const key = (attr(tag, "name") ?? attr(tag, "property") ?? "").toLowerCase();
     if (key === "description" || key === "og:description") {
       const c = collapse(attr(tag, "content") ?? "");
@@ -242,10 +301,15 @@ function metaDescription(html: string): string | null {
 function jsonLd(html: string): string {
   const out: string[] = [];
   let total = 0;
-  const re = /<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script\s*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    let body = m[1].trim();
+  // فتحٌ ثم بحث واحد عن الإغلاق (سكربت بلا إغلاق ينهي البحث كله): زمن خطي مهما كتبت الصفحة
+  const opener = /<script\b[^<>]{0,1000}\btype\s*=\s*["']?application\/ld\+json["']?[^<>]{0,1000}>/gi;
+  const closer = /<\/script\s*>/gi;
+  while (opener.exec(html) !== null) {
+    closer.lastIndex = opener.lastIndex;
+    const end = closer.exec(html);
+    if (!end) break;
+    let body = html.slice(opener.lastIndex, end.index).trim();
+    opener.lastIndex = end.index + end[0].length;
     try {
       body = JSON.stringify(JSON.parse(body), null, 1);
     } catch { /* نص غير صالح يبقى كما هو */ }
@@ -262,8 +326,8 @@ function jsonLd(html: string): string {
 export function htmlToText(html: string): string {
   const description = metaDescription(html);
   const structured = jsonLd(html);
-  let s = html.replace(/<!--[\s\S]*?-->/g, " ").replace(DROP_BLOCKS, " ");
-  s = s.replace(CELL_TAGS, " | ").replace(BLOCK_TAGS, "\n").replace(/<[^>]+>/g, " ");
+  let s = dropBlocks(dropComments(html));
+  s = s.replace(CELL_TAGS, " | ").replace(BLOCK_TAGS, "\n").replace(/<[^<>]+>/g, " ");
   s = decodeEntities(s)
     .split("\n")
     .map((line) => line.replace(/[ \t\f\v ]+/g, " ").replace(/(\s*\|\s*)+/g, " | ").replace(/^ \| /, "").replace(/ \| $/, "").trim())

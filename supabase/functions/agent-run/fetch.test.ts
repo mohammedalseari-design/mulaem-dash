@@ -315,3 +315,17 @@ Deno.test("fetch: plain text and windows-1256 pages decode correctly", async () 
   const page = await fetchUrlSource("https://f.example/old", legacy.fetch, { resolve: publicDns });
   assertStringIncludes(page.text!, "الصفا");
 });
+
+Deno.test("hostile input: many wildcards in robots.txt and thousands of unclosed tags finish fast and keep the visible text", () => {
+  const started = performance.now();
+  const rule = `User-agent: *\nDisallow: /${"*a".repeat(40)}$\n`;
+  assertFalse(robotsAllows(rule, "/" + "a".repeat(60)));
+  assert(robotsAllows(rule, "/" + "a".repeat(60) + "b"));
+  assertStringIncludes(htmlToText("<svg ".repeat(50_000) + "<p>السعر 500</p>"), "السعر 500");
+  assertStringIncludes(htmlToText("<svg>".repeat(50_000) + "<p>ظاهر</p>"), "ظاهر");
+  assertStringIncludes(htmlToText("<!-- ".repeat(50_000) + "<p>نص</p>"), "نص");
+  assertStringIncludes(htmlToText("<".repeat(100_000) + "<p>آخر</p>"), "آخر");
+  assertStringIncludes(htmlToText('<script type="application/ld+json">'.repeat(20_000) + "<p>ذيل</p>"), "ذيل");
+  assertEquals(pageTitle("<title>".repeat(20_000) + "x"), null);
+  assert(performance.now() - started < 5_000, `took ${Math.round(performance.now() - started)} ms`);
+});

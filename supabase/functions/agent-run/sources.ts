@@ -68,7 +68,7 @@ function imageType(bytes: Uint8Array): string | null {
 const isPdf = (bytes: Uint8Array) => String.fromCharCode(...bytes.slice(0, 5)) === "%PDF-";
 const isZip = (bytes: Uint8Array) => bytes[0] === 0x50 && bytes[1] === 0x4b;
 
-async function pdfPages(bytes: Uint8Array): Promise<number> {
+export async function pdfPages(bytes: Uint8Array): Promise<number> {
   const { PDFDocument } = await import("npm:pdf-lib@1.17.1");
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
   return doc.getPageCount();

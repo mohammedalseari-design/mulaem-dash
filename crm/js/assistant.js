@@ -15,7 +15,7 @@ import {
 } from './labels.js';
 import {
     ACCEPT_ATTR, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES,
-    baseName, fileKind, safeUrl, signedUrl, sourceText, valueText, createRequest,
+    baseName, fileKind, safeUrl, signedUrl, sourceRows, sourceText, valueText, createRequest,
     extractionStatus, startExtraction, pickTarget
 } from './agent.js';
 import {
@@ -267,8 +267,7 @@ async function drawAgentRequest(root, requestId) {
     if (!request) return void replace(root, empty('الطلب غير موجود أو غير مرئي لك'));
 
     const [sources, drafts, names, calls] = await Promise.all([
-        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages, title, fetched_at, fetch_error').eq('request_id', requestId)
-            .order('created_at', { ascending: true }),
+        sourceRows(requestId),
         supabase.from('agent_drafts')
             .select('id, target_kind, target_id, status, content_hash, missing, suspicious, updated_at, applied_record')
             .eq('request_id', requestId).order('created_at', { ascending: true }),
@@ -339,7 +338,7 @@ async function drawAgentRequest(root, requestId) {
         ]),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, el('h2', { text: 'المصادر' })),
-            sourcesList(sources.data || [], sources.error)
+            sourcesList(sources.data || [], sources.error, request.status)
         ]),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, el('h2', { text: 'المسودات' })),
@@ -459,7 +458,8 @@ function candidatePicker(request, candidates, reload) {
     ]);
 }
 
-export function sourcesList(rows, error) {
+// status: حالة الطلب؛ رابط لم يُفتح «يُفتح عند التشغيل» ما دام الطلب ينتظر أو يعمل، وبعدها «لم يُفتح»
+export function sourcesList(rows, error, status) {
     if (error) return errorBox(error, 'تعذّر تحميل المصادر');
     if (!rows.length) return empty('لا مصادر');
 
@@ -488,7 +488,8 @@ export function sourcesList(rows, error) {
                 class: 'crm-subtle',
                 text: row.storage_path ? 'قُرئت ' + fmtDateTime(row.fetched_at)
                     : row.fetch_error ? '⚠ ' + row.fetch_error
-                    : 'تُفتح عند تشغيل الطلب'
+                    : (status === 'queued' || status === 'running') ? 'يُفتح عند تشغيل الطلب'
+                    : 'لم يُفتح'
             }));
         } else {
             header.appendChild(el('button', {

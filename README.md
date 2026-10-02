@@ -51,10 +51,10 @@ Supabase Auth يعمل بالإيميل، فاسم المستخدم `ali` يُح
 
 ## اختبارات
 
-- `tests/shim.test.js`: 50 اختباراً لتطابق الردود مع شكل الـAPI القديم (`node tests/shim.test.js`)، و`tests/whatsapp-parse.test.mjs` لمحلّل تصدير واتساب (`node tests/whatsapp-parse.test.mjs`).
+- `tests/*.test.js` و`tests/*.test.mjs`: تطابق الردود مع شكل الـAPI القديم، ومحلّل تصدير واتساب، وفرز واتساب، والمكررات في الاعتماد (`node <الملف>` لكل ملف؛ آخر سطر ملخص بصفر فشل).
 - صلاحيات RLS مُختبرة على PostgreSQL 16 (24 حالة: مجهول، مدير، ميداني، كول سنتر، معطَّل).
-- `supabase/functions/agent-run/*.test.ts` و`_shared/effort-router/router.test.ts`: التحقق المستقل من ناتج النموذج والمحتوى المريب وحدود المرفقات وفتح الروابط وموجّه الجهد (`deno test --allow-read --allow-env supabase/functions/agent-run/ supabase/functions/_shared/effort-router/`) — بلا شبكة ولا مفتاح. مع `deno check supabase/functions/agent-run/index.ts` و`deno lint supabase/functions`.
-- البوابة نفسها تعمل في GitHub Actions على كل دفعة وطلب دمج (`.github/workflows/tests.yml`).
+- `supabase/functions/**/*.test.ts`: التحقق المستقل من ناتج النموذج والمحتوى المريب وحدود المرفقات وفتح الروابط وموجّه الجهد وفرز واتساب (`deno test --allow-read --allow-env supabase/functions/`) — بلا شبكة ولا مفتاح. مع `deno check` لكل `supabase/functions/*/index.ts` و`deno lint supabase/functions`.
+- هذه الأوامر نفسها هي بوابة GitHub Actions على كل دفعة وطلب دمج (`.github/workflows/tests.yml`).
 
 ## مكتبات خارجية (CDN)
 

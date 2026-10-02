@@ -380,7 +380,7 @@ function modelCalls(request, rows, error) {
     ])));
     return el('div', {}, [
         el('h3', { text: 'محاولات النموذج' + (request.effort_hint === 'deep' ? ' — طُلب تفكير عميق' : '') }),
-        el('table', { class: 'users-table crm-table' }, [head, body]),
+        el('div', { class: 'crm-table-wrap' }, el('table', { class: 'users-table crm-table' }, [head, body])),
         el('small', { class: 'hint', text: 'التكلفة الإجمالية للطلب: ' + usd(request.cost_usd) + ' — السهم ↑ يعني محاولة تُحسب في سقف التصعيد اليومي.' })
     ]);
 }

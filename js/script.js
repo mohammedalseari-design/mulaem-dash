@@ -316,8 +316,12 @@ function initializeApp() {
 }
 
 // Map Initialization
+// تبدأ الخريطة على جدة حيث المشاريع (كانت على الرياض فلا يظهر فيها مشروع). إن سمح المستخدم بموقعه تتمركز
+// عليه كما كانت، وإن رفضه أو تعذّر تُضبط مرة واحدة على دبابيس المشاريع (fitMapToProjects)
+let mapFitPending = false;
+
 function initMap() {
-    map = L.map('map').setView([24.7136, 46.6753], 11);
+    map = L.map('map').setView([21.5433, 39.1728], 11);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap',
         maxZoom: 19
@@ -332,9 +336,13 @@ function initMap() {
                 map.setView([lat, lng], 13);
             },
             function(error) {
-                console.warn("Geolocation permission denied or unavailable, using Riyadh fallback:", error.message);
+                console.warn("Geolocation permission denied or unavailable, fitting the map to the projects:", error.message);
+                mapFitPending = true;
+                fitMapToProjects();
             }
         );
+    } else {
+        mapFitPending = true;
     }
 
     markerClusterGroup = L.markerClusterGroup();
@@ -359,6 +367,14 @@ function initMap() {
             saveFormDraft();
         });
     });
+}
+
+// بعد تعذّر الموقع: الخريطة على دبابيس المشاريع مرة واحدة — فوراً إن رُسمت، وإلا عند أول رسم لها في
+// displayProjects. لا تقفز بعدها مع الفلاتر، ولا تقترب لمشروع واحد أكثر من مستوى 15
+function fitMapToProjects() {
+    if (!mapFitPending || !markers.length) return;
+    mapFitPending = false;
+    map.fitBounds(markerClusterGroup.getBounds(), { padding: [30, 30], maxZoom: 15 });
 }
 
 // Load Projects
@@ -1023,6 +1039,7 @@ function displayProjects() {
     // الخريطة تعرض كل النتائج المفلترة لا صفحة الشبكة فقط
     clearMarkers();
     filtered.forEach(p => addMarker(p));
+    fitMapToProjects();
 }
 
 // Locate Project

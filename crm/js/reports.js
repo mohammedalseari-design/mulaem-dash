@@ -1,7 +1,7 @@
 // #/reports — التقارير التحليلية، منفصلة عن Dashboard الأساسي.
 
 import { supabase } from './supabase.js';
-import { el, replace, loading, empty, errorBox, badge, money, number, dash } from './ui.js';
+import { el, replace, loading, empty, errorBox, badge, money, number, dash, notify } from './ui.js';
 
 export async function renderReports(root) {
     const funnelBody = el('div');
@@ -162,8 +162,11 @@ function csvCell(value) {
 }
 
 function printReports(reports) {
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1000,height=800');
-    if (!popup) return;
+    // كما في مستندات الصفقة (deal.js): بلا noopener/noreferrer وإلا تُرجع window.open دائماً null فتُفتح نافذة
+    // فارغة بلا تقرير. نقطع opener بأنفسنا قبل الكتابة، وnull بعدها حظرٌ حقيقي للنوافذ المنبثقة
+    const popup = window.open('', '_blank', 'width=1000,height=800');
+    if (!popup) return void notify('اسمح بالنوافذ المنبثقة لطباعة التقرير', 'error', 8000);
+    popup.opener = null;
     const sections = [
         ['القمع الشهري', reports.funnel],
         ['أداء الوسطاء', reports.brokers],

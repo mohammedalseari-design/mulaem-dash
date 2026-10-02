@@ -157,8 +157,11 @@ function printDealDocument(deal, stage, names, kind) {
     const titles = { summary: 'ملخص الصفقة', offer: 'عرض عقاري', eoi: 'خطاب إبداء رغبة', invoice: 'فاتورة عمولة' };
     const title = titles[kind] || titles.summary;
     const rows = documentRows(kind, deal, stage, clientName, projectName, brokerName, amount);
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700');
+    // بلا noopener/noreferrer: أيٌّ منهما يجعل window.open تُرجع null دائماً، فكان المستند لا يُكتب أبداً
+    // ويظهر «اسمح بالنوافذ المنبثقة» مع نافذة فارغة. نقطع opener بأنفسنا قبل الكتابة، وnull بعدها حظرٌ حقيقي
+    const popup = window.open('', '_blank', 'width=900,height=700');
     if (!popup) return void notify('اسمح بالنوافذ المنبثقة لطباعة المستند', 'error', 8000);
+    popup.opener = null;
 
     const cells = rows.map((row) => '<tr><th>' + escapeHtml(row[0]) + '</th><td>' + escapeHtml(row[1]) + '</td></tr>').join('');
     popup.document.write('<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>' + escapeHtml(title) + ' - ' + escapeHtml(clientName) + '</title>'

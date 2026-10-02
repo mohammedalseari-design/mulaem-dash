@@ -160,12 +160,16 @@ function showLogin(message) {
     document.getElementById('appScreen').classList.remove('active');
     document.getElementById('loginScreen').classList.remove('crm-hidden');
     const box = document.getElementById('loginError');
+    // .login-error مخفي أصلاً في css/style.css (display:none) واللوحة القديمة تُظهره بـ style.display،
+    // فإزالة crm-hidden وحدها كانت تترك نموذج الدخول بلا سبب المنع أو الخطأ
     if (message) {
         box.textContent = message;
         box.classList.remove('crm-hidden');
+        box.style.display = 'block';
     } else {
         box.textContent = '';
         box.classList.add('crm-hidden');
+        box.style.display = '';
     }
 }
 

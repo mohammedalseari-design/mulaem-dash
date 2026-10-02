@@ -17,11 +17,13 @@ export class SourceError extends Error {}
 export interface SourceRow {
   id: string;
   kind: SourceKind;
-  storage_path: string | null;
+  storage_path: string | null; // لرابط: مسار الصفحة المقروءة بعد أن تفتحها الوظيفة (index.ts)، وإلا null
   url: string | null;
   bytes: number | null;
   pages: number | null;
   sha256: string | null;
+  title?: string | null; // عنوان الصفحة المقروءة
+  fetch_error?: string | null; // سبب تعذّر فتح الرابط (نهائي لهذا الطلب)
 }
 
 // ملف PDF أو صورة كما يُرسل: لا نص له هنا، ولا يمكن إخفاء الجوالات منه
@@ -36,17 +38,20 @@ export interface LoadedFile {
 }
 
 export interface Loaded {
-  srcs: Src[]; // بترتيب المصادر؛ النص الأصلي للنصوص والجداول
+  srcs: Src[]; // بترتيب المصادر؛ النص الأصلي للنصوص والجداول والصفحات المقروءة
   files: LoadedFile[];
-  urls: Map<string, string>; // S1 → الرابط المسجّل
+  urls: Map<string, string>; // S1 → رابط لم يُفتح (رُفض أو لم يُحاول): مرجع فقط
+  failed: Map<string, string>; // S1 → سبب تعذّر فتحه بالعربية
   pages: Map<string, number>; // عدد الصفحات الفعلي لكل PDF لتحديث agent_sources
 }
 
 export const hasFiles = (loaded: Loaded) => loaded.files.length > 0;
+// لا مصدر مقروء على الإطلاق: كل المصادر روابط لم تُفتح
+export const allUnread = (loaded: Loaded) => loaded.srcs.length > 0 && loaded.srcs.every((s) => loaded.urls.has(s.label));
 
 export type Download = (path: string) => Promise<Uint8Array>;
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -93,6 +98,7 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
   const srcs: Src[] = [];
   const files: LoadedFile[] = [];
   const urls = new Map<string, string>();
+  const failed = new Map<string, string>();
   const pages = new Map<string, number>();
   let textChars = 0;
 
@@ -100,9 +106,10 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
     const row = rows[i];
     const label = "S" + (i + 1);
 
-    if (row.kind === "url") {
-      // الروابط لا تُفتح في هذه الجولة (الجولة C): تُذكر للنموذج كمرجع فقط، ولا يُستخرج منها شيء.
+    if (row.kind === "url" && !row.storage_path) {
+      // رابط لم يُفتح (رفضه الموقع أو robots.txt، أو لم يُحاول بعد): يُذكر للنموذج كمرجع فقط، ولا يُستخرج منه شيء
       urls.set(label, row.url ?? "");
+      if (row.fetch_error) failed.set(label, row.fetch_error);
       srcs.push({ label, id: row.id, kind: "url", text: "" });
       continue;
     }
@@ -115,7 +122,8 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
       throw new SourceError(`محتوى الملف «${name}» لا يطابق بصمته عند الرفع`);
     }
 
-    if (row.kind === "pdf") {
+    // صفحة قُرئت من رابط (index.ts) وحُفظت: نصاً، أو ملف PDF وصل من الرابط ويُعامل كأي PDF مرفوع
+    if (row.kind === "pdf" || (row.kind === "url" && isPdf(bytes))) {
       if (!isPdf(bytes)) throw new SourceError(`الملف «${name}» ليس PDF صالحاً`);
       let count: number;
       try {
@@ -150,6 +158,8 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
       }
     } else {
       text = new TextDecoder("utf-8").decode(bytes);
+      // الصفحة المقروءة تبدأ بسطر رابطها وعنوانها، فيعرف النموذج مصدرها ويقتبس العنوان كغيره
+      if (row.kind === "url") text = urlHeader(row) + text;
     }
     textChars += text.length;
     if (textChars > MAX_TEXT_CHARS) {
@@ -159,7 +169,12 @@ export async function loadSources(rows: SourceRow[], download: Download): Promis
     srcs.push({ label, id: row.id, kind: row.kind, text });
   }
 
-  return { srcs, files, urls, pages };
+  return { srcs, files, urls, failed, pages };
+}
+
+function urlHeader(row: SourceRow): string {
+  const title = (row.title ?? "").replace(/\s+/g, " ").trim();
+  return `الرابط: ${row.url ?? ""}\n` + (title ? `العنوان: ${title}\n` : "") + "\n";
 }
 
 // أجزاء الرسالة بترتيب المصادر. seen: المصادر كما سيراها النموذج (نصها بعد الإخفاء)، وهي
@@ -168,8 +183,12 @@ export function buildParts(loaded: Loaded, seen: Src[], allowFiles: boolean): Ch
   const parts: ChatPart[] = [];
   const byLabel = new Map(seen.map((s) => [s.label, s]));
   for (const src of loaded.srcs) {
-    if (src.kind === "url") {
-      parts.push({ type: "text", text: wrapText(src.label, "url", `رابط سجّله الموظف ولم يُفتح: ${loaded.urls.get(src.label) ?? ""}\n(لا تستخرج أي قيمة من هذا المصدر)`) });
+    if (src.kind === "url" && loaded.urls.has(src.label)) {
+      const why = loaded.failed.get(src.label);
+      parts.push({
+        type: "text",
+        text: wrapText(src.label, "url", `رابط سجّله الموظف ولم يُفتح${why ? ` (${why})` : ""}: ${loaded.urls.get(src.label) ?? ""}\n(لا تستخرج أي قيمة من هذا المصدر)`),
+      });
       continue;
     }
     const file = loaded.files.find((f) => f.label === src.label);

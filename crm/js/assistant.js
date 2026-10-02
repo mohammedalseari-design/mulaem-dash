@@ -169,7 +169,7 @@ function openRequestForm(kind) {
                 hint: 'PDF أو صور أو CSV/XLSX — حتى ' + MAX_FILES + ' ملفات، ' + (MAX_FILE_BYTES / 1048576)
                     + ' ميغابايت للملف، و' + MAX_PDF_PAGES + ' صفحة للـPDF.'
             }),
-            field('رابط', link, { span2: true, hint: 'يُسجَّل كمصدر فقط؛ لا يُفتح ولا يُنسخ محتواه في هذه الجولة.' }),
+            field('رابط', link, { span2: true, hint: 'يُفتح من الخادم إن كانت الصفحة عامة (بلا تسجيل دخول) ويسمح robots.txt بقراءتها، وتُحفظ نسخة منها مع الطلب؛ وإلا يُطلب منك لصق النص.' }),
             el('div', { class: 'form-group span-2' }, [
                 deepChip,
                 el('small', { class: 'hint', text: 'يبدأ بالنموذج الأقوى مباشرة بدل السريع — للمصادر المعقدة فقط، ويُحسب من سقف التصعيد اليومي.' })
@@ -267,7 +267,7 @@ async function drawAgentRequest(root, requestId) {
     if (!request) return void replace(root, empty('الطلب غير موجود أو غير مرئي لك'));
 
     const [sources, drafts, names, calls] = await Promise.all([
-        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages').eq('request_id', requestId)
+        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages, title, fetched_at, fetch_error').eq('request_id', requestId)
             .order('created_at', { ascending: true }),
         supabase.from('agent_drafts')
             .select('id, target_kind, target_id, status, content_hash, missing, suspicious, updated_at, applied_record')
@@ -468,7 +468,7 @@ export function sourcesList(rows, error) {
         const preview = el('div');
         const header = el('div', { class: 'agent-source-head' }, [
             badge(label(AGENT_SOURCE_KIND, row.kind), 'blue'),
-            el('span', { text: row.kind === 'url' ? dash(row.url) : baseName(row.storage_path) }),
+            el('span', { text: row.kind === 'url' ? (row.title || dash(row.url)) : baseName(row.storage_path) }),
             el('span', { class: 'crm-subtle', text: sourceMeta(row) })
         ]);
 
@@ -477,6 +477,19 @@ export function sourcesList(rows, error) {
             header.appendChild(href
                 ? el('a', { class: 'btn btn-outline btn-xs', href: href, target: '_blank', rel: 'noopener noreferrer', text: 'فتح الرابط' })
                 : el('span', { class: 'crm-subtle', text: 'رابط غير صالح' }));
+            // الصفحة المقروءة محفوظة مع الطلب: تُعرض كما قرأها المساعد لا كما هي على الموقع الآن
+            if (row.storage_path) {
+                header.appendChild(el('button', {
+                    type: 'button', class: 'btn btn-outline btn-xs', text: 'عرض المصدر',
+                    onclick: (event) => showSource(row, preview, event.currentTarget)
+                }));
+            }
+            header.appendChild(el('span', {
+                class: 'crm-subtle',
+                text: row.storage_path ? 'قُرئت ' + fmtDateTime(row.fetched_at)
+                    : row.fetch_error ? '⚠ ' + row.fetch_error
+                    : 'تُفتح عند تشغيل الطلب'
+            }));
         } else {
             header.appendChild(el('button', {
                 type: 'button', class: 'btn btn-outline btn-xs', text: 'عرض المصدر',
@@ -500,7 +513,8 @@ async function showSource(row, holder, button) {
     button.disabled = true;
     replace(holder, loading('جارٍ إصدار رابط موقّع'));
     try {
-        if (row.kind === 'text') {
+        // صفحة قُرئت من رابط تُحفظ نصاً (أو ملف PDF إن كان الرابط ملفاً)
+        if (row.kind === 'text' || (row.kind === 'url' && !/\.pdf$/i.test(row.storage_path || ''))) {
             const text = await sourceText(row.storage_path);
             replace(holder, el('div', { class: 'agent-text', text: text }));
         } else if (row.kind === 'image') {

@@ -36,7 +36,7 @@
 1. أنشئ مشروع Supabase، ثم نفّذ `supabase/migrations/001_init.sql` في SQL Editor.
 2. استورد البيانات (ملف `002_import_data.sql` — غير موجود في المستودع عمداً لأنه بيانات عمل).
 3. انشر الدالتين: `supabase functions deploy admin-users` و`supabase functions deploy agent-run --no-verify-jwt` (الثانية تتحقق من الهوية داخلها: رمز جلسة المستخدم، أو سر pg_cron من Vault).
-   ثم ضع مفتاح Anthropic سراً: `supabase secrets set ANTHROPIC_API_KEY=...` — قبل ذلك يعمل كل شيء إلا الاستخراج نفسه.
+   ثم ضع مفتاح OpenRouter سراً: `supabase secrets set OPENROUTER_API_KEY=...` — قبل ذلك يعمل كل شيء إلا الاستخراج نفسه (`docs/ROUTER.md`).
 4. ضع رابط المشروع والمفتاح العام في `js/config.js`.
 5. أنشئ أول مدير: من Authentication ← Add user، بإيميل بصيغة `username@users.mulaem.sa`، ثم:
    ```sql
@@ -51,9 +51,10 @@ Supabase Auth يعمل بالإيميل، فاسم المستخدم `ali` يُح
 
 ## اختبارات
 
-- `tests/shim.test.js`: 31 اختباراً لتطابق الردود مع شكل الـAPI القديم (`node tests/shim.test.js`).
+- `tests/shim.test.js`: 50 اختباراً لتطابق الردود مع شكل الـAPI القديم (`node tests/shim.test.js`)، و`tests/whatsapp-parse.test.mjs` لمحلّل تصدير واتساب (`node tests/whatsapp-parse.test.mjs`).
 - صلاحيات RLS مُختبرة على PostgreSQL 16 (24 حالة: مجهول، مدير، ميداني، كول سنتر، معطَّل).
-- `supabase/functions/agent-run/validate.test.ts`: 25 اختباراً للتحقق المستقل من ناتج النموذج والمحتوى المريب وحدود المرفقات (`deno test --allow-read --allow-net=cdn.sheetjs.com supabase/functions/agent-run/`) — لا تحتاج مفتاح Anthropic.
+- `supabase/functions/agent-run/*.test.ts` و`_shared/effort-router/router.test.ts`: التحقق المستقل من ناتج النموذج والمحتوى المريب وحدود المرفقات وفتح الروابط وموجّه الجهد (`deno test --allow-read --allow-env supabase/functions/agent-run/ supabase/functions/_shared/effort-router/`) — بلا شبكة ولا مفتاح. مع `deno check supabase/functions/agent-run/index.ts` و`deno lint supabase/functions`.
+- البوابة نفسها تعمل في GitHub Actions على كل دفعة وطلب دمج (`.github/workflows/tests.yml`).
 
 ## مكتبات خارجية (CDN)
 

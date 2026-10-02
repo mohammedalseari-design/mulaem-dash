@@ -486,7 +486,7 @@ export async function renderApproval(root, requestId) {
     if (!request) return void replace(root, empty('الطلب غير موجود'));
 
     const [sources, drafts, names] = await Promise.all([
-        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages')
+        supabase.from('agent_sources').select('id, kind, storage_path, url, bytes, pages, title, fetched_at, fetch_error')
             .eq('request_id', requestId).order('created_at', { ascending: true }),
         supabase.from('agent_drafts')
             .select('id, target_kind, target_id, proposed, evidence, missing, conflicts, duplicates, suspicious,'

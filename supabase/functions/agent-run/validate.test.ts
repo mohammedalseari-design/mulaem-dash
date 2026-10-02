@@ -1,9 +1,9 @@
 // اختبارات ما لا يحتاج مفتاح خدمة: التحقق المستقل، والمحتوى المريب، وحدود المصادر، وشكل المخطط.
 // التشغيل: deno test supabase/functions/agent-run/
-import { assert, assertEquals, assertFalse, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertFalse, assertRejects, assertStringIncludes, assertThrows } from "jsr:@std/assert@1";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { CLIENT_SCHEMA, PROJECT_SCHEMA, UPDATE_SCHEMA } from "./schema.ts";
-import { buildParts, estimateTokens, loadSources, MAX_FILE_BYTES, SourceError, type SourceRow } from "./sources.ts";
+import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, MAX_FILE_BYTES, SourceError, type SourceRow } from "./sources.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   existingProjectMatch, type Field, fmtArea, fmtPrice, forcedNewNote, matchUnit, NEW_PROJECT, normText, rpcMissing, scanSuspicious,
@@ -338,6 +338,44 @@ Deno.test("sources: a file that is not what its extension says is refused", asyn
     () => loadSources([row("image", "r/fake.png")], () => Promise.resolve(new TextEncoder().encode("hello"))),
     SourceError,
   );
+});
+
+Deno.test("sources: a link the function has read is a text source headed by its url and title; one that was a PDF is a file", async () => {
+  const page: SourceRow = { ...row("url", "r/url-abc.txt"), url: "https://site.example/ad/1", title: "فيلا للبيع — حي السامر" };
+  const loaded = await loadSources([page], () => Promise.resolve(new TextEncoder().encode("السعر 2,700,000 ريال")));
+  assertEquals(loaded.urls.size, 0);
+  assertEquals(loaded.srcs[0].kind, "url");
+  assertEquals(loaded.srcs[0].text, "الرابط: https://site.example/ad/1\nالعنوان: فيلا للبيع — حي السامر\n\nالسعر 2,700,000 ريال");
+  const part = buildParts(loaded, loaded.srcs, false)[0].text as string;
+  assert(part.startsWith('<source id="S1" kind="url">'));
+  assertFalse(part.includes("لم يُفتح"));
+  assertFalse(allUnread(loaded));
+
+  const brochure: SourceRow = { ...row("url", "r/url-def.pdf"), url: "https://site.example/brochure.pdf" };
+  const asFile = await loadSources([brochure], () => pdfWith(3));
+  assertEquals(asFile.srcs[0].kind, "pdf");
+  assertEquals(asFile.files[0].kind, "pdf");
+  assertEquals([...asFile.pages.values()], [3]);
+  assert(hasFiles(asFile));
+});
+
+Deno.test("sources: an unread link stays a reference carrying its reason, and a request of unread links only has nothing to read", async () => {
+  const refused: SourceRow = { ...row("url", "r/none"), storage_path: null, url: "https://site.example/x", fetch_error: "الموقع يمنع القراءة الآلية (403)" };
+  const loaded = await loadSources([refused], () => Promise.reject(new Error("must not download")));
+  assertEquals(loaded.urls.get("S1"), "https://site.example/x");
+  assertEquals(loaded.failed.get("S1"), "الموقع يمنع القراءة الآلية (403)");
+  const part = buildParts(loaded, loaded.srcs, false)[0].text as string;
+  assertStringIncludes(part, "لم يُفتح (الموقع يمنع القراءة الآلية (403))");
+  assertStringIncludes(part, "لا تستخرج أي قيمة");
+  assert(allUnread(loaded));
+  // رابط لم يُحاول بعد: مرجع بلا سبب
+  const pending: SourceRow = { ...row("url", "r/none2"), storage_path: null, url: "https://site.example/y" };
+  const waiting = await loadSources([pending], () => Promise.reject(new Error("must not download")));
+  assertFalse(waiting.failed.has("S1"));
+  assertStringIncludes(buildParts(waiting, waiting.srcs, false)[0].text as string, "لم يُفتح: https://site.example/y");
+  // مع مصدر مقروء بجانبه يكمل الطلب
+  const mixed = await loadSources([refused, row("text", "r/1.txt")], () => Promise.resolve(new TextEncoder().encode("نص")));
+  assertFalse(allUnread(mixed));
 });
 
 /* ===================== المخطط ===================== */

@@ -21,8 +21,9 @@ import {
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, defaultTiers, type Effort, firstStep, isFailure, nextStep,
   parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
 } from "../_shared/effort-router/mod.ts";
+import { fetchUrlSource, LINK_BUDGET_MS, UrlError } from "./fetch.ts";
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
-import { buildParts, estimateTokens, hasFiles, loadSources, SourceError, type SourceRow } from "./sources.ts";
+import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, sha256Hex, SourceError, type SourceRow } from "./sources.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
@@ -207,13 +208,15 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     const schema = schemaFor(request.kind);
     if (!schema) throw new Stop("نوع طلب غير مدعوم");
 
-    // 1) قراءة المصادر
+    // 1) قراءة المصادر: الروابط التي لم تُفتح بعد تُفتح أولاً وتُحفظ صفحاتها في المخزن (مرة واحدة للطلب)
     const { data: rows, error: srcErr } = await db.from("agent_sources")
-      .select("id, kind, storage_path, url, bytes, pages, sha256")
+      .select("id, kind, storage_path, url, bytes, pages, sha256, title, fetch_error")
       .eq("request_id", id).order("created_at", { ascending: true });
     if (srcErr) throw new Stop("تعذّر قراءة مصادر الطلب", true);
     if (!rows || rows.length === 0) throw new Stop("لا مصادر على هذا الطلب");
 
+    await stage(db, id, "reading");
+    await openLinks(db, id, rows as SourceRow[], deadline);
     const loaded = await loadSources(rows as SourceRow[], async (path) => {
       const { data, error } = await db.storage.from("agent-sources").download(path);
       if (error || !data) throw new Stop("تعذّر تحميل ملف من المخزن", true);
@@ -222,8 +225,8 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     for (const [sourceId, pages] of loaded.pages) {
       await db.from("agent_sources").update({ pages }).eq("id", sourceId);
     }
-    if (loaded.srcs.every((s) => s.kind === "url")) {
-      throw new Stop("الروابط لا تُفتح في هذه المرحلة — ألصق النص أو ارفع الملف");
+    if (allUnread(loaded)) {
+      throw new Stop([...loaded.failed.values()][0] ?? "تعذّر فتح الرابط — ألصق النص أو ارفع الملف");
     }
 
     // 2) الإخفاء مرة واحدة للطلب: النموذج يرى [PHONE_n] و[EMAIL_n]، والخريطة في الذاكرة فقط.
@@ -346,12 +349,47 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
 // نداء الطلب التالي على طبقة ثقيلة: خطوته المحفوظة (agent_requests.ladder، استئناف بعد مهلة السريعة)،
 // وإلا الخطوة الأولى كما يختارها firstStep — ملف (PDF أو صورة) إلى العامة، و«عميق» إلى طبقة التفكير
 async function needsHeavyWindow(db: SupabaseClient, id: string): Promise<boolean> {
-  const { data } = await db.from("agent_requests").select("ladder, effort_hint, agent_sources(kind)").eq("id", id).maybeSingle();
+  const { data } = await db.from("agent_requests").select("ladder, effort_hint, agent_sources(kind, storage_path)").eq("id", id).maybeSingle();
   if (!data) return false;
   const tier = data.ladder?.step?.tier;
   if (typeof tier === "string") return tier !== "fast";
-  const sources = (data.agent_sources ?? []) as { kind?: string }[];
-  return data.effort_hint === "deep" || sources.some((s) => s?.kind === "pdf" || s?.kind === "image");
+  const sources = (data.agent_sources ?? []) as { kind?: string; storage_path?: string | null }[];
+  // رابط قُرئ ملفَ PDF يُعامل كملف مرفوع
+  return data.effort_hint === "deep" ||
+    sources.some((s) => s?.kind === "pdf" || s?.kind === "image" || (s?.kind === "url" && /\.pdf$/i.test(s.storage_path ?? "")));
+}
+
+// فتح روابط الطلب التي لم تُفتح بعد (fetch.ts) وحفظ ما قُرئ في المخزن الخاص تحت مجلد الطلب: نصاً، أو ملف PDF
+// كما وصل. يحدث مرة واحدة للرابط: في المحاولات التالية يُقرأ المحفوظ، فتبقى الاقتباسات ثابتة ولا يُطرق الموقع
+// مرتين. الرفض النهائي (robots.txt، تسجيل دخول، صفحة فارغة…) يُسجَّل على المصدر ويُعرض للموظف، ويكمل الطلب
+// بمصادره الأخرى إن وُجدت؛ التعذّر العابر (الموقع لا يستجيب) يعيد الطلب إلى الانتظار.
+async function openLinks(db: SupabaseClient, id: string, rows: SourceRow[], deadline: number) {
+  for (const row of rows) {
+    if (row.kind !== "url" || row.storage_path || row.fetch_error) continue;
+    // للرابط مهلته الكلية (تحويلات وrobots.txt) داخل ما بقي من وقت التشغيل، مع إبقاء ما يكفي لنداء النموذج
+    const left = deadline - Date.now() - MIN_CALL_MS;
+    if (left < 30_000) throw new Stop("انتهى وقت التشغيل قبل فتح الروابط", true);
+    const fetched_at = new Date().toISOString();
+    try {
+      const page = await fetchUrlSource(row.url ?? "", (u, init) => fetch(u, init), { budgetMs: Math.min(LINK_BUDGET_MS, left) });
+      const path = `${id}/url-${row.id.slice(0, 8)}.${page.kind === "pdf" ? "pdf" : "txt"}`;
+      const { error: upErr } = await db.storage.from("agent-sources").upload(path, page.bytes, {
+        contentType: page.kind === "pdf" ? "application/pdf" : "text/plain;charset=utf-8", upsert: true,
+      });
+      if (upErr) throw new Stop("تعذّر حفظ الصفحة المقروءة في المخزن", true);
+      const patch = { storage_path: path, bytes: page.bytes.byteLength, sha256: await sha256Hex(page.bytes), title: page.title, fetched_at, fetch_error: null };
+      const { error } = await db.from("agent_sources").update(patch).eq("id", row.id);
+      if (error) throw new Stop("تعذّر تسجيل الصفحة المقروءة", true);
+      Object.assign(row, patch);
+    } catch (e) {
+      if (!(e instanceof UrlError)) throw e;
+      if (e.retry) throw new Stop(e.message, true);
+      // فشل تسجيل الرفض لا يوقف الطلب (يُقرأ من مصادره الأخرى)، لكنه يُسجَّل: الرابط سيُطرق مرة أخرى في المحاولة التالية
+      const { error } = await db.from("agent_sources").update({ fetch_error: e.message, fetched_at }).eq("id", row.id);
+      if (error) console.error("agent-run fetch_error", id, error.message);
+      row.fetch_error = e.message;
+    }
+  }
 }
 
 // بقي في سقف التصعيد اليومي متسع (تعذّرت القراءة: لا)

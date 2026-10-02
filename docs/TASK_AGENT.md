@@ -180,6 +180,16 @@ there is not, the connector's honest behaviour is to ask the user to paste the t
 name, URL, listing id, fetched-at and last-checked-at. Do not copy images or listing text for republication under
 ملائم's name; an external draft is reference material until the owner has the right to market it.
 
+**Done (links, 2026-10-02):** a link attached to a request is opened once from the server by `agent-run`
+(`fetch.ts`), with the honest behaviour above and nothing more: a `User-Agent` that names the assistant,
+`robots.txt` obeyed per origin (including every redirect hop), no cookies or logins, and a stop with an Arabic
+reason on 401/403/429, challenge pages, empty JavaScript-built pages or non-public addresses — the employee is
+asked to paste the text instead. What was read is stored under the request's folder in `agent-sources` (page text,
+or the PDF the link pointed to) with `title`, `fetched_at` and `sha256`, so quotes stay verifiable and the site is
+not fetched again on retries; a refused link keeps its `fetch_error` and stays a reference the model may not
+extract from (migration 028). **Still open:** the `external` request kind and per-portal connectors — only after a
+source with an official API, feed or export the owner is entitled to use is identified.
+
 ## Finish each round with
 
 commit hashes, the acceptance results, and one line on what still needs an external key or account.

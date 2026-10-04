@@ -475,13 +475,14 @@ grant  execute on function public.agent_apply_draft(uuid, text) to authenticated
 --     raise exception 'RESULT ok: % مرشّحاً للصيغتين (قبل 027: صفر لـ «حي المروة»)', jsonb_array_length(a);
 -- end $$;
 --
--- (ج) الجسمان كما في هذا الملف، و security definer والصلاحيات كما كانت حية:
+-- (ج) الجسمان كما في هذا الملف، و security definer والصلاحيات كما كانت حية. اللصق في محرّر SQL يحفظ الأسطر بنهايات
+-- CRLF، فالمقارنة بعد نزع \r (بدونه يفشل الفحص على جسم صحيح):
 -- do $$
 -- declare bad text;
 -- begin
---     if (select md5(prosrc) from pg_proc where oid = 'public.agent_find_duplicates(text,jsonb)'::regprocedure) <> '0e66213614ade3a0961d03efca004d72'
---        or (select md5(prosrc) from pg_proc where oid = 'public.agent_apply_draft(uuid,text)'::regprocedure) <> '76281dde448591a3237f9d89dd4011d6' then
---         raise exception 'FAIL: الجسم المطبَّق غير ما في الملف (نهايات أسطر CRLF؟)';
+--     if (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.agent_find_duplicates(text,jsonb)'::regprocedure) <> '0e66213614ade3a0961d03efca004d72'
+--        or (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.agent_apply_draft(uuid,text)'::regprocedure) <> '76281dde448591a3237f9d89dd4011d6' then
+--         raise exception 'FAIL: الجسم المطبَّق غير ما في الملف — عُدّلت الدالة حية بعد 2 أكتوبر، أو لم يُلصق الملف كاملاً';
 --     end if;
 --     if not (select prosecdef from pg_proc where oid = 'public.agent_find_duplicates(text,jsonb)'::regprocedure)
 --        or not (select prosecdef from pg_proc where oid = 'public.agent_apply_draft(uuid,text)'::regprocedure)

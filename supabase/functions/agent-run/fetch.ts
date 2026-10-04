@@ -1,8 +1,9 @@
 // فتح رابط سجّله الموظف كمصدر (الجولة C من docs/TASK_AGENT.md): صفحة عامة تُقرأ كما يقرؤها أي زائر.
 //
 // السلوك الأمين فقط: لا تسجيل دخول، ولا تجاوز لحماية ضد الروبوتات، ولا انتحال متصفح. الوظيفة تعرّف
-// نفسها باسمها في User-Agent، وتحترم robots.txt، وتقف عند أول رفض (401/403/429 أو صفحة تحدٍّ) برسالة
-// تطلب من الموظف لصق النص بدل الرابط. ما يُقرأ يُحفظ في المخزن الخاص مرة واحدة (index.ts)، فتبقى
+// نفسها باسمها في User-Agent، وتحترم robots.txt، وتقف عند أول رفض برسالة تطلب من الموظف لصق النص بدل الرابط:
+// على الصفحة 401/403/429 أو صفحة تحدٍّ؛ وعلى robots.txt نفسه 401/403 أو صفحة تحدٍّ (فلا تُطلب الصفحة من موقع يرفض
+// قراءة قواعده). أما 429 و5xx العادية على robots.txt فتعذّر عابر يُعاد الطلب بعده. ما يُقرأ يُحفظ في المخزن الخاص مرة واحدة (index.ts)، فتبقى
 // الاقتباسات ثابتة مهما تغيّرت الصفحة بعد ذلك، ولا يُفتح الرابط مرتين للطلب الواحد.
 //
 // لا قاعدة ولا شبكة مباشرة هنا: الجلب ومحلّل الأسماء يُمرَّران من الخارج لتُختبر الدوال كلها بلا اتصال.
@@ -340,11 +341,29 @@ export function htmlToText(html: string): string {
   return (head.length ? head.join("\n\n") + "\n\n" : "") + s;
 }
 
-// صفحة تحدٍّ (Cloudflare وأمثالها)، تعود بـ200 أحياناً وبـ403/503 غالباً: علامات معروفة ونص قصير. لا نحاول تجاوزها.
-const CHALLENGE_MARKERS = /(cf-browser-verification|challenge-platform|_cf_chl_opt|cf_chl_|just a moment|verify you are human|enable javascript and cookies to continue|checking your browser)/i;
+// صفحة تحدٍّ (Cloudflare وأمثالها)، تعود بـ200 أحياناً وبـ403/503 غالباً: علامات صفحة التحقق نفسها ونص قصير. لا نحاول
+// تجاوزها. العلامات خاصة بصفحة التحقق: لا «challenge-platform» ولا «cf_chl_» وحدهما، فهما في سكربت Cloudflare السلبي
+// (/cdn-cgi/challenge-platform/scripts/jsd/…) الذي يُضاف إلى صفحات عادية كثيرة، وفي سطور Disallow لملفات robots.txt عادية.
+const CHALLENGE_MARKERS =
+  /(cf-browser-verification|_cf_chl_opt|\/cdn-cgi\/challenge-platform\/h\/|<title>\s*just a moment|verify you are human|enable javascript and cookies to continue|checking your browser)/i;
 
 function looksLikeChallenge(html: string, text: string): boolean {
   return text.length < 2000 && CHALLENGE_MARKERS.test(html);
+}
+
+// ترويسة Cloudflare الصريحة على رد التحقق
+const cfChallenge = (res: Response) => (res.headers.get("cf-mitigated") ?? "").toLowerCase() === "challenge";
+
+// صفحة تحقق في مكان robots.txt: الترويسة الصريحة، أو جسم HTML (يبدأ بوسم، أياً كان نوعه المعلن) قصير فيه علامات التحقق.
+// ملف قواعد يذكر مسار التحقق في سطر Disallow ليس صفحة تحقق ولو أُعلن text/html، ولا صفحة طويلة تحمل السكربت المضاف
+function robotsChallenge(res: Response, body: string): boolean {
+  if (cfChallenge(res)) return true;
+  return /^[\s﻿]*</.test(body) && looksLikeChallenge(body, htmlToText(body));
+}
+
+// مخازن الملفات (Amazon S3 وما يشبهها) تردّ على ملف غير موجود بـ403 AccessDenied إن لم يكن للزائر حق سرد المحتوى
+function storageMissing(res: Response, body: string): boolean {
+  return /AmazonS3/i.test(res.headers.get("server") ?? "") || /<Code>\s*(AccessDenied|NoSuchKey)\s*<\/Code>/i.test(body);
 }
 
 function charsetOf(contentType: string, head: string): string {
@@ -474,13 +493,39 @@ async function robotsOk(fetchFn: Fetch, url: URL, cache: Map<string, string | nu
       throw e;
     }
     const { res } = got;
+    // بداية الجسم لتسمية الرفض فقط: الحالة وحدها تقرر، فجسم يتعثّر أو ينقطع لا يحوّل رفضاً إلى تعذّر عابر
+    const peek = async () => {
+      try {
+        return decode(await readCapped(res, CHALLENGE_PEEK_BYTES, "robots.txt", url.hostname, true), res.headers.get("content-type") ?? "");
+      } catch {
+        return "";
+      }
+    };
+    const challenge = () =>
+      new UrlError(`الموقع ${url.hostname} يضع صفحة تحقق أمام القراءة الآلية${res.ok ? "" : ` (robots.txt ${res.status})`} — الصق نص الإعلان بدل الرابط`);
     if (res.status === 429 || res.status >= 500) {
-      await discard(res);
+      // صفحة تحقق خلف 429/503 رفضٌ نهائي كما على الصفحة نفسها (لا يُطرق الباب ثلاث مرات)؛ غيرها تعذّر عابر يُعاد
+      if (robotsChallenge(res, await peek())) throw challenge();
       throw new UrlError(`الموقع ${url.hostname} لا يستجيب الآن (robots.txt ${res.status})`, true);
     }
-    // غير موجود أو ممنوع = لا قيود معلنة؛ موجود = يُقرأ
-    if (res.ok) cache.set(origin, new TextDecoder("utf-8").decode(await readCapped(res, ROBOTS_MAX_BYTES, "robots.txt", url.hostname)));
-    else {
+    if (res.status === 401 || res.status === 403) {
+      const body = await peek();
+      // مخزن ملفات (S3 وما أمامه) يردّ على ملف غير موجود بـ403 حين لا يملك الزائر حق سرد المحتوى: غياب لا رفض
+      if (res.status === 403 && storageMissing(res, body)) {
+        cache.set(origin, null);
+      } else {
+        // موقع يرفض أن يقرأ برنامجٌ قواعده نفسها يرفض البرامج كلها: يقف الطلب هنا ولا تُطلب الصفحة
+        // (المعيار يسمح بالمتابعة، والأمانة لا)
+        if (robotsChallenge(res, body)) throw challenge();
+        throw new UrlError(`الموقع ${url.hostname} يمنع القراءة الآلية أو يتطلب تسجيل الدخول (robots.txt ${res.status}) — الصق نص الإعلان بدل الرابط`);
+      }
+    } else if (res.ok) {
+      const rules = new TextDecoder("utf-8").decode(await readCapped(res, ROBOTS_MAX_BYTES, "robots.txt", url.hostname));
+      // صفحة تحقق مكان robots.txt رفض؛ أما ملف قواعد عادي يذكر مسار التحقق (Disallow: /cdn-cgi/challenge-platform/) فيُقرأ كغيره
+      if (robotsChallenge(res, rules)) throw challenge();
+      cache.set(origin, rules);
+    } else {
+      // غير موجود (404 وأمثالها) = لا قيود معلنة
       await discard(res);
       cache.set(origin, null);
     }
@@ -516,8 +561,11 @@ export async function fetchUrlSource(raw: string, fetchFn: Fetch, opts: FetchOpt
   if (!res.ok) {
     // 403/429/503 تكون صفحة تحدٍّ غالباً: تُقرأ بدايتها لتسمية الرفض باسمه (نهائي، لا يُعاد الطرق)، لا لتجاوزه
     if (res.status === 403 || res.status === 429 || res.status === 503) {
-      const peek = decode(await readCapped(res, CHALLENGE_PEEK_BYTES, "الصفحة", host, true), res.headers.get("content-type") ?? "");
-      if (CHALLENGE_MARKERS.test(peek)) {
+      let peek = "";
+      try {
+        peek = decode(await readCapped(res, CHALLENGE_PEEK_BYTES, "الصفحة", host, true), res.headers.get("content-type") ?? "");
+      } catch { /* الحالة وحدها تقرر إن تعثّر الجسم */ }
+      if (cfChallenge(res) || CHALLENGE_MARKERS.test(peek)) {
         throw new UrlError(`الموقع ${host} يضع صفحة تحقق أمام القراءة الآلية (${res.status}) — الصق نص الإعلان بدل الرابط`);
       }
     } else {

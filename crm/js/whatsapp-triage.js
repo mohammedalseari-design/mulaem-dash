@@ -254,9 +254,31 @@ export function chunk(list, size = BATCH) {
     return out;
 }
 
+// اسم المجموعة كما يُرسل للفرز. المحادثة الفردية تُسمّى في التصدير باسم الشخص نفسه (وقد يُضاف إلى اسم الملف « (1)»
+// أو « 2» عند تنزيله مرة ثانية)، فلا تُعرف من الاسم: تُعرف ببنيتها — طرفان على الأكثر كتبا فيها (الشخص والمالك، أو
+// أحدهما) — ولا يُرسل اسمها. مجموعة كتب فيها ثلاثة فأكثر يبقى اسمها ولو حمل أحد أعضائها اسمها. ما لا كتل له يبقى كما هو.
+// يُحسب مرة لكل مصدر (التصدير قد يحمل عشرات آلاف الكتل) ويقف عند ثالث مرسل مختلف.
+const bareName = (s) => String(s || '').replace(/[‎‏‪-‮⁦-⁩~]/g, '').replace(/\s+/g, ' ').trim();
+const groupCache = new WeakMap();
+export function groupToSend(source) {
+    if (!source || !source.group) return '';
+    if (!Array.isArray(source.blocks)) return source.group;
+    if (groupCache.has(source)) return groupCache.get(source);
+    const senders = new Set();
+    for (const block of source.blocks) {
+        const name = bareName(block && block.sender);
+        if (name) senders.add(name);
+        if (senders.size > 2) break;
+    }
+    const value = senders.size > 2 ? source.group : '';
+    groupCache.set(source, value);
+    return value;
+}
+
 // عناصر الصفحة ← بنود النداء. النص نفسه يُفرز مرة واحدة ولو تكرر في أكثر من عنصر (رسائل «أخرى» لا تُدمج في
-// الصفحة). يُرسل نص الكتلة الرئيسية ومجموعتها وتصنيف القارئ، وبصمات نصوص المصدر المحسوبة فقط (refreshSent)
-// ليعرف التقرير ما أُرسل منها للمساعد. لا يُرسل المرسل ولا رأس الرسالة، وما بلا نص لا يُرسل أصلاً.
+// الصفحة). يُرسل نص الكتلة الرئيسية ومجموعتها (إلا إن كانت محادثة فردية) وتصنيف القارئ، وبصمات نصوص المصدر
+// المحسوبة فقط (refreshSent) ليعرف التقرير ما أُرسل منها للمساعد. لا يُرسل المرسل ولا رأس الرسالة، وما بلا نص لا
+// يُرسل أصلاً.
 export function buildEntries(items, nextRef) {
     let n = 0;
     const ref = typeof nextRef === 'function' ? nextRef : () => 'r' + (n++);
@@ -269,7 +291,7 @@ export function buildEntries(items, nextRef) {
         if (!entry) {
             const block = item.main.block;
             entry = {
-                ref: ref(), textKey: text, text: block.text, group: item.main.source.group || '',
+                ref: ref(), textKey: text, text: block.text, group: groupToSend(item.main.source),
                 regex_kind: block.kind || 'other', source_shas: [], items: []
             };
             byText.set(text, entry);

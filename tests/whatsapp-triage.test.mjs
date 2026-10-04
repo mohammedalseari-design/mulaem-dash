@@ -5,8 +5,9 @@ import {
     BATCH, IN_FLIGHT, BUCKETS, VERDICT_AR, VERDICT_TONE, INTENT_AR, INTENTS, PROPERTY_AR, CITY_AR, REASON_AR, SURFACED_AR,
     MODE_AR, REGEX_MISSED, normalizeMode, itemText, normalizeResult, createStore, remember, resultFor, verdictOf, bucketOf,
     passesVerdictFilter, countBuckets, confidenceOf, isSurfaced, percentText, describe, preselect, sendOrder, chunk, buildEntries,
-    payloadOf, createRunner, progressLine, invokeTriage, triageStatus, triageBatch, labelTriage, outError, reportView
+    payloadOf, createRunner, progressLine, invokeTriage, triageStatus, triageBatch, labelTriage, outError, reportView, groupToSend
 } from '../crm/js/whatsapp-triage.js';
+import { parseChat, groupFromFileName } from '../crm/js/whatsapp-parse.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -72,6 +73,37 @@ t('payload: exactly ref, text, group, regex_kind, source_shas (no sender, no hea
     Object.keys(payload).sort().join() === 'group,ref,regex_kind,source_shas,text' && payload.text === twinA.main.block.text, payload);
 let refN = 10;
 t('entries: caller-supplied refs', buildEntries([noHash], () => 'x' + (refN++))[0].ref === 'x10');
+
+// المحادثة الفردية (طرفان على الأكثر كتبا فيها) لا يُرسل اسمها — هو اسم الشخص؛ المجموعة (ثلاثة فأكثر) يبقى اسمها
+const person = { group: 'وسيط تجربة', blocks: [{ sender: '~ وسيط تجربة', text: 'شقة للبيع' }, { sender: 'أنا', text: 'كم السعر' }] };
+const room = { group: 'مجموعة عقار تجربة', blocks: [{ sender: 'وسيط تجربة' }, { sender: 'وسيط جدة' }, { sender: '+966 55 000 0001' }] };
+t('group: a one-to-one chat is not sent', groupToSend(person) === '');
+t('group: a group chat keeps its name', groupToSend(room) === 'مجموعة عقار تجربة');
+t('group: a one-to-one export downloaded twice (« (1)») is still not sent',
+    groupToSend({ group: 'وسيط تجربة (1)', blocks: [{ sender: 'وسيط تجربة' }, { sender: 'أنا' }] }) === '');
+t('group: a one-to-one chat where only the owner wrote is not sent', groupToSend({ group: 'وسيط تجربة', blocks: [{ sender: 'أنا' }] }) === '');
+t('group: no source, no name, no blocks', groupToSend(null) === '' && groupToSend({ group: '' }) === '' && groupToSend({ group: 'مجموعة', blocks: [] }) === '');
+t('group: a source without a blocks list keeps its name (structure unknown)', groupToSend({ group: 'مجموعة' }) === 'مجموعة');
+// عينة آيفون من اختبار القارئ: مجموعة «شركة تجربة» يكتب فيها حساب الشركة باسمها مع عضوين آخرين — يبقى اسمها
+const RLM = '‏', LRE = '‪', PDF = '‬';
+const company = parseChat([
+    `[${RLM}1${RLM}/9${RLM}/2026، 8:00:00 ص] شركة تجربة: ${RLM}الرسائل والمكالمات مشفرة تمامًا بين الطرفين.`,
+    `[${RLM}21${RLM}/9${RLM}/2026، 9:47:45 م] ${LRE}+966 55 000 0001${PDF}: *مشروع الربوة 102* شقة غرفتين بسعر ٢٧٩،٠٠٠`,
+    `[${RLM}21${RLM}/9${RLM}/2026، 11:00:00 م] ~ وسيط جدة: مطلوب فيلا في أبحر الشمالية`,
+    `[${RLM}22${RLM}/9${RLM}/2026، 12:30:00 م] شركة تجربة: تحديث: تم بيع الوحدة 5 والمتبقي 3 شقق بسعر 450 ألف`
+].join('\n'), { group: groupFromFileName('WhatsApp Chat - شركة تجربة.zip') });
+t('group: a group whose own account posts under its name keeps the name',
+    groupToSend({ group: company.group, blocks: company.blocks }) === 'شركة تجربة', company.group);
+// تصدير ضخم: يُحسب مرة لكل مصدر ويقف عند ثالث مرسل
+const big = { group: 'مجموعة كبيرة', blocks: Array.from({ length: 50000 }, (_, i) => ({ sender: 'عضو ' + (i % 2), text: 'x' })) };
+const many = Array.from({ length: 3000 }, (_, i) => ({ id: 'b' + i, main: { source: big, block: { text: 'عرض ' + i, kind: 'offer' } }, copies: [] }));
+const started = Date.now();
+const bigEntries = buildEntries(many);
+t('group: 3000 entries from a 50,000-block export stay fast (cached per source)', Date.now() - started < 1500 && bigEntries.length === 3000 && bigEntries[0].group === '',
+    Date.now() - started);
+const personItem = item('i9', 'فيلا للبيع في حي تجربة', { group: 'وسيط تجربة' });
+personItem.main.source.blocks = [personItem.main.block];
+t('entries: a one-to-one chat entry carries no group', buildEntries([personItem])[0].group === '');
 
 /* ===================== النتائج والمخزن ===================== */
 

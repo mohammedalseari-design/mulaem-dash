@@ -185,6 +185,107 @@ Deno.test("fetch: a missing robots.txt means no restrictions; an unreachable or 
   }
 });
 
+Deno.test("fetch: a site that refuses its own robots.txt (401/403, or a challenge page in its place) is refused before the page is requested", async () => {
+  const cases: [Response, string][] = [
+    [new Response("forbidden", { status: 403 }), "robots.txt 403"],
+    [new Response("auth", { status: 401 }), "robots.txt 401"],
+    [html(CHALLENGE), "صفحة تحقق"],
+  ];
+  for (const [robots, needle] of cases) {
+    const site = fake({ "https://g.example/robots.txt": () => robots, "https://g.example/ad/1": () => html(PAGE) });
+    const e = await assertRejects(() => fetchUrlSource("https://g.example/ad/1", site.fetch, { resolve: publicDns }), UrlError, needle);
+    assertFalse(e.retry, needle);
+    assertEquals(site.calls, ["https://g.example/robots.txt"], needle); // الصفحة لم تُطلب
+  }
+  // 404 وأمثالها = لا قيود معلنة: تُقرأ الصفحة
+  const gone = fake({ "https://h.example/robots.txt": () => new Response("x", { status: 410 }), "https://h.example/p": () => html(PAGE) });
+  assertEquals((await fetchUrlSource("https://h.example/p", gone.fetch, { resolve: publicDns })).kind, "text");
+});
+
+Deno.test("fetch: a challenge on robots.txt is final whatever its status; a plain rules file that only mentions challenge paths is read", async () => {
+  // تحدٍّ خلف 429/503 على robots.txt: نهائي، لا يُعاد الطلب ولا تُطلب الصفحة
+  for (const status of [503, 429]) {
+    const site = fake({ "https://i.example/robots.txt": () => html(CHALLENGE, status), "https://i.example/p": () => html(PAGE) });
+    const e = await assertRejects(() => fetchUrlSource("https://i.example/p", site.fetch, { resolve: publicDns }), UrlError, "صفحة تحقق");
+    assertFalse(e.retry, String(status));
+    assertEquals(site.calls, ["https://i.example/robots.txt"]);
+  }
+  // ترويسة Cloudflare الصريحة تكفي
+  const flagged = fake({
+    "https://j.example/robots.txt": () => new Response("<html></html>", { status: 403, headers: { "content-type": "text/html", "cf-mitigated": "challenge" } }),
+    "https://j.example/p": () => html(PAGE),
+  });
+  await assertRejects(() => fetchUrlSource("https://j.example/p", flagged.fetch, { resolve: publicDns }), UrlError, "صفحة تحقق");
+  // ملف قواعد عادي فيه سطور تذكر مسارات التحقق: قواعد، لا صفحة تحقق
+  const rules = "User-agent: *\nDisallow: /cdn-cgi/challenge-platform/\nDisallow: /*?__cf_chl_jschl_tk__=\nDisallow: /private/\n";
+  const seo = fake({
+    "https://k.example/robots.txt": () => new Response(rules, { status: 200, headers: { "content-type": "text/plain" } }),
+    "https://k.example/ad/1": () => html(PAGE),
+  });
+  assertEquals((await fetchUrlSource("https://k.example/ad/1", seo.fetch, { resolve: publicDns })).kind, "text");
+  // صفحة HTML طويلة تُخدم مكان robots.txt وفيها سكربت Cloudflare المضاف: لا قواعد فيها، فتُقرأ الصفحة
+  const soft = "<html><body>" + "<p>نص الصفحة الرئيسية للموقع العقاري</p>".repeat(120) +
+    '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>';
+  const home = fake({ "https://l.example/robots.txt": () => html(soft), "https://l.example/p": () => html(PAGE) });
+  assertEquals((await fetchUrlSource("https://l.example/p", home.fetch, { resolve: publicDns })).kind, "text");
+  // ملف قواعد يُعلن text/html: يُحكم بجسمه (لا يبدأ بوسم) فيُقرأ قواعدَ
+  const labelled = fake({ "https://n.example/robots.txt": () => html(rules), "https://n.example/ad/1": () => html(PAGE) });
+  assertEquals((await fetchUrlSource("https://n.example/ad/1", labelled.fetch, { resolve: publicDns })).kind, "text");
+});
+
+// سكربت Cloudflare السلبي يُضاف إلى صفحات عادية كثيرة: ليس علامة تحقق
+const JSD = '<script>(function(){var a=document.createElement("script");a.src="/cdn-cgi/challenge-platform/scripts/jsd/main.js";document.head.appendChild(a);})();</script>';
+
+Deno.test("fetch: Cloudflare's passive script is not a challenge — on robots.txt (503 stays transient, short 200 page is read) and on a short ad page", async () => {
+  const maintenance = "<!doctype html><html><head><title>Maintenance</title></head><body><p>الموقع تحت الصيانة، عد لاحقاً</p>" + JSD + "</body></html>";
+  const down = fake({ "https://o.example/robots.txt": () => html(maintenance, 503), "https://o.example/p": () => html(PAGE) });
+  const e = await assertRejects(() => fetchUrlSource("https://o.example/p", down.fetch, { resolve: publicDns }), UrlError, "لا يستجيب الآن");
+  assert(e.retry);
+  const softShort = "<!doctype html><html><head><title>غير موجودة</title></head><body><p>الصفحة غير موجودة</p>" + JSD + "</body></html>";
+  const soft404 = fake({ "https://q.example/robots.txt": () => html(softShort), "https://q.example/p": () => html(PAGE) });
+  assertEquals((await fetchUrlSource("https://q.example/p", soft404.fetch, { resolve: publicDns })).kind, "text");
+  // إعلان قصير عادي يحمل السكربت السلبي يُقرأ ولا يُرفض كصفحة تحقق
+  const shortAd = "<html><head><title>شقة للبيع</title></head><body><p>شقة للبيع في حي الصفا، 3 غرف، السعر 650 ألف ريال</p>" + JSD + "</body></html>";
+  const ad = fake({ "https://r.example/ad/7": () => html(shortAd) });
+  const page = await fetchUrlSource("https://r.example/ad/7", ad.fetch, { resolve: publicDns });
+  assertStringIncludes(page.text!, "السعر 650 ألف ريال");
+});
+
+Deno.test("fetch: a 403 on robots.txt whose body stalls is still a final refusal, not a retry", async () => {
+  const stalled403 = () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("<html>"));
+          controller.error(new DOMException("aborted", "TimeoutError"));
+        },
+      }),
+      { status: 403, headers: { "content-type": "text/html" } },
+    );
+  const site = fake({ "https://s.example/robots.txt": stalled403, "https://s.example/p": () => html(PAGE) });
+  const e = await assertRejects(() => fetchUrlSource("https://s.example/p", site.fetch, { resolve: publicDns }), UrlError, "robots.txt 403");
+  assertFalse(e.retry);
+  assertEquals(site.calls, ["https://s.example/robots.txt"]);
+});
+
+Deno.test("fetch: a file store that answers 403 for a missing robots.txt (S3) is not a refusal; the public file is read", async () => {
+  const pdf = new TextEncoder().encode("%PDF-1.4 brochure");
+  const denied = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>';
+  const s3 = fake({
+    "https://bucket.s3.example/robots.txt": () =>
+      new Response(denied, { status: 403, headers: { "content-type": "application/xml", "server": "AmazonS3" } }),
+    "https://bucket.s3.example/brochure.pdf": () => new Response(pdf, { status: 200, headers: { "content-type": "application/pdf" } }),
+  });
+  const page = await fetchUrlSource("https://bucket.s3.example/brochure.pdf", s3.fetch, { resolve: publicDns });
+  assertEquals(page.kind, "pdf");
+  // نفس الجسم بلا ترويسة S3 ما زال يُعرف بعلامته
+  const noHeader = fake({
+    "https://m.example/robots.txt": () => new Response(denied, { status: 403, headers: { "content-type": "application/xml" } }),
+    "https://m.example/brochure.pdf": () => new Response(pdf, { status: 200, headers: { "content-type": "application/pdf" } }),
+  });
+  assertEquals((await fetchUrlSource("https://m.example/brochure.pdf", noHeader.fetch, { resolve: publicDns })).kind, "pdf");
+});
+
 Deno.test("fetch: robots.txt that redirects to a private address makes the site unreadable; a public redirect is followed", async () => {
   const inward = fake({
     "https://r.example/robots.txt": () => new Response(null, { status: 302, headers: { location: "http://127.0.0.1/robots.txt" } }),

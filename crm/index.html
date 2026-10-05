@@ -7,14 +7,16 @@
     <title>ملائم — إدارة العملاء</title>
     <link rel="icon" type="image/jpeg" href="../images/logo.jpg">
 
-    <!-- خط واحد للنظام كله (css/theme.css) -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
-        rel="stylesheet">
+    <!-- خط واحد للنظام كله: Readex Pro (عربي ولاتيني، أوزان 300–700) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300..700&display=swap" rel="stylesheet">
 
     <!-- crm.css يستورد ../css/style.css أولاً ثم يضيف فروق /crm/ فقط -->
     <link rel="stylesheet" href="crm.css">
     <link rel="stylesheet" href="../css/theme.css">
+    <!-- التصميم الثاني: هيكل بقائمة جانبية، وألوان هادئة، وصفحة «عملي اليوم» (crm/v2.css) -->
+    <link rel="stylesheet" href="v2.css">
 </head>
 
 <body>
@@ -47,26 +49,27 @@
 
     <!-- هيكل التطبيق -->
     <div class="app-container" id="appScreen">
-        <div class="container">
-            <!-- نفس ترويسة اللوحة القديمة حرفاً بحرف (css/style.css) -->
-            <div class="header">
-                <div class="header-content">
-                    <div class="header-brand">
-                        <img src="../images/logo.jpg" class="header-logo" alt="شعار النظام">
-                        <div>
-                            <h1>نظام ملائم العقاري</h1>
-                            <p>إدارة العملاء</p>
-                        </div>
+        <!-- قائمة جانبية ثابتة على الكمبيوتر (يميناً)، وشريط علوي مضغوط على الجوال مع الشريط السفلي (app.js) -->
+        <div class="shell">
+            <aside class="side">
+                <div class="side-brand">
+                    <img src="../images/logo.jpg" class="side-logo" alt="شعار ملائم">
+                    <div class="side-name">
+                        <strong>ملائم العقارية</strong>
+                        <span>إدارة العملاء</span>
                     </div>
                 </div>
-                <div class="user-info">
-                    <span class="user-badge" id="userBadge"></span>
-                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="تفعيل الوضع الليلي" title="الوضع الليلي">◐</button>
-                    <button class="logout-btn" id="logoutBtn" type="button">تسجيل الخروج</button>
-                </div>
-            </div>
 
-            <nav class="crm-nav" id="crmNav"></nav>
+                <nav class="crm-nav" id="crmNav" aria-label="القائمة الرئيسية"></nav>
+
+                <div class="side-user">
+                    <span class="user-badge" id="userBadge"></span>
+                    <div class="side-user-actions">
+                        <button class="theme-toggle" id="themeToggle" type="button" aria-label="تفعيل الوضع الليلي" title="الوضع الليلي">◐</button>
+                        <button class="logout-btn" id="logoutBtn" type="button">تسجيل الخروج</button>
+                    </div>
+                </div>
+            </aside>
 
             <main id="view"></main>
         </div>

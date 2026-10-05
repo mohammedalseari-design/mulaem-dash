@@ -2,7 +2,7 @@
 
 import { supabase } from './supabase.js';
 import { state, loadSession, signIn, signOut, isAdmin, myRole, ROLE_AR, displayName } from './auth.js';
-import { el, clear, append, notify, fail, errorText, initModal, closeModal } from './ui.js';
+import { el, clear, append, notify, fail, errorText, initModal, closeModal, icon } from './ui.js';
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
@@ -60,7 +60,7 @@ const NAV = [
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
     { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
     { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },
-    // more: صفحات المدير الأقل استعمالاً، في قائمة «المزيد» على الكمبيوتر بدل صف ثانٍ من البنود
+    // more: صفحات المدير الأقل استعمالاً، تحت عنوان «الإدارة» في القائمة الجانبية
     { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true, more: true },
     { hash: '#/reports', label: 'التقارير', admin: true, more: true },
     { hash: '#/imports', label: 'استيراد المشاريع', admin: true, more: true },
@@ -80,16 +80,12 @@ const TAB_LABEL = {
     '#/properties': 'العقارات', '#/assistant': 'المساعد', '#/calendar': 'المواعيد', '#/deals': 'الصفقات'
 };
 
-// أيقونات خطية بسيطة (مسارات SVG تُبنى بـ createElementNS، لا innerHTML)
-const ICONS = {
-    '#/work': ['M8 2v4M16 2v4M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 15l2 2 4-4'],
-    '#/clients': ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'],
-    '#/properties': ['M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16', 'M16 9h2a2 2 0 0 1 2 2v10', 'M2 21h20', 'M8 7h4M8 11h4M8 15h4'],
-    '#/assistant': ['M12 3l1.8 4.6 4.7 1.9-4.7 1.9L12 16l-1.8-4.6-4.7-1.9 4.7-1.9z', 'M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z'],
-    '#/approvals': ['M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z', 'M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2', 'M9 14l2 2 4-4'],
-    '#/whatsapp': ['M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z', 'M9 10h.01M12 10h.01M15 10h.01'],
-    '#/calendar': ['M8 2v4M16 2v4M3 9h18', 'M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M8 13h3v3H8z'],
-    more: ['M4 6h16M4 12h16M4 18h16']
+// أيقونة كل بند (الأسماء في ICON_PATHS في ui.js)
+const NAV_ICON = {
+    '../index.html': 'map', '#/work': 'today', '#/clients': 'users', '#/properties': 'building',
+    '#/calendar': 'calendar', '#/assistant': 'sparkle', '#/deals': 'briefcase', '#/approvals': 'clipboard',
+    '#/whatsapp': 'chat', '#/dashboard': 'grid', '#/reports': 'chart', '#/imports': 'upload',
+    '#/inventory': 'layers', '#/settings': 'sliders'
 };
 
 /* ===================== الموجّه ===================== */
@@ -144,8 +140,13 @@ function visibleNav() {
 }
 
 function navLink(item, attrs = {}) {
-    if (item.external) return el('a', Object.assign({ href: item.href, class: 'nav-ext', text: item.label }, attrs));
+    if (item.external) {
+        return el('a', Object.assign({ href: item.href, class: 'nav-ext' }, attrs), [
+            icon(NAV_ICON[item.href], 'nav-icon'), el('span', { text: item.label })
+        ]);
+    }
     const link = el('a', Object.assign({ href: item.hash, dataset: { hash: item.hash } }, attrs), [
+        icon(NAV_ICON[item.hash], 'nav-icon'),
         el('span', { text: item.label }),
         item.hash === '#/approvals' ? countBadge() : null
     ]);
@@ -158,37 +159,17 @@ function countBadge() {
     return badge;
 }
 
-function icon(key) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('class', 'tab-icon');
-    for (const d of ICONS[key] || ICONS.more) {
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', d);
-        svg.appendChild(path);
-    }
-    return svg;
-}
 
 function renderNav() {
     const nav = document.getElementById('crmNav');
     clear(nav);
     const items = visibleNav();
-    const extra = [];
-    for (const item of items) {
-        if (item.more) extra.push(item);
-        else nav.appendChild(navLink(item));
-    }
+    const extra = items.filter((item) => item.more);
+    for (const item of items) if (!item.more) nav.appendChild(navLink(item));
+    // صفحات المدير الأقل استعمالاً تحت عنوان صغير، لا في قائمة مخفية
     if (extra.length) {
-        const more = el('details', { class: 'nav-more' }, [
-            el('summary', { text: 'المزيد' }),
-            el('div', { class: 'nav-more-menu' }, extra.map((item) => navLink(item)))
-        ]);
-        // القائمة تُغلق عند الضغط خارجها أو على أحد بنودها
-        more.addEventListener('click', (event) => { if (event.target.closest('a')) more.open = false; });
-        document.addEventListener('click', (event) => { if (more.open && !more.contains(event.target)) more.open = false; });
-        nav.appendChild(more);
+        nav.appendChild(el('div', { class: 'nav-group', text: 'الإدارة' }));
+        for (const item of extra) nav.appendChild(navLink(item));
     }
     renderTabbar(items);
 }
@@ -215,11 +196,11 @@ function renderTabbar(items) {
     const moreBtn = el('button', {
         type: 'button', class: 'tab-more', 'aria-expanded': 'false', 'aria-controls': 'navSheet',
         onclick: () => toggleSheet(!sheet.classList.contains('open'))
-    }, [icon('more'), el('span', { text: 'المزيد' })]);
+    }, [icon('menu', 'tab-icon'), el('span', { text: 'المزيد' })]);
 
     const bar = el('nav', { class: 'tabbar', 'aria-label': 'التنقل السريع' }, [
         ...tabs.map((item) => el('a', { href: item.hash, dataset: { hash: item.hash } }, [
-            icon(item.hash),
+            icon(NAV_ICON[item.hash], 'tab-icon'),
             el('span', { text: TAB_LABEL[item.hash] || item.label }),
             item.hash === '#/approvals' ? countBadge() : null
         ])),
@@ -242,11 +223,6 @@ function toggleSheet(open) {
 function setActiveNav(hash) {
     for (const link of document.querySelectorAll('#crmNav a, .tabbar a, .nav-sheet a')) {
         link.classList.toggle('active', link.dataset.hash === hash);
-    }
-    const more = document.querySelector('#crmNav .nav-more');
-    if (more) {
-        more.classList.toggle('active', Boolean(more.querySelector('a.active')));
-        more.open = false;
     }
     // «المزيد» في شريط الجوال يُضاء حين تكون الصفحة الحالية خارج البنود الأربعة
     const moreTab = document.querySelector('.tabbar .tab-more');

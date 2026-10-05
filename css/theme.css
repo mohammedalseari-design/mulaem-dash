@@ -572,18 +572,20 @@ body.crm-dark .login-box { background: #1d3b40; }
 /* ===================== صفحة العميل (crm/share.html) ===================== */
 
 .share-page { max-width: 1040px; padding: 28px 16px 56px; }
+/* ترويسة فاتحة بلا شريط داكن، كبقية النظام (طلب المالك 2026-10-06) */
 .share-hero {
     text-align: center;
-    padding: 28px 16px;
-    margin-bottom: 22px;
+    padding: 24px 16px;
+    margin-bottom: 18px;
+    border: 1px solid var(--line);
     border-radius: 18px;
-    background: var(--brand);
-    color: #fff;
+    background: var(--card);
+    color: var(--ink);
 }
-.share-hero h1 { color: #fff; font-size: 1.5rem; font-weight: 700; margin: 14px 0 6px; }
-.share-hero p { color: rgba(255, 255, 255, 0.9); margin: 0 0 6px; }
-.share-hero .crm-subtle { color: rgba(255, 255, 255, 0.78); }
-.share-logo { width: 64px; height: 64px; border-radius: 14px; border: 2px solid rgba(255, 255, 255, 0.35); }
+.share-hero h1 { color: var(--ink); font-size: 1.45rem; font-weight: 700; margin: 12px 0 6px; }
+.share-hero p { color: var(--ink-2); margin: 0 0 6px; }
+.share-hero .crm-subtle { color: var(--muted); }
+.share-logo { width: 60px; height: 60px; border-radius: 14px; border: 1px solid var(--line); }
 
 .share-grid { gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
 .share-property {

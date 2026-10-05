@@ -294,6 +294,8 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
 
 // Initialize App
 function initializeApp() {
+    // صنف الدور على body: css/projects.css يخفي به ما لا يخص الدور (لوحة التحكم للمدير، والإضافة عن مركز الاتصال)
+    document.body.classList.add('role-' + currentUser.role);
     if (currentUser.role === 'callcenter') {
         // CSS class is the primary guard (!important), inline style is backup
         document.body.classList.add('callcenter-mode');
@@ -350,6 +352,8 @@ function initMap() {
 
     map.on('click', function (e) {
         if (currentUser.role === 'callcenter') return;
+        // الخريطة تحدد موقع المشروع حين يكون نموذج الإضافة أو التعديل مفتوحاً فقط؛ وإلا فهي للتصفح
+        if (!document.body.classList.contains('p4-form-open')) return;
 
         const lat = e.latlng.lat;
         const lng = e.latlng.lng;
@@ -630,7 +634,7 @@ function renderSalesOverview() {
         document.getElementById('salesAddOffer')?.addEventListener('click', () => {
             const formSection = document.getElementById('formSection');
             if (!formSection) return;
-            formSection.scrollIntoView({ behavior: 'smooth' });
+            openProjectForm();
             setTimeout(() => document.getElementById('projectName')?.focus(), 450);
         });
         document.getElementById('salesRefresh')?.addEventListener('click', () => loadSalesOpportunities());
@@ -638,14 +642,16 @@ function renderSalesOverview() {
     }
 
     // «إضافة عرض» يظهر لمن يملك نموذج الإضافة أصلاً (مركز الاتصال لا يضيف عروضاً)
+    // النموذج صار لوحة تُفتح عند الحاجة، فالظهور بالدور لا بظهور النموذج على الشاشة
     const addBtn = document.getElementById('salesAddOffer');
-    const formSection = document.getElementById('formSection');
-    if (addBtn) addBtn.style.display = formSection && formSection.offsetParent !== null ? '' : 'none';
+    if (addBtn) addBtn.style.display = currentUser.role === 'callcenter' ? 'none' : '';
 
     const approved = projects.filter((project) => project.status === 'approved' && !project.deleted_at);
     setSalesText('salesTotal', formatNumber(approved.length));
     setSalesText('salesAvailable', formatNumber(approved.filter((project) => project.availability === 'available').length));
     setSalesText('salesPending', formatNumber(projects.filter((project) => project.status === 'pending').length));
+    setSalesText('p4Sub', 'مشاريع معتمدة: ' + formatNumber(approved.length) + ' · متاحة: '
+        + formatNumber(approved.filter((project) => project.availability === 'available').length));
     renderSalesToolbar(approved);
     renderSalesProjects(approved);
 }
@@ -1232,6 +1238,7 @@ document.getElementById('projectForm').addEventListener('submit', async function
                 }
                 // المشروع الجديد أول القائمة (الأحدث أولاً)، فنعود للصفحة الأولى حيث يظهر
                 projectPage = 0;
+                closeProjectForm();
             }
             loadProjects();
         } else {
@@ -2510,6 +2517,7 @@ window.editProject = async function(id) {
         showNotification('ليس لديك صلاحية لتعديل هذا المشروع', 'info');
         return;
     }
+    openProjectForm();
 
     // Fetch full project data so we have ALL existing images (not just thumbnail)
     const full = await fetchFullProject(id);
@@ -2634,7 +2642,20 @@ window.editProject = async function(id) {
 
 document.getElementById('cancelEditBtn').addEventListener('click', cancelEdit);
 
+// التصميم الرابع (css/projects.css): نموذج الإضافة والتعديل لوحة جانبية تُفتح عند الحاجة، والخريطة تبقى ظاهرة
+// بجانبها لتحديد الموقع بالنقر. يفتحها «إضافة مشروع» و«تعديل» واستعادة المسودة، ويغلقها زر الإغلاق والحفظ والإلغاء.
+function openProjectForm() {
+    document.body.classList.add('p4-form-open');
+    const formSection = document.getElementById('formSection');
+    if (formSection) formSection.scrollTop = 0;
+}
+
+function closeProjectForm() {
+    document.body.classList.remove('p4-form-open');
+}
+
 function cancelEdit() {
+    closeProjectForm();
     const formTitle = document.getElementById('formTitle');
     if (formTitle) {
         const svgEl = formTitle.querySelector('svg');
@@ -3137,6 +3158,7 @@ function checkAndLoadDraft() {
 }
 
 function restoreDraft(draft) {
+    openProjectForm();
     document.getElementById('projectName').value = draft.projectName || '';
     document.getElementById('propertyType').value = draft.propertyType || '';
     document.getElementById('availability').value = draft.availability || 'available';

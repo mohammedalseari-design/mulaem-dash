@@ -24,9 +24,12 @@
     <link rel="stylesheet" href="css/style.css">
     <!-- طبقة التصميم الموحّدة: الألوان والخط والأزرار، فوق style.css -->
     <link rel="stylesheet" href="css/theme.css">
+    <!-- التصميم الرابع: ألوان /crm/ وخطها والقائمة الجانبية (crm/app.css)، ثم تخطيط صفحة المشاريع -->
+    <link rel="stylesheet" href="crm/app.css">
+    <link rel="stylesheet" href="css/projects.css">
 </head>
 
-<body>
+<body class="has-tabbar">
     <!-- Login Screen -->
     <div class="login-container" id="loginScreen">
         <div class="login-box">
@@ -57,177 +60,66 @@
 
     <!-- Main Application -->
     <div class="app-container" id="appContainer">
-        <div class="container">
-            <!-- Header -->
-            <div class="header">
-                <div class="header-content">
-                    <div class="header-brand">
-                        <img src="images/logo.jpg" class="header-logo" alt="شعار النظام">
-                        <div>
-                            <h1>نظام ملائم العقاري</h1>
-                            <p>نظام المشاريع العقارية</p>
-                        </div>
+        <!-- التصميم الرابع (css/projects.css): قائمة جانبية فاتحة كما في /crm/، والصفحة: العنوان والإجراءات، ثم البحث
+             والفلاتر، ثم المشاريع بجانب الخريطة. نموذج الإضافة لوحة جانبية تُفتح عند الحاجة، ولوحة التحكم ونظرة المسوقين مطويتان أسفلها. -->
+        <div class="shell">
+            <aside class="side">
+                <div class="side-brand">
+                    <img src="images/logo.jpg" class="side-logo" alt="شعار ملائم">
+                    <div class="side-name">
+                        <strong>ملائم العقارية</strong>
+                        <span>المشاريع والخريطة</span>
                     </div>
                 </div>
-                <div class="user-info">
+
+                <!-- شريط التنقل المشترك (نفس بنود /crm/). روابط الأدوار مخفية حتى يقرأ js/nav.js الدور -->
+                <nav class="crm-nav" id="mainNav" aria-label="القائمة الرئيسية">
+                    <a href="index.html" class="active" aria-current="page"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg><span>المشاريع والخريطة</span></a>
+                    <a href="crm/index.html#/work"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 2v4M16 2v4M3 9h18"/><path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M9 15l2 2 4-4"/></svg><span>عملي اليوم</span></a>
+                    <a href="crm/index.html#/clients"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>العملاء</span></a>
+                    <a href="crm/index.html#/properties"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10"/><path d="M2 21h20"/><path d="M8 7h4M8 11h4M8 15h4"/></svg><span>العقارات</span></a>
+                    <a href="crm/index.html#/calendar"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 2v4M16 2v4M3 9h18"/><path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M8 13h3v3H8z"/></svg><span>المواعيد</span></a>
+                    <a href="crm/index.html#/assistant" data-deny="callcenter"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.8 4.6 4.7 1.9-4.7 1.9L12 16l-1.8-4.6-4.7-1.9 4.7-1.9z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span>المساعد الذكي</span></a>
+                    <a href="crm/index.html#/deals" data-deny="callcenter"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg><span>الصفقات</span></a>
+                    <a href="crm/index.html#/approvals" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1z"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 14l2 2 4-4"/></svg><span>طلبات الاعتماد</span></a>
+                    <a href="crm/index.html#/whatsapp" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><span>عروض واتساب</span></a>
+                    <div class="nav-group" data-admin="1">الإدارة</div>
+                    <a href="crm/index.html#/dashboard" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3h7v9H3z"/><path d="M14 3h7v5h-7z"/><path d="M14 12h7v9h-7z"/><path d="M3 16h7v5H3z"/></svg><span>لوحة الإدارة</span></a>
+                    <a href="crm/index.html#/reports" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg><span>التقارير</span></a>
+                    <a href="crm/index.html#/imports" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg><span>استيراد المشاريع</span></a>
+                    <a href="crm/index.html#/inventory" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2l10 5-10 5L2 7l10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span>جودة المخزون</span></a>
+                    <a href="crm/index.html#/settings" data-admin="1"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg><span>الإعدادات</span></a>
+                </nav>
+
+                <div class="side-user">
                     <span class="user-badge" id="currentUser"></span>
-                    <button class="theme-toggle" id="themeToggle" type="button" aria-label="تفعيل الوضع الليلي" title="الوضع الليلي">◐</button>
-                    <button class="logout-btn" id="logoutBtn">خروج</button>
-                </div>
-            </div>
-
-            <!-- شريط التنقل المشترك (نفس بنود /crm/). روابط الأدوار مخفية حتى يقرأ js/nav.js الدور -->
-            <nav class="crm-nav" id="mainNav">
-                <a href="index.html" class="active">المشاريع والخريطة</a>
-                <a href="crm/index.html#/work">عملي اليوم</a>
-                <a href="crm/index.html#/clients">العملاء</a>
-                <a href="crm/index.html#/properties">العقارات</a>
-                <a href="crm/index.html#/deals" data-deny="callcenter">الصفقات</a>
-                <a href="crm/index.html#/dashboard" data-admin="1">لوحة الإدارة</a>
-                <a href="crm/index.html#/inventory" data-admin="1">جودة المخزون</a>
-                <a href="crm/index.html#/settings" data-admin="1">الإعدادات</a>
-            </nav>
-
-            <!-- Admin Dashboard -->
-            <div class="admin-dashboard" id="adminDashboard">
-                <div class="admin-top-bar">
-                    <span class="admin-title">لوحة التحكم</span>
-                    <div class="admin-tabs">
-                        <button class="admin-tab active" onclick="switchAdminTab('overview')">نظرة عامة</button>
-                        <button class="admin-tab" id="approvalsTab" onclick="switchAdminTab('approvals')">الموافقات <span id="approvalsBadge" class="tab-count-badge"></span></button>
-                        <button class="admin-tab" onclick="switchAdminTab('users')">المستخدمين</button>
-                        <button class="admin-tab" onclick="switchAdminTab('activity')">النشاطات</button>
+                    <div class="side-user-actions">
+                        <button class="theme-toggle" id="themeToggle" type="button" aria-label="تفعيل الوضع الليلي" title="الوضع الليلي">◐</button>
+                        <button class="logout-btn" id="logoutBtn">تسجيل الخروج</button>
                     </div>
                 </div>
+            </aside>
 
-                <div class="admin-content active" id="overview-content">
-                    <div class="stats-bar admin-stats">
-                        <div class="stat-card">
-                            <h3 id="adminTotalProjects">0</h3>
-                            <p>إجمالي المشاريع</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3 id="adminThisMonth">0</h3>
-                            <p>هذا الشهر</p>
-                        </div>
-                        <div class="stat-card">
-                            <h3 id="adminActiveUsers">0</h3>
-                            <p>المستخدمين</p>
-                        </div>
-                        <div class="stat-card pending-card" id="adminPendingCard">
-                            <h3 id="adminPendingCount">0</h3>
-                            <p>بانتظار الموافقة</p>
-                        </div>
+            <main class="p4" id="p4Main">
+                <header class="p4-head">
+                    <div class="p4-title">
+                        <h1>المشاريع</h1>
+                        <p class="p4-sub" id="p4Sub">ابحث في المشاريع وشاهدها على الخريطة</p>
                     </div>
-                </div>
+                    <div class="p4-quick" aria-label="إجراءات سريعة">
+                        <button type="button" class="btn btn-primary p4-qbtn p4-hide-cc" id="p4AddProject"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg><span>إضافة مشروع</span></button>
+                        <a class="btn btn-outline p4-qbtn p4-hide-cc" href="crm/index.html#/assistant"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.8 4.6 4.7 1.9-4.7 1.9L12 16l-1.8-4.6-4.7-1.9 4.7-1.9z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span>إضافة من نص أو ملف</span></a>
+                        <button class="btn btn-outline p4-qbtn btn-export" id="exportBtn">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg><span>تصدير</span>
+                        </button>
+                    </div>
+                </header>
 
-                <div class="admin-content" id="users-content">
-                    <div class="add-user-section">
-                        <h3 class="section-subheading">إضافة مستخدم جديد</h3>
-                        <form id="addUserForm" class="add-user-form">
-                            <input type="text" id="newUsername" placeholder="اسم المستخدم" required class="user-field-input">
-                            <input type="text" id="newFullname" placeholder="الاسم الكامل" required class="user-field-input">
-                            <input type="password" id="newPassword" placeholder="كلمة المرور" required class="user-field-input">
-                            <select id="newRole" required class="user-field-input">
-                                <option value="field">موظف ميداني</option>
-                                <option value="callcenter">كول سنتر</option>
-                                <option value="admin">مدير (Admin)</option>
-                            </select>
-                            <button type="submit" class="btn btn-primary btn-add-user">إضافة</button>
-                        </form>
-                    </div>
-
-                    <p class="users-count-label">عدد المستخدمين: <strong id="userCount">4</strong></p>
-                    <table class="users-table">
-                        <thead>
-                            <tr>
-                                <th>اسم المستخدم</th>
-                                <th>الاسم الكامل</th>
-                                <th>الدور</th>
-                                <th>حالة الحساب</th>
-                                <th>العمليات</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersTableBody">
-                            <tr>
-                                <td colspan="5" class="loading">جاري التحميل</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="admin-content" id="approvals-content">
-                    <div id="approvalsList" class="approvals-list">
-                        <div class="loading">جاري التحميل...</div>
-                    </div>
-                </div>
-
-                <div class="admin-content" id="activity-content">
-                    <div id="activityLog">
-                        <div class="loading">جاري تحميل سجل النشاطات</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- نظرة سريعة للمسوقين: كل ما فيها من بيانات حقيقية — العدّادات والمدن وأبرز المشاريع من
-                 قائمة المشاريع، وفرص اليوم من متابعات وطلبات الـCRM (js/script.js: renderSalesOverview) -->
-            <section class="sales-shell" id="salesShell">
-                <div class="sales-header">
-                    <div>
-                        <p class="sales-kicker">لوحة المبيعات</p>
-                        <h2>نظرة سريعة للمسوقين</h2>
-                    </div>
-                    <button type="button" class="btn btn-primary small-btn" id="salesAddOffer">إضافة عرض</button>
-                </div>
-
-                <div class="mini-stats">
-                    <div class="mini-stat">
-                        <strong id="salesTotal">0</strong>
-                        <span>عقارات</span>
-                    </div>
-                    <div class="mini-stat">
-                        <strong id="salesAvailable">0</strong>
-                        <span>متاحة</span>
-                    </div>
-                    <div class="mini-stat">
-                        <strong id="salesNewRequests">0</strong>
-                        <span>طلبات جديدة (7 أيام)</span>
-                    </div>
-                    <div class="mini-stat accent">
-                        <strong id="salesPending">0</strong>
-                        <span>في الانتظار</span>
-                    </div>
-                </div>
-
-                <div class="sales-toolbar" id="salesToolbar"></div>
-
-                <div class="sales-grid">
-                    <div class="sales-panel">
-                        <div class="panel-head">
-                            <h3>أبرز المشاريع</h3>
-                            <button type="button" class="ghost-link" id="salesShowAll">عرض الكل</button>
-                        </div>
-                        <div class="project-list" id="salesProjectList">
-                            <div class="sales-empty">جاري التحميل...</div>
-                        </div>
-                    </div>
-
-                    <div class="sales-panel right-panel">
-                        <div class="panel-head">
-                            <h3>فرص اليوم</h3>
-                            <button type="button" class="ghost-link" id="salesRefresh">تحديث</button>
-                        </div>
-                        <div class="opportunity-list" id="salesOpportunities">
-                            <div class="sales-empty">جاري التحميل...</div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Main Content -->
-            <div class="main-content">
+                <!-- نموذج الإضافة والتعديل: لوحة جانبية تُفتح بـ«إضافة مشروع» أو «تعديل» (openProjectForm في js/script.js) -->
+                <div class="main-content">
                 <!-- Form Section -->
-                <div class="form-section" id="formSection">
+                <div class="form-section" id="formSection" role="dialog" aria-labelledby="formTitle">
+                    <button type="button" class="p4-close" id="p4CloseForm" aria-label="إغلاق النموذج">×</button>
                     <h2 id="formTitle" class="section-heading-flex">
                         <span>إضافة مشروع جديد</span>
                     </h2>
@@ -440,121 +332,285 @@
                     </form>
                 </div>
 
-                <!-- Map Section -->
-                <div class="map-section">
+                </div>
+
+                <!-- My Projects Section — shown only for field employees -->
+                <div class="my-projects-section" id="myProjectsSection" style="display:none;">
                     <h2 class="section-heading-flex">
-                        <span>خريطة المشاريع</span>
+                        <span>مشاريعي</span>
+                        <span id="myProjectsCount" class="my-projects-header-count"></span>
                     </h2>
-                    <div id="map"></div>
-                </div>
-            </div>
-
-            <!-- My Projects Section — shown only for field employees -->
-            <div class="my-projects-section" id="myProjectsSection" style="display:none;">
-                <h2 class="section-heading-flex">
-                    <span>مشاريعي</span>
-                    <span id="myProjectsCount" class="my-projects-header-count"></span>
-                </h2>
-                <div id="myProjectsList" class="my-projects-list">
-                    <div class="loading">جاري التحميل...</div>
-                </div>
-            </div>
-
-            <!-- Projects Section -->
-            <div class="projects-section">
-                <h2 class="section-heading-flex">
-                    <span>المشاريع المسجلة</span>
-                </h2>
-
-                <div class="stats-bar">
-                    <div class="stat-card">
-                        <h3 id="totalProjects">0</h3>
-                        <p>إجمالي المشاريع</p>
-                    </div>
-                    <div class="stat-card">
-                        <h3 id="developerCount">0</h3>
-                        <p>عدد المطورين</p>
-                    </div>
-                    <div class="stat-card">
-                        <h3 id="lastAdded">-</h3>
-                        <p>آخر إضافة</p>
+                    <div id="myProjectsList" class="my-projects-list">
+                        <div class="loading">جاري التحميل...</div>
                     </div>
                 </div>
 
-                <!-- Category Tabs -->
-                <div class="category-tabs-bar">
-                    <button class="cat-tab active" id="catTabAll">كل المشاريع</button>
+                <div class="projects-section">
+                    <h2 class="p4-sr">المشاريع المسجلة</h2>
 
-                    <div class="cat-tab-group">
-                        <button class="cat-tab" id="catTabReady">جاهزة <span class="cat-arrow">▾</span></button>
-                        <div class="cat-dropdown" id="catDropReady">
-                            <button class="cat-sub" data-c="جاهز" data-s="مدعوم">مدعومة</button>
-                            <button class="cat-sub" data-c="جاهز" data-s="غير_مدعوم">غير مدعومة</button>
+                    <div class="stats-bar">
+                        <div class="stat-card">
+                            <h3 id="totalProjects">0</h3>
+                            <p>إجمالي المشاريع</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="developerCount">0</h3>
+                            <p>عدد المطورين</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="lastAdded">-</h3>
+                            <p>آخر إضافة</p>
                         </div>
                     </div>
 
-                    <div class="cat-tab-group">
-                        <button class="cat-tab" id="catTabConstruction">تحت الإنشاء <span class="cat-arrow">▾</span></button>
-                        <div class="cat-dropdown" id="catDropConstruction">
-                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="مدعوم">مدعومة</button>
-                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="غير_مدعوم">غير مدعومة</button>
-                            <button class="cat-sub" data-c="تحت_الإنشاء" data-s="تمويل">تمويل لغير المدعومين</button>
+                    <div class="p4-toolbar">
+                        <!-- Category Tabs -->
+                        <div class="category-tabs-bar">
+                            <button class="cat-tab active" id="catTabAll">كل المشاريع</button>
+
+                            <div class="cat-tab-group">
+                                <button class="cat-tab" id="catTabReady">جاهزة <span class="cat-arrow">▾</span></button>
+                                <div class="cat-dropdown" id="catDropReady">
+                                    <button class="cat-sub" data-c="جاهز" data-s="مدعوم">مدعومة</button>
+                                    <button class="cat-sub" data-c="جاهز" data-s="غير_مدعوم">غير مدعومة</button>
+                                </div>
+                            </div>
+
+                            <div class="cat-tab-group">
+                                <button class="cat-tab" id="catTabConstruction">تحت الإنشاء <span class="cat-arrow">▾</span></button>
+                                <div class="cat-dropdown" id="catDropConstruction">
+                                    <button class="cat-sub" data-c="تحت_الإنشاء" data-s="مدعوم">مدعومة</button>
+                                    <button class="cat-sub" data-c="تحت_الإنشاء" data-s="غير_مدعوم">غير مدعومة</button>
+                                    <button class="cat-sub" data-c="تحت_الإنشاء" data-s="تمويل">تمويل لغير المدعومين</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- شريط التبديل بين طرق العرض -->
+                        <div class="view-toggle-bar">
+                            <button type="button" class="btn btn-outline btn-small active" id="viewModeGrid" onclick="setViewMode('grid')">
+                                <span>عرض المشاريع</span>
+                            </button>
+                            <button type="button" class="btn btn-outline btn-small" id="viewModeKanban" onclick="setViewMode('kanban')">
+                                <span>عرض الوحدات</span>
+                            </button>
+                        </div>
+
+                        <div class="p4-phone-tools">
+                            <button type="button" class="btn btn-outline p4-qbtn" id="p4FiltersToggle" aria-expanded="false" aria-controls="p4Filters"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg><span>الفلاتر</span></button>
+                            <div class="p4-seg" role="group" aria-label="طريقة العرض">
+                                <button type="button" id="p4ShowList" aria-pressed="true">القائمة</button>
+                                <button type="button" id="p4ShowMap" aria-pressed="false">الخريطة</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-section" id="p4Filters">
+                        <div class="filter-search">
+                            <input type="text" id="searchBox" placeholder="ابحث بالحي أو اسم المشروع...">
+                        </div>
+                        <select id="filterType" class="filter-select">
+                            <option value="">كل الأنواع</option>
+                            <option value="فيلا">فيلا</option>
+                            <option value="شقة">شقة</option>
+                            <option value="أرض">أرض</option>
+                            <option value="عمارة">عمارة</option>
+                            <option value="محل تجاري">محل تجاري</option>
+                            <option value="مكتب">مكتب</option>
+                            <option value="مستودع">مستودع</option>
+                            <option value="مزرعة">مزرعة</option>
+                            <option value="استراحة">استراحة</option>
+                        </select>
+
+                        <select id="filterAvailability" class="filter-select">
+                            <option value="">كل الحالات</option>
+                            <option value="available">متاحة</option>
+                            <option value="sold_out">نفدت بالكامل</option>
+                        </select>
+
+                        <input type="number" id="filterMinPrice" placeholder="السعر الأدنى" class="filter-price">
+                        <input type="number" id="filterMaxPrice" placeholder="السعر الأعلى" class="filter-price">
+
+                    </div>
+
+                    <div class="p4-split">
+                        <div class="p4-list">
+                            <!-- tabindex=-1: قلب الصفحة ينقل التركيز إلى الشبكة (showProjectPage)، واسمها يحمل رقم الصفحة -->
+                            <div class="projects-grid" id="projectsGrid" role="region" aria-label="المشاريع" tabindex="-1">
+                                <div class="loading">جاري تحميل المشاريع</div>
+                            </div>
+
+                            <!-- ترقيم الشبكة (js/script.js: renderProjectPager). يبقى فارغاً ومخفياً ما لم تزد النتائج عن صفحة -->
+                            <nav class="projects-pager" id="projectsPager" aria-label="صفحات المشاريع"></nav>
+
+                            <div class="kanban-board" id="kanbanBoard" style="display: none;"></div>
+                        </div>
+
+                        <!-- Map Section -->
+                        <div class="map-section">
+                            <h2 class="section-heading-flex">
+                                <span>خريطة المشاريع</span>
+                            </h2>
+                            <div id="map"></div>
                         </div>
                     </div>
                 </div>
 
-                <div class="filter-section">
-                    <select id="filterType" class="filter-select">
-                        <option value="">كل الأنواع</option>
-                        <option value="فيلا">فيلا</option>
-                        <option value="شقة">شقة</option>
-                        <option value="أرض">أرض</option>
-                        <option value="عمارة">عمارة</option>
-                        <option value="محل تجاري">محل تجاري</option>
-                        <option value="مكتب">مكتب</option>
-                        <option value="مستودع">مستودع</option>
-                        <option value="مزرعة">مزرعة</option>
-                        <option value="استراحة">استراحة</option>
-                    </select>
+                <!-- للمدير: الموافقات والمستخدمون والنشاطات. ولكل الأدوار: نظرة المسوقين وفرص اليوم. مطويتان حتى تُفتحا -->
+                <details class="p4-fold p4-fold-admin">
+                    <summary>لوحة التحكم: الموافقات والمستخدمون والنشاطات</summary>
+                    <!-- Admin Dashboard -->
+                    <div class="admin-dashboard" id="adminDashboard">
+                        <div class="admin-top-bar">
+                            <span class="admin-title">لوحة التحكم</span>
+                            <div class="admin-tabs">
+                                <button class="admin-tab active" onclick="switchAdminTab('overview')">نظرة عامة</button>
+                                <button class="admin-tab" id="approvalsTab" onclick="switchAdminTab('approvals')">الموافقات <span id="approvalsBadge" class="tab-count-badge"></span></button>
+                                <button class="admin-tab" onclick="switchAdminTab('users')">المستخدمين</button>
+                                <button class="admin-tab" onclick="switchAdminTab('activity')">النشاطات</button>
+                            </div>
+                        </div>
 
-                    <select id="filterAvailability" class="filter-select">
-                        <option value="">كل الحالات</option>
-                        <option value="available">متاحة</option>
-                        <option value="sold_out">نفدت بالكامل</option>
-                    </select>
+                        <div class="admin-content active" id="overview-content">
+                            <div class="stats-bar admin-stats">
+                                <div class="stat-card">
+                                    <h3 id="adminTotalProjects">0</h3>
+                                    <p>إجمالي المشاريع</p>
+                                </div>
+                                <div class="stat-card">
+                                    <h3 id="adminThisMonth">0</h3>
+                                    <p>هذا الشهر</p>
+                                </div>
+                                <div class="stat-card">
+                                    <h3 id="adminActiveUsers">0</h3>
+                                    <p>المستخدمين</p>
+                                </div>
+                                <div class="stat-card pending-card" id="adminPendingCard">
+                                    <h3 id="adminPendingCount">0</h3>
+                                    <p>بانتظار الموافقة</p>
+                                </div>
+                            </div>
+                        </div>
 
-                    <input type="number" id="filterMinPrice" placeholder="السعر الأدنى" class="filter-price">
-                    <input type="number" id="filterMaxPrice" placeholder="السعر الأعلى" class="filter-price">
+                        <div class="admin-content" id="users-content">
+                            <div class="add-user-section">
+                                <h3 class="section-subheading">إضافة مستخدم جديد</h3>
+                                <form id="addUserForm" class="add-user-form">
+                                    <input type="text" id="newUsername" placeholder="اسم المستخدم" required class="user-field-input">
+                                    <input type="text" id="newFullname" placeholder="الاسم الكامل" required class="user-field-input">
+                                    <input type="password" id="newPassword" placeholder="كلمة المرور" required class="user-field-input">
+                                    <select id="newRole" required class="user-field-input">
+                                        <option value="field">موظف ميداني</option>
+                                        <option value="callcenter">كول سنتر</option>
+                                        <option value="admin">مدير (Admin)</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-primary btn-add-user">إضافة</button>
+                                </form>
+                            </div>
 
-                    <div class="filter-search">
-                        <input type="text" id="searchBox" placeholder="ابحث بالحي أو اسم المشروع...">
+                            <p class="users-count-label">عدد المستخدمين: <strong id="userCount">4</strong></p>
+                            <table class="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>اسم المستخدم</th>
+                                        <th>الاسم الكامل</th>
+                                        <th>الدور</th>
+                                        <th>حالة الحساب</th>
+                                        <th>العمليات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody">
+                                    <tr>
+                                        <td colspan="5" class="loading">جاري التحميل</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="admin-content" id="approvals-content">
+                            <div id="approvalsList" class="approvals-list">
+                                <div class="loading">جاري التحميل...</div>
+                            </div>
+                        </div>
+
+                        <div class="admin-content" id="activity-content">
+                            <div id="activityLog">
+                                <div class="loading">جاري تحميل سجل النشاطات</div>
+                            </div>
+                        </div>
                     </div>
-                    <button class="btn btn-primary btn-export" id="exportBtn">
-                        <span>تصدير</span>
-                    </button>
-                </div>
 
-                <!-- شريط التبديل بين طرق العرض -->
-                <div class="view-toggle-bar">
-                    <button type="button" class="btn btn-outline btn-small active" id="viewModeGrid" onclick="setViewMode('grid')">
-                        <span>عرض المشاريع</span>
-                    </button>
-                    <button type="button" class="btn btn-outline btn-small" id="viewModeKanban" onclick="setViewMode('kanban')">
-                        <span>عرض الوحدات (أعمدة الغرف)</span>
-                    </button>
-                </div>
+                    <!-- نظرة سريعة للمسوقين: كل ما فيها من بيانات حقيقية — العدّادات والمدن وأبرز المشاريع من
+                         قائمة المشاريع، وفرص اليوم من متابعات وطلبات الـCRM (js/script.js: renderSalesOverview) -->
+                </details>
+                <details class="p4-fold">
+                    <summary>نظرة سريعة للمسوقين وفرص اليوم</summary>
+                    <section class="sales-shell" id="salesShell">
+                        <div class="sales-header">
+                            <div>
+                                <p class="sales-kicker">لوحة المبيعات</p>
+                                <h2>نظرة سريعة للمسوقين</h2>
+                            </div>
+                            <button type="button" class="btn btn-primary small-btn" id="salesAddOffer">إضافة عرض</button>
+                        </div>
 
-                <!-- tabindex=-1: قلب الصفحة ينقل التركيز إلى الشبكة (showProjectPage)، واسمها يحمل رقم الصفحة -->
-                <div class="projects-grid" id="projectsGrid" role="region" aria-label="المشاريع" tabindex="-1">
-                    <div class="loading">جاري تحميل المشاريع</div>
-                </div>
+                        <div class="mini-stats">
+                            <div class="mini-stat">
+                                <strong id="salesTotal">0</strong>
+                                <span>عقارات</span>
+                            </div>
+                            <div class="mini-stat">
+                                <strong id="salesAvailable">0</strong>
+                                <span>متاحة</span>
+                            </div>
+                            <div class="mini-stat">
+                                <strong id="salesNewRequests">0</strong>
+                                <span>طلبات جديدة (7 أيام)</span>
+                            </div>
+                            <div class="mini-stat accent">
+                                <strong id="salesPending">0</strong>
+                                <span>في الانتظار</span>
+                            </div>
+                        </div>
 
-                <!-- ترقيم الشبكة (js/script.js: renderProjectPager). يبقى فارغاً ومخفياً ما لم تزد النتائج عن صفحة -->
-                <nav class="projects-pager" id="projectsPager" aria-label="صفحات المشاريع"></nav>
+                        <div class="sales-toolbar" id="salesToolbar"></div>
 
-                <div class="kanban-board" id="kanbanBoard" style="display: none;"></div>
-            </div>
+                        <div class="sales-grid">
+                            <div class="sales-panel">
+                                <div class="panel-head">
+                                    <h3>أبرز المشاريع</h3>
+                                    <button type="button" class="ghost-link" id="salesShowAll">عرض الكل</button>
+                                </div>
+                                <div class="project-list" id="salesProjectList">
+                                    <div class="sales-empty">جاري التحميل...</div>
+                                </div>
+                            </div>
+
+                            <div class="sales-panel right-panel">
+                                <div class="panel-head">
+                                    <h3>فرص اليوم</h3>
+                                    <button type="button" class="ghost-link" id="salesRefresh">تحديث</button>
+                                </div>
+                                <div class="opportunity-list" id="salesOpportunities">
+                                    <div class="sales-empty">جاري التحميل...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Main Content -->
+                </details>
+            </main>
         </div>
+
+        <!-- الجوال: شريط سفلي بأهم الصفحات، و«المزيد» يفتح القائمة كاملة (js/projects-ui.js) -->
+        <nav class="tabbar p4-tabbar" aria-label="التنقل السريع">
+            <a href="crm/index.html#/work"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 2v4M16 2v4M3 9h18"/><path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M9 15l2 2 4-4"/></svg><span>اليوم</span></a>
+            <a href="crm/index.html#/clients"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>العملاء</span></a>
+            <a href="index.html" class="active" aria-current="page"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg><span>المشاريع</span></a>
+            <a href="crm/index.html#/properties"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10"/><path d="M2 21h20"/><path d="M8 7h4M8 11h4M8 15h4"/></svg><span>العقارات</span></a>
+            <button type="button" class="tab-more" id="p4More" aria-expanded="false" aria-controls="mainNav"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>المزيد</span></button>
+        </nav>
     </div>
 
     <!-- Modal -->
@@ -574,6 +630,7 @@
     <script src="js/supabase-shim.js"></script>
     <script src="js/nav.js"></script>
     <script src="js/script.js"></script>
+    <script src="js/projects-ui.js"></script>
     <script>
         (function () {
             var button = document.getElementById('themeToggle');

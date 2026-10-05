@@ -6,7 +6,7 @@ import { staffMap, staffName, sanitizeSearch, phoneNeedle } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager,
-    fmtDateTime, select, optionList, dash
+    fmtDateTime, select, optionList, dash, phoneLinks
 } from './ui.js';
 import { openClientForm } from './client-form.js';
 
@@ -115,7 +115,7 @@ function table(rows, names) {
             onclick: () => { location.hash = '#/clients/' + row.id; }
         }, [
             el('td', {}, el('strong', { text: row.full_name })),
-            el('td', { class: 'num', text: dash(row.phone) }),
+            el('td', {}, phoneLinks(row.phone)),
             el('td', { text: label(CLIENT_TYPE, row.client_type) }),
             el('td', { text: staffName(names, row.owner_id) }),
             el('td', {}, badge(label(CLIENT_STATUS, row.status), CLIENT_STATUS_TONE[row.status] || 'neutral')),

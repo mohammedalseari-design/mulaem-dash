@@ -12,7 +12,7 @@ import { staffMap, staffName } from './data.js';
 import { CHANNEL, label } from './labels.js';
 import {
     el, replace, clear, loading, empty, errorBox, pager, fmtDateTime,
-    localDayStart, dash, number
+    localDayStart, dash, number, phoneLinks
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
@@ -30,17 +30,18 @@ export async function renderWork(root) {
     const todayBody = el('div');
     const overdueBody = el('div');
 
-    replace(root, [
-        stats,
-        el('div', { class: 'crm-card' }, [
-            el('div', { class: 'crm-card-head' }, [el('h2', { text: 'متابعات اليوم' })]),
-            todayBody
-        ]),
-        el('div', { class: 'crm-card' }, [
-            el('div', { class: 'crm-card-head' }, [el('h2', { text: 'متأخرة' })]),
-            overdueBody
-        ])
+    // المتأخرة أولاً: هي ما فات موعده ويحتاج اتصالاً الآن، ثم متابعات اليوم
+    const overdueCard = el('div', { class: 'crm-card' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'متأخرة' })]),
+        overdueBody
     ]);
+    const todayCard = el('div', { class: 'crm-card' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'متابعات اليوم' })]),
+        todayBody
+    ]);
+    replace(root, [stats, overdueCard, todayCard]);
+    // بطاقتا «متابعات اليوم» و«متابعات متأخرة» تنقلان إلى قائمتيهما
+    const targets = { follow_ups_today: todayCard, follow_ups_overdue: overdueCard };
 
     let names = new Map();
     try {
@@ -62,8 +63,17 @@ export async function renderWork(root) {
 
         clear(stats);
         for (const card of WORK_CARDS) {
-            stats.appendChild(el('div', { class: 'stat-card' }, [
-                el('h3', { text: number(data ? data[card.key] : 0) }),
+            const value = data ? data[card.key] : 0;
+            const target = targets[card.key] || null;
+            const go = () => target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            stats.appendChild(el('div', {
+                class: 'stat-card' + (target ? ' is-link' : '') + (card.key === 'follow_ups_overdue' && value > 0 ? ' is-alert' : ''),
+                role: target ? 'button' : null,
+                tabindex: target ? '0' : null,
+                onclick: target ? go : null,
+                onkeydown: target ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); go(); } } : null
+            }, [
+                el('h3', { text: number(value) }),
                 el('p', { text: card.label })
             ]));
         }
@@ -137,7 +147,7 @@ function table(rows, names, onChanged) {
                 href: '#/clients/' + row.client_id,
                 text: row.client ? row.client.full_name : 'فتح ملف العميل'
             })),
-            el('td', { class: 'num', text: row.client ? dash(row.client.phone) : dash(null) }),
+            el('td', {}, phoneLinks(row.client && row.client.phone)),
             el('td', { text: label(CHANNEL, row.channel) }),
             el('td', { text: dash(row.purpose) }),
             el('td', { text: staffName(names, row.assigned_to) }),

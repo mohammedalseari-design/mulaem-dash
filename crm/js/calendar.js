@@ -4,7 +4,7 @@ import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_TONE, label } from './labels.js';
 import {
-    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash
+    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash, phoneLinks
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
@@ -100,7 +100,7 @@ function table(rows, names, reload) {
         body.appendChild(el('tr', {}, [
             el('td', { text: fmtDateTime(row.due_at) }),
             el('td', {}, el('a', { href: '#/clients/' + row.client_id, text: row.client ? row.client.full_name : 'فتح ملف العميل' })),
-            el('td', { class: 'num', text: row.client ? dash(row.client.phone) : dash(null) }),
+            el('td', {}, phoneLinks(row.client && row.client.phone)),
             el('td', { text: label(CHANNEL, row.channel) }),
             el('td', { text: dash(row.purpose) }),
             el('td', { text: staffName(names, row.assigned_to) }),

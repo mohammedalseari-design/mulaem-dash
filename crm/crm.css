@@ -2,7 +2,7 @@
    نظام التصميم كامل (المتغيرات، .btn، .form-group، .modal، .notification، .stat-card،
    .users-table، .empty-state، .loading، مقاييس الخط العربي) يأتي من ../css/style.css. */
 @import url('../css/style.css');
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+/* الخط (IBM Plex Sans Arabic) يُحمَّل من رأس الصفحة، وطبقة ../css/theme.css تُحمَّل بعد هذا الملف */
 
 /* Shared product surface: calm operations UI, with gold reserved for emphasis. */
 body { font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', 'Tajawal', sans-serif; background: #eef2f6; color: #0f172a; }

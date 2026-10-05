@@ -81,10 +81,21 @@ export async function renderProperties(root) {
         reload();
     });
 
-    replace(toolbar, [
-        searchBox, districtField.node, typeField.node,
+    // على الجوال: البحث ظاهر، وباقي المرشّحات خلف زر «المرشّحات» حتى تظهر النتائج في أول الشاشة.
+    // على الكمبيوتر الغلاف بلا أثر (display: contents في css/theme.css) فيبقى الشريط كما هو.
+    const extra = el('div', { class: 'crm-toolbar-extra', id: 'propertyFilters' }, [
+        districtField.node, typeField.node,
         roomsBox, priceMinBox, priceMaxBox, commissionMinBox, commissionOrderBox, availableChip
     ]);
+    const filtersBtn = el('button', {
+        type: 'button', class: 'btn btn-outline btn-sm crm-filter-toggle', text: 'المرشّحات',
+        'aria-expanded': 'false', 'aria-controls': 'propertyFilters',
+        onclick: () => {
+            const open = extra.classList.toggle('open');
+            filtersBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+    });
+    replace(toolbar, [searchBox, filtersBtn, extra]);
 
     function reload() {
         view.page = 0;

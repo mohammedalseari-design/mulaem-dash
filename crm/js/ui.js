@@ -292,3 +292,32 @@ export function dash(value) {
 }
 
 export const EM_DASH = DASH;
+
+/* ===================== الجوال: اتصال وواتساب بضغطة ===================== */
+
+// رقم واتساب بلا علامة + ولا أصفار دولية. الجوال يُحفظ بالصيغة الدولية (+9665…)، ورقم محلي قديم
+// (05… أو 5…) يُكمَّل برمز السعودية.
+export function waNumber(phone) {
+    const digits = String(phone || '').replace(/[^0-9]/g, '');
+    if (/^05[0-9]{8}$/.test(digits)) return '966' + digits.slice(1);
+    if (/^5[0-9]{8}$/.test(digits)) return '966' + digits;
+    if (digits.startsWith('00')) return digits.slice(2);
+    return digits;
+}
+
+// الرقم مع زرّي «اتصال» و«واتساب». الضغط عليهما لا يفتح الصف الذي يحملهما (صفوف العملاء تُفتح بالضغط).
+export function phoneLinks(phone) {
+    if (!phone) return dash(null);
+    const stop = (event) => event.stopPropagation();
+    return el('span', { class: 'phone-cell' }, [
+        el('span', { class: 'phone-num', text: phone }),
+        el('a', {
+            class: 'phone-act', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''),
+            text: 'اتصال', title: 'اتصال بـ ' + phone, onclick: stop
+        }),
+        el('a', {
+            class: 'phone-act phone-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener',
+            text: 'واتساب', title: 'محادثة واتساب مع ' + phone, onclick: stop
+        })
+    ]);
+}

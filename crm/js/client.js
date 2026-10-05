@@ -4,7 +4,7 @@ import { supabase } from './supabase.js';
 import { myRole } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
-import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail } from './ui.js';
+import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, phoneLinks } from './ui.js';
 import { openClientForm } from './client-form.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
@@ -99,9 +99,7 @@ function renderHeader(host, context) {
         el('span', {}, value instanceof Node ? value : document.createTextNode(dash(value)))
     ]);
 
-    const phoneLink = client.phone
-        ? el('a', { href: 'tel:' + client.phone, text: client.phone, dir: 'ltr' })
-        : null;
+    const phoneLink = client.phone ? phoneLinks(client.phone) : null;
 
     replace(host, [
         el('div', { class: 'client-head' }, [

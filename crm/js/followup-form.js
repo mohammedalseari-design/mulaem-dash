@@ -101,6 +101,10 @@ export function openDoneForm(followUp, onDone) {
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-success btn-sm', text: 'تأكيد الإنجاز' });
 
     const form = el('form', {}, [
+        // اسم العميل في النافذة: على الجوال يُفتح «تم» من بطاقة، فلا يُغلق متابعة عميل آخر خطأً
+        followUp.client && followUp.client.full_name
+            ? el('p', { style: 'margin-bottom:4px;font-weight:700', text: 'العميل: ' + followUp.client.full_name })
+            : null,
         el('p', { class: 'crm-subtle', style: 'margin-bottom:14px', text: 'الموعد: ' + fmtDateTime(followUp.due_at) }),
         el('div', { class: 'form-group' }, outcome),
         el('div', { class: 'btn-row btn-row-end' }, [

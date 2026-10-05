@@ -56,7 +56,7 @@ export async function renderClient(root, clientId) {
                 el('h1', { text: 'ملف العميل' }),
                 el('p', { text: 'بيانات العميل وطلباته ومتابعاته وصفقاته.' })
             ]),
-            el('span', { class: 'page-intro-meta', text: 'Customer profile' })
+            el('span', { class: 'page-intro-meta', text: 'ملف العميل' })
         ]),
         header, tabsBar, tabBody
     ]);

@@ -849,3 +849,175 @@ body.crm-dark .login-box { background: #1d3b40; }
     .crm-toolbar-extra.open { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; }
     .crm-toolbar-extra.open > * { flex: 1 1 140px; }
 }
+
+/* ===================== جولة 2 (2026-10-05): أنماط مكوّنات عصرية بلا مكتبة =====================
+   مستوحاة من مكتبات المكوّنات الحديثة (21st.dev / shadcn) ومن إرشادات مهارة ui-ux-pro-max، ومكتوبة بـ CSS عادي
+   لأن الموقع بلا React ولا Tailwind: أيقونة في بطاقات الأرقام، حالات فارغة توجّه، هيكل رمادي أثناء التحميل،
+   أيقونة بحث، ألسنة بشكل مفتاح مقسّم، ومساحات أرحب على الكمبيوتر. الأيقونات أقنعة SVG تأخذ لونها من الرموز. */
+
+/* بطاقات الأرقام: أيقونة صغيرة في الطرف المقابل للرقم */
+.stat-card[data-key] { padding-inline-end: 64px; }
+.stat-card[data-key]::before {
+    content: "";
+    display: block;
+    position: absolute;
+    left: auto;
+    right: auto;
+    top: 16px;
+    inset-inline-end: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--brand-soft);
+}
+.stat-card[data-key]::after {
+    content: "";
+    position: absolute;
+    top: 24px;
+    inset-inline-end: 24px;
+    width: 20px;
+    height: 20px;
+    background-color: var(--brand);
+    -webkit-mask: var(--stat-icon) center / contain no-repeat;
+    mask: var(--stat-icon) center / contain no-repeat;
+}
+.stat-card.is-alert[data-key]::before { background: rgba(185, 28, 28, 0.12); }
+.stat-card.is-alert[data-key]::after { background-color: var(--danger); }
+.stat-card[data-key="follow_ups_today"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M8%202v4M16%202v4M3%209h18'%2F%3E%3Cpath%20d%3D'M5%204h14a2%202%200%200%201%202%202v13a2%202%200%200%201-2%202H5a2%202%200%200%201-2-2V6a2%202%200%200%201%202-2z'%2F%3E%3Cpath%20d%3D'M9%2015l2%202%204-4'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="follow_ups_overdue"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M12%2021a9%209%200%201%200%200-18%209%209%200%200%200%200%2018z'%2F%3E%3Cpath%20d%3D'M12%207v5l3%202'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="new_requirements_7d"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M22%2012h-6l-2%203h-4l-2-3H2'%2F%3E%3Cpath%20d%3D'M5.45%205.11L2%2012v6a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2v-6l-3.45-6.89A2%202%200%200%200%2016.76%204H7.24a2%202%200%200%200-1.79%201.11z'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="viewings_today"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M2%2012s3.5-7%2010-7%2010%207%2010%207-3.5%207-10%207S2%2012%202%2012z'%2F%3E%3Cpath%20d%3D'M12%2015a3%203%200%201%200%200-6%203%203%200%200%200%200%206z'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="active_clients"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M16%2021v-2a4%204%200%200%200-4-4H6a4%204%200%200%200-4%204v2'%2F%3E%3Cpath%20d%3D'M9%2011a4%204%200%201%200%200-8%204%204%200%200%200%200%208z'%2F%3E%3Cpath%20d%3D'M22%2021v-2a4%204%200%200%200-3-3.87M16%203.13a4%204%200%200%201%200%207.75'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="new_clients"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M16%2021v-2a4%204%200%200%200-4-4H6a4%204%200%200%200-4%204v2'%2F%3E%3Cpath%20d%3D'M9%2011a4%204%200%201%200%200-8%204%204%200%200%200%200%208z'%2F%3E%3Cpath%20d%3D'M19%208v6M22%2011h-6'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="new_requirements"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M22%2012h-6l-2%203h-4l-2-3H2'%2F%3E%3Cpath%20d%3D'M5.45%205.11L2%2012v6a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2v-6l-3.45-6.89A2%202%200%200%200%2016.76%204H7.24a2%202%200%200%200-1.79%201.11z'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="requirements_matched"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M10%2013a5%205%200%200%200%207.54.54l3-3a5%205%200%200%200-7.07-7.07l-1.72%201.71'%2F%3E%3Cpath%20d%3D'M14%2011a5%205%200%200%200-7.54-.54l-3%203a5%205%200%200%200%207.07%207.07l1.71-1.71'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="viewings"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M2%2012s3.5-7%2010-7%2010%207%2010%207-3.5%207-10%207S2%2012%202%2012z'%2F%3E%3Cpath%20d%3D'M12%2015a3%203%200%201%200%200-6%203%203%200%200%200%200%206z'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="negotiations"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M21%2012a8%208%200%200%201-11.6%207.1L4%2020l1-4.6A8%208%200%201%201%2021%2012z'%2F%3E%3C%2Fsvg%3E"); }
+.stat-card[data-key="won"] { --stat-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M8%2021h8M12%2017v4'%2F%3E%3Cpath%20d%3D'M7%204h10v5a5%205%200%200%201-10%200z'%2F%3E%3Cpath%20d%3D'M17%205h3v2a3%203%200%200%201-3%203M7%205H4v2a3%203%200%200%200%203%203'%2F%3E%3C%2Fsvg%3E"); }
+
+/* حالة فارغة: أيقونة ورسالة في إطار منقّط بدل سطر رمادي */
+.crm-empty {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 34px 16px;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--soft);
+    color: var(--ink-2);
+    font-weight: 600;
+    text-align: center;
+}
+.crm-empty::before {
+    content: "";
+    width: 40px;
+    height: 40px;
+    background-color: var(--muted);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M21%208l-9-5-9%205%209%205%209-5z'%2F%3E%3Cpath%20d%3D'M3%208v8l9%205%209-5V8'%2F%3E%3Cpath%20d%3D'M12%2013v8'%2F%3E%3C%2Fsvg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.8'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M21%208l-9-5-9%205%209%205%209-5z'%2F%3E%3Cpath%20d%3D'M3%208v8l9%205%209-5V8'%2F%3E%3Cpath%20d%3D'M12%2013v8'%2F%3E%3C%2Fsvg%3E") center / contain no-repeat;
+}
+
+/* التحميل: هيكل رمادي ثابت مكان المحتوى (بلا قفز)، والنص تحته لمن لا يرى الهيكل */
+.loading {
+    padding: 22px 8px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+}
+.loading::after {
+    content: "";
+    display: block;
+    order: -1;
+    width: min(100%, 560px);
+    height: 66px;
+    margin: 0 auto 12px;
+    border: 0;
+    border-radius: 6px;
+    background:
+        linear-gradient(var(--line), var(--line)) right 0 top 0 / 100% 14px no-repeat,
+        linear-gradient(var(--line), var(--line)) right 0 top 26px / 82% 14px no-repeat,
+        linear-gradient(var(--line), var(--line)) right 0 top 52px / 60% 14px no-repeat;
+    animation: mulaem-pulse 1.4s ease-in-out infinite;
+}
+.loading { display: flex; flex-direction: column; align-items: center; }
+@keyframes mulaem-pulse { 50% { opacity: 0.45; } }
+
+/* حقول البحث: عدسة في بدايتها */
+input[type="search"] {
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%235b6b7f'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M11%2019a8%208%200%201%200%200-16%208%208%200%200%200%200%2016z'%2F%3E%3Cpath%20d%3D'M21%2021l-4.3-4.3'%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-size: 18px;
+    background-position: right 14px center;
+    padding-inline-start: 42px !important;
+}
+body.crm-dark input[type="search"] { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%239aa6b2'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M11%2019a8%208%200%201%200%200-16%208%208%200%200%200%200%2016z'%2F%3E%3Cpath%20d%3D'M21%2021l-4.3-4.3'%2F%3E%3C%2Fsvg%3E"); }
+
+/* الألسنة (ملف العميل ولوحة التحكم): مفتاح مقسّم، والنشط أبيض بارز؛ على الجوال صف يتمرر لا عمود */
+.admin-tabs {
+    display: inline-flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 4px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.admin-tab {
+    min-height: 38px;
+    padding: 7px 16px;
+    border-radius: 9px;
+    color: var(--ink-2);
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+}
+.admin-tab:hover { background: var(--card); color: var(--ink); }
+.admin-tab.active {
+    background: var(--card);
+    color: var(--brand-ink);
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+body.crm-dark .admin-tab.active { background: var(--brand-soft); }
+
+/* الأزرار: رفعة خفيفة للأساسي، وضغطة محسوسة */
+.btn { transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s; }
+.btn-primary { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 6px 14px -8px rgba(47, 95, 103, 0.6); }
+.btn:not(:disabled):active { transform: translateY(1px); }
+
+/* مساحات أرحب على الكمبيوتر */
+@media (min-width: 701px) {
+    .container { padding: 24px 28px; }
+    .crm-card { padding: 24px 26px; margin-bottom: 20px; }
+    .stats-bar { gap: 14px; margin-bottom: 20px; }
+    .users-table th, .users-table td, .crm-table th, .crm-table td { padding: 14px 16px; }
+    .form-grid { gap: 0 20px; }
+}
+
+/* الجوال: بطاقات الأرقام صغيرة، فلا أيقونات فيها */
+@media (max-width: 700px) {
+    .stat-card[data-key] { padding-inline-end: 10px; }
+    .stat-card[data-key]::before, .stat-card[data-key]::after { display: none; }
+    .admin-tabs { display: flex; width: 100%; }
+    .admin-tab { flex: 1 0 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .loading::after { animation: none; }
+    .btn:not(:disabled):active { transform: none; }
+}
+
+/* استجابة اللمس في الشريط السفلي (قائمة فحص ui-ux-pro-max: «Tap feedback») */
+@media (max-width: 700px) {
+    .tabbar a:active, .tabbar button:active { background: var(--brand-soft); }
+    .nav-sheet-panel a:active { border-color: var(--brand); }
+}
+
+/* الجوال في ملف العميل: قاعدة .kv (span:first-child / span:last-child) كانت تجعل الرقم رمادياً صغيراً في سطر وحده */
+.kv span.phone-cell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.kv span.phone-num { display: inline; margin: 0; color: var(--ink); font-size: 1em; font-weight: 700; }

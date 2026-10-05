@@ -145,16 +145,17 @@ function renderStats(host, work, funnel, current) {
     if (funnel.error) return void append(host, errorBox(funnel.error, 'تعذّر تحميل مؤشرات الشهر'));
 
     for (const item of WORK_CARDS) {
-        host.appendChild(tile(number(work.data ? work.data[item.key] : 0), item.label));
+        host.appendChild(tile(number(work.data ? work.data[item.key] : 0), item.label, item.key));
     }
     for (const item of FUNNEL_CARDS) {
         const value = current ? current[item.key] : 0;
-        host.appendChild(tile(item.money ? money(value) : number(value), item.label));
+        host.appendChild(tile(item.money ? money(value) : number(value), item.label, item.key));
     }
 }
 
-function tile(value, label) {
-    return el('div', { class: 'stat-card' }, [
+// key يختار أيقونة البطاقة في css/theme.css
+function tile(value, label, key) {
+    return el('div', { class: 'stat-card', dataset: key ? { key: key } : null }, [
         el('h3', { text: value }),
         el('p', { text: label })
     ]);

@@ -68,6 +68,8 @@ export async function renderWork(root) {
             const go = () => target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             stats.appendChild(el('div', {
                 class: 'stat-card' + (target ? ' is-link' : '') + (card.key === 'follow_ups_overdue' && value > 0 ? ' is-alert' : ''),
+                // المفتاح يختار أيقونة البطاقة في css/theme.css
+                dataset: { key: card.key },
                 role: target ? 'button' : null,
                 tabindex: target ? '0' : null,
                 onclick: target ? go : null,

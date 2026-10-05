@@ -51,7 +51,8 @@ export function replace(node, children) {
 /* ===================== حالات الشاشة ===================== */
 
 export function loading(message = 'جارٍ التحميل') {
-    return el('div', { class: 'loading', text: message });
+    // role=status وaria-busy: قارئ الشاشة يعلن الانتظار، وcss/theme.css يرسم هيكلاً رمادياً مكان المحتوى
+    return el('div', { class: 'loading', role: 'status', 'aria-busy': 'true', text: message });
 }
 
 export function empty(message) {

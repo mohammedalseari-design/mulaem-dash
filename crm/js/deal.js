@@ -60,7 +60,7 @@ export async function renderDeal(root, dealId) {
                 el('h1', { text: 'ملف الصفقة' }),
                 el('p', { text: 'مراحل الصفقة، سجل الحركة، والعمولة المرتبطة بها.' })
             ]),
-            el('span', { class: 'page-intro-meta', text: 'Deal record' })
+            el('span', { class: 'page-intro-meta', text: 'سجل الصفقة' })
         ]),
         headerCard(deal, stage, names),
         stageCard(deal, stages, reload),

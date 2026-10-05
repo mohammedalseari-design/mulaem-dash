@@ -7,14 +7,14 @@
 // (006_inventory_quality.sql)، فالقائمتان ترسلان بداية اليوم المحلي وبداية الغد
 // نصّاً ISO بإزاحة المتصفح، كي يطابق عدّاد البطاقة طول القائمة تماماً.
 //
-// التصميم (2026-10، crm/v2.css): تحية وجملة تلخّص اليوم، ثم شريط أرقام، ثم المهام بطاقاتٍ —
-// المتأخرة أولاً بالأحمر الهادئ، ثم متابعات اليوم بالساعة — وعلى كل بطاقة «اتصال» و«واتساب» و«تم».
-// وفي عمود جانبي: الموعد القادم واختصارات. الاستعلامات والترقيم ونموذج «تم» كما كانت.
+// التصميم (2026-10، crm/app.css): العنوان والإجراءات السريعة في سطر، ثم أرقام اليوم في صف، ثم لوحتان
+// جنباً إلى جنب — «متابعات متأخرة» و«مواعيد اليوم» — صفوفاً مضغوطة بأزرار اتصال وواتساب و«تم»، فيظهر
+// المهم بلا تمرير. على الجوال مفتاح يعرض إحدى اللوحتين كاملة. الاستعلامات والترقيم ونموذج «تم» كما كانت.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, label } from './labels.js';
-import { state, displayName, myRole } from './auth.js';
+import { myRole } from './auth.js';
 import {
     el, replace, clear, loading, errorBox, pager, fmtDateTime,
     localDayStart, number, waNumber, icon
@@ -31,134 +31,159 @@ export const WORK_CARDS = [
     { key: 'active_clients', label: 'عملاء نشطون' }
 ];
 
-// ترتيب شريط الأرقام في هذه الصفحة: ما يحتاج عملاً أولاً
-const KPI_ORDER = ['follow_ups_overdue', 'follow_ups_today', 'viewings_today', 'new_requirements_7d', 'active_clients'];
-const KPI_ICON = {
-    follow_ups_overdue: 'alert', follow_ups_today: 'today', viewings_today: 'eye',
-    new_requirements_7d: 'inbox', active_clients: 'users'
-};
-const CHANNEL_ICON = { call: 'phone', whatsapp: 'chat', visit: 'pin', other: 'dots' };
-// تسمية أقصر في هذه الصفحة: القوسان كانا ينكسران في سطرين داخل البطاقة الصغيرة
-const KPI_LABEL = { new_requirements_7d: 'طلبات آخر 7 أيام' };
+// ترتيب الأرقام في هذه الصفحة وتسمياتها: ما يحتاج عملاً أولاً
+const KPIS = [
+    { key: 'follow_ups_overdue', label: 'متابعات متأخرة' },
+    { key: 'follow_ups_today', label: 'مواعيد اليوم' },
+    { key: 'viewings_today', label: 'معاينات اليوم' },
+    { key: 'new_requirements_7d', label: 'طلبات آخر 7 أيام' },
+    { key: 'active_clients', label: 'عملاء نشطون' }
+];
 
 const LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
 const FMT_TODAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const FMT_TIME = new Intl.DateTimeFormat(LOCALE, { hour: 'numeric', minute: '2-digit', hour12: true });
-const FMT_DAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
 
 export async function renderWork(root) {
-    const firstName = String(displayName(state.profile) || '').trim().split(/\s+/)[0] || '';
-    const summary = el('p', { class: 'wk-summary', text: 'نجمع مهامك…' });
-    const kpis = el('div', { class: 'wk-kpis' });
-    const overdueBody = el('div');
-    const todayBody = el('div');
-    const overdueCount = el('span', { class: 'wk-count wk-count-danger', hidden: true });
-    const todayCount = el('span', { class: 'wk-count', hidden: true });
-    const nextHost = el('div', { class: 'wk-panel wk-next' }, loading());
+    const sub = el('p', { class: 'w4-sub', text: FMT_TODAY.format(new Date()) });
+    const kpis = el('div', { class: 'w4-kpis' }, loading());
+    const lateBody = el('div', { class: 'w4-panel-body' });
+    const todayBody = el('div', { class: 'w4-panel-body' });
+    const lateCount = el('span', { class: 'w4-count w4-count-late', hidden: true });
+    const todayCount = el('span', { class: 'w4-count', hidden: true });
+    const segLateCount = el('span', { class: 'w4-count w4-count-late', hidden: true });
+    const segTodayCount = el('span', { class: 'w4-count', hidden: true });
 
-    const overdueSection = el('section', { class: 'wk-section wk-section-overdue', 'aria-labelledby': 'wk-overdue-title' }, [
-        el('header', { class: 'wk-section-head' }, [
-            el('h2', { id: 'wk-overdue-title' }, [icon('alert', 'ico wk-head-ico'), el('span', { text: 'متأخرة' })]),
-            overdueCount,
-            el('span', { class: 'wk-section-hint', text: 'الأقدم أولاً' })
+    const latePanel = el('section', { class: 'w4-panel w4-panel-late', 'aria-labelledby': 'w4-late-title' }, [
+        el('header', { class: 'w4-panel-head' }, [
+            el('h2', { id: 'w4-late-title' }, [icon('alert'), el('span', { text: 'متابعات متأخرة' })]),
+            lateCount,
+            el('span', { class: 'w4-panel-hint', text: 'الأقدم أولاً' })
         ]),
-        overdueBody
+        lateBody
     ]);
-    const todaySection = el('section', { class: 'wk-section', 'aria-labelledby': 'wk-today-title' }, [
-        el('header', { class: 'wk-section-head' }, [
-            el('h2', { id: 'wk-today-title' }, [icon('today', 'ico wk-head-ico'), el('span', { text: 'متابعات اليوم' })]),
+    const todayPanel = el('section', { class: 'w4-panel w4-panel-today', 'aria-labelledby': 'w4-today-title' }, [
+        el('header', { class: 'w4-panel-head' }, [
+            el('h2', { id: 'w4-today-title' }, [icon('today'), el('span', { text: 'مواعيد اليوم' })]),
             todayCount,
-            el('span', { class: 'wk-section-hint', text: 'بالساعة' })
+            el('span', { class: 'w4-panel-hint', text: 'حسب الوقت' })
         ]),
         todayBody
     ]);
+    const board = el('div', { class: 'w4-board', dataset: { show: 'late' } }, [latePanel, todayPanel]);
 
-    replace(root, el('div', { class: 'wk' }, [
-        el('header', { class: 'wk-head' }, [
-            el('div', { class: 'wk-hello' }, [
-                el('p', { class: 'wk-date', text: FMT_TODAY.format(new Date()) }),
-                el('h1', { text: greeting() + (firstName ? '، ' + firstName : '') }),
-                summary
-            ]),
-            el('div', { class: 'wk-head-actions' }, [
-                el('button', {
-                    type: 'button', class: 'btn btn-primary wk-btn',
-                    onclick: () => openClientForm(null, (saved) => {
-                        if (saved && saved.id) location.hash = '#/clients/' + saved.id;
-                        else reloadAll();
-                    })
-                }, [icon('userPlus'), el('span', { text: 'عميل جديد' })]),
-                el('a', { class: 'btn btn-outline wk-btn', href: '#/calendar' }, [icon('calendar'), el('span', { text: 'كل المواعيد' })])
-            ])
+    // الجوال: مفتاح يعرض لوحة واحدة كاملة. على الكمبيوتر اللوحتان ظاهرتان والمفتاح مخفي.
+    const segLate = el('button', { type: 'button', dataset: { show: 'late' }, 'aria-pressed': 'true', onclick: () => show('late') },
+        [el('span', { text: 'المتأخرة' }), segLateCount]);
+    const segToday = el('button', { type: 'button', dataset: { show: 'today' }, 'aria-pressed': 'false', onclick: () => show('today') },
+        [el('span', { text: 'مواعيد اليوم' }), segTodayCount]);
+    function show(which) {
+        board.dataset.show = which;
+        segLate.setAttribute('aria-pressed', which === 'late' ? 'true' : 'false');
+        segToday.setAttribute('aria-pressed', which === 'today' ? 'true' : 'false');
+    }
+    let userPicked = false;
+    segLate.addEventListener('click', () => { userPicked = true; });
+    segToday.addEventListener('click', () => { userPicked = true; });
+
+    replace(root, el('div', { class: 'w4' }, [
+        el('header', { class: 'w4-head' }, [
+            el('div', { class: 'w4-title' }, [el('h1', { text: 'عملي اليوم' }), sub]),
+            el('div', { class: 'w4-quick', 'aria-label': 'إجراءات سريعة' }, quickActions(() => reloadAll()))
         ]),
         kpis,
-        el('div', { class: 'wk-grid' }, [
-            el('div', { class: 'wk-main' }, [overdueSection, todaySection]),
-            el('aside', { class: 'wk-side', 'aria-label': 'الموعد القادم واختصارات' }, [nextHost, shortcuts()])
-        ])
+        el('div', { class: 'w4-seg', role: 'group', 'aria-label': 'اختر القائمة' }, [segLate, segToday]),
+        board
     ]));
 
     let names = new Map();
     try {
         names = await staffMap();
     } catch (error) {
-        replace(todayBody, errorBox(error, 'تعذّر تحميل أسماء الموظفين'));
+        replace(lateBody, errorBox(error, 'تعذّر تحميل أسماء الموظفين'));
         return;
     }
     if (!root.isConnected) return;
 
-    const overdueList = list(overdueBody, names, 'overdue', reloadAll, (rows, page, total) => {
-        showCount(overdueCount, total);
+    const lateList = list(lateBody, 'overdue', (rows, page, total) => {
+        showCount([lateCount, segLateCount], total);
+        if (!rows.length) return empty('check', 'لا متابعات متأخرة', 'كل ما فات موعده أُنجز.');
+        return el('ol', { class: 'w4-list' }, rows.map((row) => lateRow(row, names, reloadAll)));
     });
-    const todayList = list(todayBody, names, 'today', reloadAll, (rows, page, total) => {
-        showCount(todayCount, total);
-        if (page === 0) renderNext(nextHost, rows, names, reloadAll);
+    const todayList = list(todayBody, 'today', (rows, page, total) => {
+        showCount([todayCount, segTodayCount], total);
+        if (!rows.length) return empty('today', 'لا مواعيد اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.');
+        return el('ol', { class: 'w4-list' }, rows.map((row) => todayRow(row, names, reloadAll)));
     });
 
     async function loadStats() {
         replace(kpis, loading());
         const { data, error } = await supabase.from('v_my_work').select('*').maybeSingle();
         if (!kpis.isConnected) return;
-        if (error) {
-            summary.textContent = '';
-            return void replace(kpis, errorBox(error, 'تعذّر تحميل مؤشرات اليوم'));
-        }
+        if (error) return void replace(kpis, errorBox(error, 'تعذّر تحميل مؤشرات اليوم'));
         const value = (key) => Number(data && data[key]) || 0;
-        summary.textContent = summarize(value('follow_ups_overdue'), value('follow_ups_today'));
+        const overdue = value('follow_ups_overdue');
+        const today = value('follow_ups_today');
+
+        // سطر تحت العنوان: التاريخ وخلاصة اليوم
+        replace(sub, [
+            FMT_TODAY.format(new Date()) + ' · ',
+            overdue ? el('b', { class: 'w4-sub-late', text: arCount(overdue, 'متابعة متأخرة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة') }) : 'لا متأخرات',
+            ' · ',
+            el('b', { text: today ? arCount(today, 'موعد اليوم', 'موعدان اليوم', 'مواعيد اليوم', 'موعداً اليوم') : 'لا مواعيد اليوم' })
+        ]);
+        // على الجوال تفتح الصفحة على المتأخرة إن وُجدت، وإلا على مواعيد اليوم
+        if (!userPicked) show(overdue ? 'late' : 'today');
 
         clear(kpis);
-        const targets = { follow_ups_overdue: overdueSection, follow_ups_today: todaySection };
-        for (const key of KPI_ORDER) {
-            const card = WORK_CARDS.find((c) => c.key === key);
-            const n = value(key);
-            const target = targets[key] || null;
-            const tone = key === 'follow_ups_overdue' && n > 0 ? ' wk-kpi-danger' : '';
-            const body = [
-                el('span', { class: 'wk-kpi-ico' }, icon(KPI_ICON[key])),
-                el('span', { class: 'wk-kpi-num', text: number(n) }),
-                el('span', { class: 'wk-kpi-label', text: KPI_LABEL[key] || card.label })
-            ];
-            // بطاقتا «متأخرة» و«اليوم» تنقلان إلى قائمتيهما
+        const targets = { follow_ups_overdue: latePanel, follow_ups_today: todayPanel };
+        for (const item of KPIS) {
+            const n = value(item.key);
+            const target = targets[item.key] || null;
+            const late = item.key === 'follow_ups_overdue' && n > 0;
+            const body = [el('span', { class: 'w4-kpi-label', text: item.label }), el('span', { class: 'w4-kpi-num', text: number(n) })];
+            const cls = 'w4-kpi' + (late ? ' w4-kpi-late' : '');
             kpis.appendChild(target
                 ? el('button', {
-                    type: 'button', class: 'wk-kpi wk-kpi-link' + tone,
-                    onclick: () => target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    type: 'button', class: cls + ' w4-kpi-link',
+                    onclick: () => {
+                        show(item.key === 'follow_ups_overdue' ? 'late' : 'today');
+                        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
                 }, body)
-                : el('div', { class: 'wk-kpi' + tone }, body));
+                : el('div', { class: cls }, body));
         }
     }
 
     async function reloadAll() {
-        await Promise.all([loadStats(), overdueList.reload(), todayList.reload()]);
+        await Promise.all([loadStats(), lateList.reload(), todayList.reload()]);
     }
 
     await reloadAll();
 }
 
+/* ===================== الإجراءات السريعة ===================== */
+
+function quickActions(onSaved) {
+    const callcenter = myRole() === 'callcenter';
+    return [
+        el('button', {
+            type: 'button', class: 'btn btn-primary w4-qbtn',
+            onclick: () => openClientForm(null, (saved) => {
+                if (saved && saved.id) location.hash = '#/clients/' + saved.id;
+                else onSaved();
+            })
+        }, [icon('userPlus'), el('span', { text: 'عميل جديد' })]),
+        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/clients' }, [icon('users'), el('span', { text: 'بحث عن عميل' })]),
+        callcenter ? null : el('a', { class: 'btn btn-outline w4-qbtn', href: '#/assistant' }, [icon('sparkle'), el('span', { text: 'إضافة عرض' })]),
+        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/calendar' }, [icon('calendar'), el('span', { text: 'كل المواعيد' })])
+    ];
+}
+
 /* ===================== القوائم ===================== */
 
-// قائمة متابعات معلّقة ضمن نطاق زمني، بترقيم مستقل
-function list(host, names, scope, onChanged, onRows) {
+// قائمة متابعات معلّقة ضمن نطاق زمني، بترقيم مستقل. draw يرسم الصفوف بعد كل تحميل.
+function list(host, scope, draw) {
     const view = { page: 0 };
 
     async function reload() {
@@ -187,135 +212,73 @@ function list(host, names, scope, onChanged, onRows) {
         if (!host.isConnected) return;
         if (error) return void replace(host, errorBox(error, 'تعذّر تحميل المتابعات'));
         const rows = data || [];
-        if (onRows) onRows(rows, view.page, count || rows.length);
-        if (rows.length === 0) {
-            return void replace(host, scope === 'today'
-                ? calm('today', 'لا متابعات مجدولة اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في موعدها.')
-                : calm('check', 'لا متابعات متأخرة', 'كل ما فات موعده أُنجز. أحسنت.'));
-        }
-
+        const total = count || rows.length;
         replace(host, [
-            el('ol', { class: 'wk-tasks' }, rows.map((row) => taskCard(row, names, scope, onChanged))),
-            (count || rows.length) > PAGE_SIZE
-                ? pager(view.page, count || rows.length, (p) => { view.page = p; reload(); }, PAGE_SIZE)
-                : null
+            draw(rows, view.page, total),
+            total > PAGE_SIZE ? pager(view.page, total, (p) => { view.page = p; reload(); }, PAGE_SIZE) : null
         ]);
     }
 
     return { reload: reload };
 }
 
-// بطاقة مهمة: متى، ومن، ولماذا، ثم الأزرار. الموعد يميناً بخط كبير، والإجراءات في طرفها.
-function taskCard(row, names, scope, onChanged) {
+function lateRow(row, names, onChanged) {
+    const client = row.client || {};
+    return el('li', { class: 'w4-row w4-task' }, [
+        el('div', { class: 'w4-main' }, [
+            el('div', { class: 'w4-top' }, [
+                clientLink(row),
+                el('span', { class: 'w4-badge w4-badge-late', title: fmtDateTime(row.due_at), text: lateText(new Date(row.due_at)) })
+            ]),
+            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
+            el('p', { class: 'w4-meta', text: label(CHANNEL, row.channel) + ' · ' + staffName(names, row.assigned_to) })
+        ]),
+        actions(row, client, onChanged)
+    ]);
+}
+
+function todayRow(row, names, onChanged) {
     const client = row.client || {};
     const due = new Date(row.due_at);
-    const owner = staffName(names, row.assigned_to);
-    const name = client.full_name || 'عميل';
-    const late = scope === 'overdue';
-    const when = late
-        ? [el('span', { class: 'wk-when-main', text: lateText(due) }), el('span', { class: 'wk-when-sub', text: fmtDateTime(row.due_at) })]
-        : [el('span', { class: 'wk-when-main', text: FMT_TIME.format(due) }), el('span', { class: 'wk-when-sub', text: soonText(due) })];
-
-    return el('li', { class: 'wk-task' + (late ? ' wk-task-late' : (due.getTime() <= Date.now() ? ' wk-task-due' : '')) }, [
-        el('div', { class: 'wk-when' }, when),
-        el('div', { class: 'wk-task-body' }, [
-            el('div', { class: 'wk-task-title' }, [
-                el('a', { class: 'wk-client', href: '#/clients/' + row.client_id, text: client.full_name || 'فتح ملف العميل' }),
-                el('span', { class: 'wk-channel wk-channel-' + (row.channel || 'other') }, [
-                    icon(CHANNEL_ICON[row.channel] || 'dots'), el('span', { text: label(CHANNEL, row.channel) })
-                ])
-            ]),
-            row.purpose ? el('p', { class: 'wk-purpose', text: row.purpose }) : null,
-            el('div', { class: 'wk-meta' }, [
-                el('span', { class: 'wk-owner' }, [
-                    el('span', { class: 'wk-avatar', 'aria-hidden': 'true', text: initial(owner) }),
-                    el('span', { text: owner })
-                ]),
-                client.phone ? el('span', { class: 'wk-phone', text: client.phone }) : null
-            ])
+    const passed = due.getTime() <= Date.now();
+    return el('li', { class: 'w4-row w4-row-today w4-task' + (passed ? ' w4-row-due' : '') }, [
+        el('div', { class: 'w4-time' }, [
+            el('strong', { text: FMT_TIME.format(due) }),
+            el('span', { text: soonText(due) })
         ]),
-        el('div', { class: 'wk-actions' }, [
-            ...contactButtons(client.phone, name),
-            el('button', {
-                type: 'button', class: 'btn wk-done', 'aria-label': 'تم: ' + name,
-                onclick: () => openDoneForm(row, onChanged)
-            }, [icon('check'), el('span', { text: 'تم' })])
-        ])
+        el('div', { class: 'w4-main' }, [
+            el('div', { class: 'w4-top' }, [clientLink(row)]),
+            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
+            el('p', { class: 'w4-meta', text: label(CHANNEL, row.channel) + ' · ' + staffName(names, row.assigned_to) })
+        ]),
+        actions(row, client, onChanged)
     ]);
 }
 
-function contactButtons(phone, name) {
-    if (!phone) return [];
-    return [
-        el('a', {
-            class: 'wk-act', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), 'aria-label': 'اتصال بـ ' + name
-        }, [icon('phone'), el('span', { text: 'اتصال' })]),
-        el('a', {
-            class: 'wk-act wk-act-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener',
-            'aria-label': 'واتساب ' + name
-        }, [icon('chat'), el('span', { text: 'واتساب' })])
-    ];
+function clientLink(row) {
+    const client = row.client || {};
+    return el('a', { class: 'w4-name', href: '#/clients/' + row.client_id, text: client.full_name || 'فتح ملف العميل' });
 }
 
-/* ===================== العمود الجانبي ===================== */
-
-// الموعد القادم من أول صفحة في متابعات اليوم (مرتبة بالساعة): أول ما لم يحن بعد، وإلا أقدم ما حان
-function renderNext(host, rows, names, onChanged) {
-    if (!host.isConnected) return;
-    const now = Date.now();
-    const next = rows.find((row) => new Date(row.due_at).getTime() >= now) || rows[0];
-    if (!next) {
-        return void replace(host, [
-            el('h2', { class: 'wk-panel-title', text: 'الموعد القادم' }),
-            el('p', { class: 'wk-panel-empty', text: 'لا مواعيد متبقية اليوم.' })
-        ]);
-    }
-    const client = next.client || {};
-    const due = new Date(next.due_at);
-    const passed = due.getTime() < now;
-    replace(host, [
-        el('h2', { class: 'wk-panel-title', text: passed ? 'متابعة حان موعدها' : 'الموعد القادم' }),
-        el('div', { class: 'wk-next-time' }, [
-            el('span', { class: 'wk-next-clock', text: FMT_TIME.format(due) }),
-            el('span', { class: 'wk-next-in', text: passed ? 'لم تُنجز بعد' : soonText(due) })
-        ]),
-        el('a', { class: 'wk-next-client', href: '#/clients/' + next.client_id, text: client.full_name || 'فتح ملف العميل' }),
-        next.purpose ? el('p', { class: 'wk-next-purpose', text: next.purpose }) : null,
-        el('p', { class: 'wk-next-meta', text: label(CHANNEL, next.channel) + ' · ' + staffName(names, next.assigned_to) }),
-        el('div', { class: 'wk-next-actions' }, [
-            ...contactButtons(client.phone, client.full_name || 'العميل'),
-            el('button', {
-                type: 'button', class: 'btn wk-done', 'aria-label': 'تم: ' + (client.full_name || 'المتابعة'),
-                onclick: () => openDoneForm(next, onChanged)
-            }, [icon('check'), el('span', { text: 'تم' })])
-        ])
-    ]);
-}
-
-// اختصارات إلى الصفحات المتاحة لدور المستخدم (مركز الاتصال بلا مساعد ولا صفقات)
-function shortcuts() {
-    const callcenter = myRole() === 'callcenter';
-    const items = [
-        { href: '#/clients', label: 'العملاء', hint: 'بحث وملفات', ico: 'users' },
-        { href: '#/properties', label: 'العقارات', hint: 'الوحدات المتاحة', ico: 'building' },
-        callcenter ? null : { href: '#/assistant', label: 'المساعد الذكي', hint: 'أضف عرضاً من نص أو ملف', ico: 'sparkle' },
-        callcenter ? null : { href: '#/deals', label: 'الصفقات', hint: 'مراحل البيع', ico: 'briefcase' }
-    ].filter(Boolean);
-    return el('nav', { class: 'wk-panel wk-shortcuts', 'aria-label': 'اختصارات' }, [
-        el('h2', { class: 'wk-panel-title', text: 'اختصارات' }),
-        el('ul', {}, items.map((item) => el('li', {}, el('a', { href: item.href }, [
-            el('span', { class: 'wk-short-ico' }, icon(item.ico)),
-            el('span', { class: 'wk-short-text' }, [el('strong', { text: item.label }), el('small', { text: item.hint })]),
-            icon('arrow', 'ico wk-short-arrow')
-        ]))))
+// اتصال وواتساب (إن وُجد رقم) و«تم» — بحجم الإصبع، ولكل زر اسم يُقرأ
+function actions(row, client, onChanged) {
+    const name = client.full_name || 'العميل';
+    const phone = client.phone;
+    return el('div', { class: 'w4-actions' }, [
+        phone ? el('a', {
+            class: 'w4-icon', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), title: 'اتصال: ' + phone
+        }, [icon('phone'), el('span', { class: 'w4-sr', text: 'اتصال بـ ' + name })]) : null,
+        phone ? el('a', {
+            class: 'w4-icon w4-icon-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener', title: 'واتساب: ' + phone
+        }, [icon('chat'), el('span', { class: 'w4-sr', text: 'واتساب ' + name })]) : null,
+        el('button', {
+            type: 'button', class: 'btn w4-done', 'aria-label': 'تم: ' + name,
+            onclick: () => openDoneForm(row, onChanged)
+        }, [icon('check'), el('span', { text: 'تم' })])
     ]);
 }
 
 /* ===================== نصوص ===================== */
-
-function greeting() {
-    return new Date().getHours() < 12 ? 'صباح الخير' : 'مساء الخير';
-}
 
 // العدد مع المعدود بالعربية: 1 مفرد، 2 مثنى، 3–10 جمع، 11+ مفرد منصوب
 function arCount(n, one, two, few, many) {
@@ -323,15 +286,6 @@ function arCount(n, one, two, few, many) {
     if (n === 2) return two;
     if (n >= 3 && n <= 10) return n + ' ' + few;
     return n + ' ' + many;
-}
-
-function summarize(overdue, today) {
-    const late = arCount(overdue, 'متابعة متأخرة واحدة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة');
-    const now = arCount(today, 'متابعة واحدة اليوم', 'متابعتان اليوم', 'متابعات اليوم', 'متابعة اليوم');
-    if (overdue && today) return 'عندك ' + late + ' و' + now + '. ابدأ بالمتأخرة.';
-    if (overdue) return 'عندك ' + late + '، ولا شيء مجدول لليوم. ابدأ بها.';
-    if (today) return 'عندك ' + now + '، ولا متأخرات.';
-    return 'لا متابعات اليوم ولا متأخرات.';
 }
 
 function lateText(due) {
@@ -346,24 +300,20 @@ function soonText(due) {
     if (minutes <= 0) return 'حان موعدها';
     if (minutes < 60) return 'بعد ' + arCount(minutes, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة');
     const hours = Math.round(minutes / 60);
-    if (hours < 24) return 'بعد ' + arCount(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة');
-    return FMT_DAY.format(due);
+    return 'بعد ' + arCount(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة');
 }
 
-function initial(name) {
-    const text = String(name || '').trim();
-    return text ? text[0] : '؟';
-}
-
-function calm(ico, title, hint) {
-    return el('div', { class: 'wk-calm' }, [
-        el('span', { class: 'wk-calm-ico' }, icon(ico)),
+function empty(ico, title, hint) {
+    return el('div', { class: 'w4-empty' }, [
+        el('span', { class: 'w4-empty-ico' }, icon(ico)),
         el('strong', { text: title }),
         el('span', { text: hint })
     ]);
 }
 
-function showCount(node, total) {
-    node.textContent = number(total);
-    node.hidden = !total;
+function showCount(nodes, total) {
+    for (const node of nodes) {
+        node.textContent = number(total);
+        node.hidden = !total;
+    }
 }

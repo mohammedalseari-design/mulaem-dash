@@ -1,0 +1,431 @@
+/* ملائم — تصميم نظام العمل (2026-10، التصميم الرابع). يُحمَّل بعد crm.css و../css/theme.css في crm/index.html.
+   طلب المالك: نظام عمل احترافي وسهل، بلا زخارف ولا شريط داكن كبير، بخط عربي واحد وألوان هادئة، والمهم ظاهر
+   بلا تمرير كثير. لذلك: قائمة جانبية فاتحة، ورمادي مائل للأزرق مع لون الشعار للإجراءات، وخط IBM Plex Sans Arabic
+   وحده. اللون يحمل معنى فقط: أحمر للمتأخر، وكهرماني لما حان موعده، وأخضر لـ«تم». كل نص يحقق 4.5:1 في الوضعين. */
+
+:root {
+    --font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, system-ui, sans-serif;
+
+    --bg: #f4f6f7;
+    --surface: #ffffff;
+    --surface-2: #f8fafb;
+    --hover: #f1f4f6;
+    --ink: #101828;
+    --ink-2: #344054;
+    --muted: #5d6b7a;
+    --line: #e3e8eb;
+    --line-2: #d0d8dd;
+
+    --brand: #1f5c62;
+    --brand-hover: #184b50;
+    --brand-soft: #e7f0f1;
+    --brand-ink: #1f5c62;
+    --on-brand: #ffffff;
+
+    --danger: #b42318;
+    --danger-soft: #fef1f0;
+    --danger-line: #f5c9c4;
+    --amber: #9a5b13;
+    --amber-soft: #fdf4e5;
+    --ok: #067a57;
+    --ok-soft: #e9f6f0;
+    --done: #127a5b;
+    --done-hover: #0e6249;
+
+    --r-lg: 14px;
+    --r-md: 10px;
+    --r-sm: 8px;
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05);
+
+    /* أسماء الطبقات السابقة (css/theme.css) تأخذ القيم نفسها، فتتسق الصفحات الأخرى */
+    --page: var(--bg);
+    --card: var(--surface);
+    --soft: var(--surface-2);
+    --line-strong: var(--line-2);
+    --accent: var(--brand);
+    --accent-soft: var(--brand-soft);
+    --warn: var(--amber);
+    --warn-soft: var(--amber-soft);
+}
+
+body.crm-dark {
+    --bg: #0f171c;
+    --surface: #151e24;
+    --surface-2: #1a242b;
+    --hover: #1e2a32;
+    --ink: #e6ebef;
+    --ink-2: #c5ced6;
+    --muted: #a3b1bd;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-2: rgba(255, 255, 255, 0.16);
+
+    --brand: #8cc9cc;
+    --brand-hover: #a5d5d7;
+    --brand-soft: rgba(140, 201, 204, 0.13);
+    --brand-ink: #9fd2d4;
+    --on-brand: #0f171c;
+
+    --danger: #f19a8f;
+    --danger-soft: rgba(241, 154, 143, 0.12);
+    --danger-line: rgba(241, 154, 143, 0.32);
+    --amber: #f2b766;
+    --amber-soft: rgba(242, 183, 102, 0.12);
+    --ok: #5fd0a5;
+    --ok-soft: rgba(95, 208, 165, 0.12);
+    --done: #7fc4b0;
+    --done-hover: #98d2c1;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+    --page: var(--bg);
+    --card: var(--surface);
+    --soft: var(--surface-2);
+    --line-strong: var(--line-2);
+    --accent: var(--brand);
+    --accent-soft: var(--brand-soft);
+}
+
+body { background: var(--bg); color: var(--ink); font-size: 15px; line-height: 1.6; }
+
+.ico {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ===================== الهيكل: قائمة جانبية فاتحة + مساحة العمل ===================== */
+
+.app-container.active { display: block; }
+.shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+
+.side {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 12px;
+    background: var(--surface);
+    border-inline-end: 1px solid var(--line);
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 10px; border-bottom: 1px solid var(--line); }
+.side-logo { width: 36px; height: 36px; border-radius: 9px; object-fit: cover; border: 1px solid var(--line); }
+.side-name { display: grid; line-height: 1.35; }
+.side-name strong { color: var(--ink); font-size: 0.98rem; font-weight: 700; }
+.side-name span { color: var(--muted); font-size: 0.78rem; }
+
+.side .crm-nav {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 1px;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    overflow: visible;
+}
+.side .crm-nav a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    font-size: 0.92rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.side .crm-nav a:hover { background: var(--hover); color: var(--ink); }
+.side .crm-nav a.active { background: var(--brand-soft); color: var(--brand-ink); font-weight: 600; box-shadow: none; }
+.side .nav-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; color: var(--muted); }
+.side .crm-nav a.active .nav-icon, .side .crm-nav a:hover .nav-icon { color: inherit; }
+.side .nav-count { margin-inline-start: auto; background: var(--danger); color: #ffffff; }
+body.crm-dark .side .nav-count { color: #0f171c; }
+.side .nav-group { margin: 12px 10px 4px; color: var(--muted); font-size: 0.74rem; font-weight: 600; letter-spacing: 0.02em; }
+
+body.crm-dark .side .crm-nav { background: none; border: 0; }
+body.crm-dark .side .crm-nav a { color: var(--ink-2); }
+body.crm-dark .side .crm-nav a.active { background: var(--brand-soft); color: var(--brand-ink); }
+
+.side-user { margin-top: auto; display: grid; gap: 10px; padding: 12px 8px 4px; border-top: 1px solid var(--line); }
+.side .user-badge { display: grid; gap: 1px; padding: 0 2px; border: 0; background: none; color: var(--ink); font-size: 0.9rem; font-weight: 600; }
+.side .user-badge::before, .side .user-badge::after { display: none; }
+.side .user-badge small { color: var(--muted); font-size: 0.78rem; font-weight: 500; opacity: 1; }
+.side-user-actions { display: flex; gap: 8px; }
+.side .theme-toggle, .side .logout-btn {
+    min-height: 36px;
+    border: 1px solid var(--line-2);
+    background: var(--surface);
+    color: var(--ink-2);
+    border-radius: var(--r-sm);
+    font-size: 0.84rem;
+    font-weight: 500;
+}
+.side .theme-toggle { width: 38px; flex: 0 0 auto; }
+.side .logout-btn { flex: 1 1 auto; padding: 4px 10px; }
+.side .theme-toggle:hover, .side .logout-btn:hover { background: var(--hover); color: var(--ink); }
+
+main#view { min-width: 0; padding: 24px 32px 40px; }
+
+/* ===================== «عملي اليوم» ===================== */
+
+.w4 { max-width: 1280px; display: grid; gap: 18px; }
+
+/* العنوان والإجراءات السريعة في سطر واحد */
+.w4-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.w4-title { display: grid; gap: 2px; min-width: 0; }
+.w4-title h1 { margin: 0; color: var(--ink); font-size: 1.55rem; font-weight: 700; line-height: 1.3; letter-spacing: 0; }
+.w4-sub { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.w4-sub b { color: var(--ink-2); font-weight: 600; }
+.w4-sub b.w4-sub-late { color: var(--danger); }
+
+.w4-quick { display: flex; gap: 8px; flex-wrap: wrap; }
+.w4-qbtn {
+    width: auto;
+    min-height: 40px;
+    padding: 8px 14px;
+    gap: 7px;
+    border-radius: var(--r-md);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    box-shadow: none;
+}
+.w4-qbtn .ico { width: 17px; height: 17px; }
+.w4-qbtn.btn-outline { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-2); }
+.w4-qbtn.btn-outline:hover { border-color: var(--brand); color: var(--brand-ink); background: var(--brand-soft); }
+
+/* الأرقام: صف واحد مضغوط */
+.w4-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.w4-kpis > :not(.w4-kpi) { grid-column: 1 / -1; }
+.w4-kpi {
+    display: grid;
+    gap: 2px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    color: var(--ink);
+    font: inherit;
+    text-align: start;
+}
+.w4-kpi-label { color: var(--muted); font-size: 0.82rem; font-weight: 500; }
+.w4-kpi-num { font-size: 1.55rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.w4-kpi-link { cursor: pointer; transition: border-color 0.15s; }
+.w4-kpi-link:hover { border-color: var(--brand); }
+.w4-kpi-late { border-color: var(--danger-line); background: var(--danger-soft); }
+.w4-kpi-late .w4-kpi-label, .w4-kpi-late .w4-kpi-num { color: var(--danger); }
+.w4-kpi-late:hover { border-color: var(--danger); }
+
+/* مفتاح «المتأخرة / مواعيد اليوم» للجوال وحده */
+.w4-seg { display: none; }
+
+/* اللوحتان جنباً إلى جنب */
+.w4-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.w4-panel {
+    display: grid;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    min-width: 0;
+    overflow: hidden;
+    scroll-margin-top: 16px;
+}
+.w4-panel-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.w4-panel-head h2 { margin: 0; display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: 1.02rem; font-weight: 700; }
+.w4-panel-head h2 .ico { color: var(--brand-ink); }
+.w4-panel-late .w4-panel-head h2 .ico { color: var(--danger); }
+.w4-count { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-ink); font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.w4-count-late { background: var(--danger-soft); color: var(--danger); }
+.w4-count[hidden] { display: none; }
+.w4-panel-hint { margin-inline-start: auto; color: var(--muted); font-size: 0.8rem; }
+.w4-panel-body > .loading { padding: 18px; }
+.w4-panel-body > .crm-error { margin: 12px; }
+
+.w4-list { list-style: none; margin: 0; padding: 0; }
+.w4-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--line);
+}
+.w4-row:last-child { border-bottom: 0; }
+.w4-row:hover { background: var(--surface-2); }
+.w4-row-today { grid-template-columns: 76px minmax(0, 1fr) auto; }
+
+.w4-time { display: grid; gap: 1px; align-self: start; padding-top: 1px; }
+.w4-time strong { color: var(--ink); font-size: 0.95rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.w4-time span { color: var(--muted); font-size: 0.74rem; white-space: nowrap; }
+.w4-row-due .w4-time span { color: var(--amber); font-weight: 600; }
+
+.w4-main { display: grid; gap: 1px; min-width: 0; }
+.w4-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.w4-name { color: var(--ink); font-size: 0.97rem; font-weight: 600; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.w4-name:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.w4-badge { flex: 0 0 auto; padding: 1px 8px; border-radius: 999px; font-size: 0.74rem; font-weight: 600; white-space: nowrap; }
+.w4-badge-late { background: var(--danger-soft); color: var(--danger); }
+.w4-badge-due { background: var(--amber-soft); color: var(--amber); }
+.w4-purpose { margin: 0; color: var(--ink-2); font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w4-meta { margin: 0; color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.w4-actions { display: flex; align-items: center; gap: 6px; }
+.w4-icon {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    text-decoration: none;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.w4-icon:hover { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-ink); }
+.w4-icon-wa:hover { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.w4-icon .ico { width: 17px; height: 17px; }
+.w4-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.w4-done {
+    width: auto;
+    min-height: 36px;
+    padding: 0 12px;
+    gap: 5px;
+    border: 1px solid var(--done);
+    border-radius: var(--r-sm);
+    background: var(--done);
+    color: #ffffff;
+    font-size: 0.86rem;
+    font-weight: 600;
+    box-shadow: none;
+}
+.w4-done:hover:not(:disabled) { background: var(--done-hover); border-color: var(--done-hover); filter: none; }
+.w4-done .ico { width: 16px; height: 16px; stroke-width: 2.4; }
+body.crm-dark .w4-done { color: #0f171c; }
+
+.w4-empty { display: grid; justify-items: center; gap: 4px; padding: 26px 16px; color: var(--muted); text-align: center; font-size: 0.88rem; }
+.w4-empty strong { color: var(--ink); font-size: 0.95rem; }
+.w4-empty-ico { display: grid; place-items: center; width: 36px; height: 36px; margin-bottom: 2px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); }
+.w4 .crm-pager { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); }
+
+/* ===================== أحجام متوسطة ===================== */
+
+@media (max-width: 1180px) {
+    .w4-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .w4-kpi { padding: 10px 12px; }
+    .w4-kpi-num { font-size: 1.35rem; }
+}
+@media (max-width: 1080px) {
+    .shell { grid-template-columns: 210px minmax(0, 1fr); }
+    main#view { padding: 20px 20px 36px; }
+    .w4-board { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ===================== الجوال ===================== */
+
+@media (max-width: 700px) {
+    body { font-size: 15px; }
+    .shell { display: block; }
+
+    /* القائمة الجانبية شريط علوي فاتح: الشعار يميناً، والوضع الليلي والخروج يساراً، والتنقل في الشريط السفلي */
+    .side {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 12px;
+        border-inline-end: 0;
+        border-bottom: 1px solid var(--line);
+        overflow: visible;
+    }
+    .side-brand { padding: 0; border: 0; gap: 8px; }
+    .side-logo { width: 30px; height: 30px; }
+    .side-name span { display: none; }
+    .side .crm-nav { display: none; }
+    .side-user { margin: 0; padding: 0; border: 0; display: flex; }
+    .side .user-badge { display: none; }
+    .side .theme-toggle { width: 36px; height: 36px; min-height: 36px; }
+    .side .logout-btn { flex: 0 0 auto; min-height: 36px; padding: 4px 10px; font-size: 0.78rem; }
+
+    main#view { padding: 14px 12px 20px; }
+    .w4 { gap: 14px; }
+    .w4-title h1 { font-size: 1.35rem; }
+
+    /* الإجراءات السريعة: صف يُسحب جانبياً، أولها «عميل جديد» */
+    .w4-head { display: grid; gap: 10px; }
+    .w4-quick { flex-wrap: nowrap; overflow-x: auto; margin-inline: -12px; padding-inline: 12px; padding-bottom: 2px; scrollbar-width: none; }
+    .w4-quick::-webkit-scrollbar { display: none; }
+    .w4-qbtn { flex: 0 0 auto; min-height: 40px; }
+
+    /* الأرقام: ثلاثة في الصف، والرابع والخامس في صف ثانٍ أصغر */
+    .w4-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .w4-kpi { padding: 9px 10px; border-radius: 12px; }
+    .w4-kpi-label { font-size: 0.74rem; line-height: 1.35; }
+    .w4-kpi-num { font-size: 1.25rem; }
+    .w4-kpi:nth-child(n + 4) { display: none; }
+
+    /* مفتاح يعرض قائمة واحدة كاملة بدل قائمتين متتاليتين طويلتين */
+    .w4-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--hover); border: 1px solid var(--line); }
+    .w4-seg button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 40px;
+        border: 0;
+        border-radius: 9px;
+        background: transparent;
+        color: var(--ink-2);
+        font: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .w4-seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12); }
+    .w4-seg .w4-count { height: 20px; min-width: 22px; font-size: 0.74rem; }
+    .w4-board { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .w4-board[data-show="late"] .w4-panel-today,
+    .w4-board[data-show="today"] .w4-panel-late { display: none; }
+    /* المفتاح فوق القائمة يحمل اسمها وعددها، فلا يتكرر رأسها */
+    .w4-panel-head { display: none; }
+
+    /* الصف: الاسم والغرض، ثم الأزرار بعرض الصف */
+    .w4-row, .w4-row-today { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
+    .w4-row-today .w4-time { display: flex; align-items: baseline; gap: 8px; }
+    .w4-purpose { white-space: normal; }
+    .w4-actions { display: grid; grid-template-columns: 44px 44px minmax(0, 1fr); gap: 8px; }
+    .w4-actions > :only-child { grid-column: 1 / -1; }
+    .w4-icon { width: 44px; height: 44px; }
+    .w4-done { min-height: 44px; justify-content: center; font-size: 0.92rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .w4-kpi-link, .w4-icon { transition: none; }
+}
+
+@media print {
+    .side { display: none !important; }
+    .shell { display: block; }
+}

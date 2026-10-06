@@ -494,3 +494,34 @@ body.crm-dark .w4-done { color: #0f171c; }
 .pr-table .cell-actions .btn { min-height: 32px; padding: 4px 10px; font-size: 0.82rem; }
 .pr-table th:nth-child(6), .pr-table td:nth-child(6) { width: 1%; white-space: nowrap; }
 @media (max-width: 700px) { .pr-table .pr-name { min-width: 0; } }
+
+/* تأكيد إتمام الصفقة: معاينة العمولة تحت السعر النهائي */
+.won-preview { margin: 4px 0 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); display: grid; gap: 6px; }
+.won-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.won-line dt { color: var(--muted); font-size: 0.88rem; }
+.won-line dd { margin: 0; color: var(--ink); font-weight: 600; }
+.won-line.won-total { padding-top: 6px; border-top: 1px solid var(--line); }
+.won-line.won-total dt { color: var(--ink-2); font-weight: 600; }
+.won-line.won-total dd { color: var(--ok); font-weight: 700; }
+.won-note { margin: 8px 0 14px; font-size: 0.82rem; }
+
+/* نافذة «تم»: قسم المتابعة التالية */
+.next-fu { margin: 10px 0 12px; padding: 8px 14px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); display: grid; gap: 10px; min-width: 0; }
+.next-fu legend { padding: 0 6px; font-weight: 700; color: var(--ink); font-size: 0.95rem; }
+.next-fu-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.next-fu-head .chip { min-height: 32px; padding: 4px 12px; font-size: 0.85rem; cursor: pointer; }
+.next-fu-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.next-fu-quick[hidden], .next-fu-grid[hidden] { display: none; }
+.next-fu-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: 10px; }
+.next-fu-grid .form-group { margin: 0; min-width: 0; }
+.next-fu-grid .form-group:last-child { grid-column: 1 / -1; }
+.next-fu-grid .form-group label { margin-bottom: 4px; font-size: 0.85rem; }
+.next-fu-grid input, .next-fu-grid select { min-height: 40px; padding: 6px 10px; }
+@media (max-width: 520px) {
+    .next-fu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .next-fu-grid .form-group:last-child { grid-column: auto; }
+}
+
+/* نافذة «أرسل العرض للعميل»: الرسالة كما ستصل */
+.share-lead { margin: 0 0 6px; font-weight: 600; color: var(--ok); }
+.share-msg { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; font-size: 0.92rem; line-height: 1.7; }

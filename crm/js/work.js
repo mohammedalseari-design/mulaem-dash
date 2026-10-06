@@ -192,7 +192,7 @@ function list(host, scope, draw) {
 
         let query = supabase
             .from('follow_ups')
-            .select('id, due_at, channel, purpose, assigned_to, client_id, client:clients(full_name, phone)',
+            .select('id, due_at, channel, purpose, assigned_to, client_id, requirement_id, client:clients(full_name, phone)',
                 { count: 'exact' })
             .eq('status', 'pending')
             .range(from, to);

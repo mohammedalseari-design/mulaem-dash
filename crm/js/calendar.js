@@ -42,7 +42,7 @@ export async function renderCalendar(root) {
         const [from, to] = pageRange(view.page);
         let query = supabase
             .from('follow_ups')
-            .select('id, due_at, channel, purpose, status, outcome, assigned_to, client_id, client:clients(full_name, phone)', { count: 'exact' })
+            .select('id, due_at, channel, purpose, status, outcome, assigned_to, client_id, requirement_id, client:clients(full_name, phone)', { count: 'exact' })
             .range(from, to);
 
         if (view.scope === 'upcoming') {

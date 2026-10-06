@@ -3,7 +3,8 @@
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { PURPOSE, REQ_STATUS, REQ_STATUS_TONE, PRIORITY, PRIORITY_TONE, label } from './labels.js';
 import {
-    el, replace, loading, empty, errorBox, badge, pager, money, fmtDate, dash, EM_DASH, notify, fail
+    el, replace, loading, empty, errorBox, badge, pager, money, fmtDate, dash, EM_DASH, notify, fail,
+    openModal, closeModal, waNumber, icon
 } from './ui.js';
 import { openRequirementForm } from './requirement-form.js';
 
@@ -76,7 +77,7 @@ function table(rows, context, reload) {
                 }),
                 el('button', {
                     type: 'button', class: 'btn btn-outline btn-xs', text: 'رابط للعميل',
-                    onclick: (event) => shareRequirement(event.currentTarget, context.client.id, row.id)
+                    onclick: (event) => sendShareLink(event.currentTarget, context.client, row.id)
                 })
             ]))
         ]));
@@ -85,26 +86,61 @@ function table(rows, context, reload) {
     return el('table', { class: 'users-table crm-table' }, [head, body]);
 }
 
-async function shareRequirement(button, clientId, requirementId) {
-    if (!navigator.clipboard || !navigator.clipboard.writeText) {
-        return void notify('النسخ إلى الحافظة غير متاح في هذا المتصفح', 'error', 8000);
-    }
-    button.disabled = true;
+// رابط العرض للعميل: صفحة واحدة بكل العقارات المحفوظة لطلبه (مشارَكة أو مهتم أو معاينة)، صالحة 14 يوماً.
+// النافذة فيها الرسالة جاهزة و«أرسل في واتساب» رابطاً يضغطه الموظف بنفسه، فلا يمنعه حاجب النوافذ
+// المنبثقة على الجوال، و«انسخ الرابط» لمن يرسله بطريقة أخرى. lead سطر يسبق الرسالة (مثلاً: حُفظ العقار).
+export async function sendShareLink(button, client, requirementId, lead) {
+    if (button) button.disabled = true;
+    let link;
     try {
         const { data: token, error } = await supabase.rpc('create_client_share', {
-            p_client: clientId,
+            p_client: client.id,
             p_requirement: requirementId
         });
         if (error) throw error;
         const url = new URL('share.html', window.location.href);
         url.searchParams.set('token', token);
-        await navigator.clipboard.writeText(url.href);
-        notify('تم نسخ رابط العرض، وصلاحيته 14 يومًا', 'success', 8000);
+        link = url.href;
     } catch (error) {
-        fail(error, 'تعذّر إنشاء رابط العرض');
+        return void fail(error, 'تعذّر إنشاء رابط العرض');
     } finally {
-        button.disabled = false;
+        if (button) button.disabled = false;
     }
+    openShareSheet(client, link, lead);
+}
+
+function openShareSheet(client, link, lead) {
+    const message = 'السلام عليكم' + (client.full_name ? ' ' + client.full_name : '') + '،\n'
+        + 'هذه عروض ملائم العقارية المناسبة لطلبك:\n' + link + '\nالرابط صالح 14 يوماً.';
+    const phone = client.phone ? waNumber(client.phone) : '';
+
+    const copyBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm' }, [icon('link'), el('span', { text: 'انسخ الرابط' })]);
+    copyBtn.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            notify('تم نسخ الرابط', 'success');
+        } catch (error) {
+            fail(error, 'تعذّر النسخ — انسخ الرابط من الرسالة');
+        }
+    });
+    // الإغلاق بعد الضغط لا قبله: الرابط يُفتح أولاً ثم تُغلق النافذة
+    const waBtn = phone ? el('a', {
+        class: 'btn btn-success btn-sm', target: '_blank', rel: 'noopener',
+        href: 'https://wa.me/' + phone + '?text=' + encodeURIComponent(message),
+        onclick: () => setTimeout(closeModal, 0)
+    }, [icon('chat'), el('span', { text: 'أرسل في واتساب' })]) : null;
+
+    openModal('أرسل العرض للعميل', [
+        lead ? el('p', { class: 'share-lead', text: lead }) : null,
+        phone
+            ? el('p', { class: 'crm-subtle', style: 'margin-bottom:8px' }, [
+                'تُفتح هذه الرسالة جاهزة في واتساب على جوال العميل ',
+                el('span', { class: 'phone-num', dir: 'ltr', text: client.phone })
+            ])
+            : el('p', { class: 'crm-subtle', style: 'margin-bottom:8px', text: 'لا يوجد جوال مسجّل للعميل — انسخ الرابط وأرسله بالطريقة المناسبة:' }),
+        el('p', { class: 'share-msg', text: message }),
+        el('div', { class: 'btn-row btn-row-end' }, [copyBtn, waBtn])
+    ], { narrow: true });
 }
 
 export function districtsText(districts) {

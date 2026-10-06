@@ -254,10 +254,8 @@ function stageCard(deal, stages, reload) {
 function moveTo(button, deal, stage, reload) {
     // "خسرت": القيد في قاعدة البيانات يرفضها بلا سبب، فالسبب يُطلب أولاً
     if (stage.id === 7) return void openLostForm(deal, stage, reload);
-    // "تمت" بلا قيمة: القيمة هي أساس العمولة التي ينشئها المشغّل، فتُؤكَّد الآن
-    if (stage.is_won && (deal.amount === null || deal.amount === undefined || deal.amount === '')) {
-        return void openAmountForm(deal, stage, reload);
-    }
+    // "تمت": القيمة النهائية أساس العمولة التي ينشئها المشغّل، فتُؤكَّد في كل إتمام ولو كانت معبأة
+    if (stage.is_won) return void openAmountForm(deal, stage, reload);
     applyStage(button, deal, { stage_id: stage.id }, stage, reload);
 }
 
@@ -319,17 +317,44 @@ async function openLostForm(deal, stage, reload) {
     openModal('إغلاق الصفقة كخسارة', form, { narrow: true });
 }
 
-// نموذج الإتمام: القيمة النهائية أساس العمولة، ولا إتمام بلا قيمة
+// النسبتان الافتراضيتان لجدول commissions (007_deals_commissions.sql): المعاينة تحسب كما يحسب الخادم،
+// والنسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة.
+const DEFAULT_RATE = 2.5;
+const DEFAULT_VAT = 15;
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// نموذج الإتمام: السعر النهائي أساس العمولة، ولا إتمام بلا قيمة، ومعه معاينة العمولة قبل التأكيد
 function openAmountForm(deal, stage, reload) {
-    const amount = moneyInput({ value: deal.amount || '', required: true });
+    const amount = moneyInput({ value: deal.amount ?? '', required: true });
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-success btn-sm', text: 'تأكيد الإتمام' });
+    const preview = el('dl', { class: 'won-preview', 'aria-live': 'polite' });
+
+    const line = (label, value, strong) => el('div', { class: 'won-line' + (strong ? ' won-total' : '') }, [
+        el('dt', { text: label }),
+        el('dd', { class: 'num', text: value === null ? '—' : money(value) + ' ريال' })
+    ]);
+    function updatePreview() {
+        const value = parseNumber(amount.value);
+        const base = value !== null && value > 0 ? value : null;
+        const gross = base === null ? null : round2(base * DEFAULT_RATE / 100);
+        const vat = base === null ? null : round2(base * DEFAULT_RATE / 100 * DEFAULT_VAT / 100);
+        replace(preview, [
+            line('العمولة (' + DEFAULT_RATE + '%)', gross),
+            line('ضريبة العمولة (' + DEFAULT_VAT + '%)', vat),
+            line('العمولة مع الضريبة', gross === null ? null : round2(gross + vat), true)
+        ]);
+    }
+    amount.addEventListener('input', updatePreview);
+    updatePreview();
 
     const form = el('form', {}, [
         el('p', {
             class: 'crm-subtle', style: 'margin-bottom:14px',
-            text: 'قيمة الصفقة النهائية هي أساس احتساب العمولة، وتُنشأ العمولة تلقائياً عند الإتمام.'
+            text: 'تأكد من السعر النهائي قبل الإتمام: عليه تُحسب العمولة، وتُنشأ تلقائياً عند الإتمام.'
         }),
-        el('div', { class: 'form-grid' }, [field('قيمة الصفقة (ريال)', amount, { required: true, span2: true })]),
+        el('div', { class: 'form-grid' }, [field('السعر النهائي للصفقة (ريال)', amount, { required: true, span2: true })]),
+        preview,
+        el('p', { class: 'crm-subtle won-note', text: 'النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة.' }),
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
             saveBtn

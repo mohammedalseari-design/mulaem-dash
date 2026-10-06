@@ -52,8 +52,7 @@ export async function renderApprovals(root) {
                     type: 'button', class: 'btn btn-outline btn-sm', text: 'ارفض المكررات',
                     title: 'رفض مسودات المشاريع الجديدة المكررة لمشروع قائم دفعة واحدة — الاعتماد يبقى واحدة واحدة',
                     onclick: (event) => rejectDuplicates(event.currentTarget, load)
-                }),
-                el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تنظيف التكرارات', onclick: () => cleanDuplicateProjects(load) })
+                })
             ]),
             body
         ])
@@ -114,6 +113,9 @@ export async function renderApprovals(root) {
     await load();
 }
 
+// زر «تنظيف التكرارات» مخفي من الطابور: يدمج المشاريع المعلّقة في أصولها المعتمدة ويحذفها دفعة واحدة
+// بلا مراجعة، و«ارفض المكررات» مع «مطابقة مع الأصل» يغطيان الحالة اليومية. الدالة باقية لإعادته عند الحاجة.
+// eslint-disable-next-line no-unused-vars
 async function cleanDuplicateProjects(reload) {
     try {
         const result = await supabase.from('projects')

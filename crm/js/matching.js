@@ -13,7 +13,7 @@ import {
     el, append, replace, clear, loading, empty, errorBox, badge, pager, money, number,
     fmtDate, dash, notify, fail, input, EM_DASH
 } from './ui.js';
-import { districtsText, budgetText, rangeText, deliveryText } from './requirements.js';
+import { districtsText, budgetText, rangeText, deliveryText, sendShareLink } from './requirements.js';
 import { myRole } from './auth.js';
 import { openDealForm } from './deal-form.js';
 
@@ -30,7 +30,7 @@ export async function renderRequirementMatches(root, clientId, requirementId) {
 
     const [{ data: requirement, error }, { data: client }] = await Promise.all([
         supabase.from('client_requirements').select('*').eq('id', requirementId).maybeSingle(),
-        supabase.from('clients').select('id, full_name').eq('id', clientId).maybeSingle()
+        supabase.from('clients').select('id, full_name, phone').eq('id', clientId).maybeSingle()
     ]);
     if (!root.isConnected) return;
 
@@ -187,7 +187,7 @@ function resultsTable(rows, dealContext, onChanged) {
         const shareBtn = el('button', {
             type: 'button', class: 'btn btn-secondary btn-xs', text: 'مشاركة مع العميل'
         });
-        shareBtn.addEventListener('click', () => shareMatch(shareBtn, requirementId, row, onChanged));
+        shareBtn.addEventListener('click', () => shareMatch(shareBtn, dealContext, row, onChanged));
 
         const actions = el('div', { class: 'btn-row' }, [shareBtn, dealButton(dealContext, row)]);
 
@@ -226,7 +226,10 @@ function scoreBadge(score, breakdown) {
 }
 
 // تُحفظ المطابقة عند التصرّف فيها فقط. التكرار (23505) يعني أن الصف موجود، فيُحدَّث.
-async function shareMatch(button, requirementId, row, onChanged) {
+// «مشاركة مع العميل»: يحفظ العقار في عروض العميل (property_matches بحالة shared) ثم يفتح نافذة الإرسال
+// برابط صفحة العروض والرسالة جاهزة لواتساب. الحفظ وحده لا يصل للعميل، فالنافذة جزء من المشاركة.
+async function shareMatch(button, dealContext, row, onChanged) {
+    const requirementId = dealContext.requirementId;
     button.disabled = true;
     const original = button.textContent;
     button.textContent = 'جارٍ الحفظ…';
@@ -257,15 +260,15 @@ async function shareMatch(button, requirementId, row, onChanged) {
         button.textContent = original;
         if (updateError) return void fail(updateError, 'تعذّر تحديث المطابقة');
         if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
-        notify('تم تحديث المطابقة المحفوظة', 'success');
-        return void onChanged();
+        onChanged();
+        return void sendShareLink(button, dealContext.client, requirementId, 'العقار محفوظ من قبل في عروض العميل. أرسل له الرابط ليشاهد عروضه:');
     }
 
     button.disabled = false;
     button.textContent = original;
     if (error) return void fail(error, 'تعذّر حفظ المطابقة');
-    notify('تمت مشاركة العرض مع العميل', 'success');
     onChanged();
+    sendShareLink(button, dealContext.client, requirementId, 'حُفظ العقار في عروض العميل. أرسل له الرابط ليشاهد عروضه:');
 }
 
 /* ===================== المطابقات المحفوظة ===================== */

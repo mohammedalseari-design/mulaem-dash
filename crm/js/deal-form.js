@@ -20,7 +20,7 @@ const CLIENT_LIMIT = 25;
 
 // client: العميل حين يُفتح النموذج من ملفه أو من صف مطابقة، و null حين يُفتح من
 // صفحة العقارات — وعندها يُضاف منتقي عميل يبحث في الخادم كما يبحث منتقي العقار.
-// preset: { requirement_id, project_id, unit_key }
+// preset: { requirement_id, project_id, unit_key, amount } — amount سعر الوحدة المعروض، والموظف يعدّله
 export async function openDealForm(client, preset, onSaved) {
     const seed = preset || {};
     const fixedClient = client || null;

@@ -319,7 +319,8 @@ function rowActions(row, dealAllowed) {
             type: 'button', class: 'btn btn-secondary btn-xs', text: 'فتح صفقة',
             onclick: () => openDealForm(null, {
                 project_id: row.project_id,
-                unit_key: row.unit_ord > 0 ? row.unit_key : null
+                unit_key: row.unit_ord > 0 ? row.unit_key : null,
+                amount: row.price ?? null
             }, (deal) => { location.hash = '#/deals/' + deal.id; })
         })
         : null;

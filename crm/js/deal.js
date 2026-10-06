@@ -9,7 +9,8 @@
 // يطلب السبب قبل الإرسال بدل أن نُري المستخدم خطأ قاعدة بيانات.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
-import { staffMap, staffName, dealStages, lostReasons } from './data.js';
+import { staffMap, staffName, dealStages, lostReasons, brokerStaff } from './data.js';
+import { isAdmin } from './auth.js';
 import { DEAL_STAGE_TONE } from './labels.js';
 import {
     el, append, clear, replace, loading, empty, errorBox, badge, pager, field,
@@ -55,7 +56,7 @@ export async function renderDeal(root, dealId) {
     const historyBody = el('div');
     const commissionHost = el('div');
     append(root, [
-        headerCard(deal, stage, names),
+        headerCard(deal, stage, names, reload),
         stageCard(deal, stages, reload),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [el('h2', { text: 'سجل المراحل' })]),
@@ -72,7 +73,7 @@ export async function renderDeal(root, dealId) {
 
 /* ===================== الترويسة ===================== */
 
-function headerCard(deal, stage, names) {
+function headerCard(deal, stage, names, reload) {
     const kv = (title, value) => el('div', { class: 'kv' }, [
         el('span', { text: title }),
         el('span', {}, value instanceof Node ? value : document.createTextNode(dash(value)))
@@ -114,6 +115,10 @@ function headerCard(deal, stage, names) {
                 el('a', { class: 'btn btn-outline btn-sm', href: '#/deals', text: 'رجوع إلى اللوحة' }),
                 el('a', { class: 'btn btn-secondary btn-sm', href: '#/clients/' + deal.client_id, text: 'ملف العميل' }),
                 el('button', {
+                    type: 'button', class: 'btn btn-outline btn-sm', text: 'تعديل الصفقة',
+                    onclick: () => openDealEdit(deal, stage, reload)
+                }),
+                el('button', {
                     type: 'button', class: 'btn btn-primary btn-sm', text: 'المستندات',
                     onclick: () => openDocumentMenu(deal, stage, names)
                 })
@@ -122,6 +127,69 @@ function headerCard(deal, stage, names) {
         el('div', { class: 'kv-grid' }, rows),
         deal.stage_id === 7 ? lostBox(deal) : null
     ]);
+}
+
+// «تعديل الصفقة»: القيمة والوحدة والإغلاق المتوقع، والوسيط للمدير وحده (الخادم يُبقي وسيط الوسيط كما هو).
+// العمولة تتبع القيمة الجديدة في قاعدة البيانات نفسها ما دام لم يُحصَّل منها شيء، وإلا تُعلَّم للمراجعة
+// (deals_after في 009_hardening.sql)، فالنموذج يقول ذلك ولا يلمس جدول العمولات.
+async function openDealEdit(deal, stage, reload) {
+    let brokers = [];
+    if (isAdmin()) {
+        try {
+            brokers = (await brokerStaff()).map((p) => ({ value: p.id, label: p.fullname || p.username }));
+        } catch (error) {
+            return void fail(error, 'تعذّر تحميل أسماء الوسطاء');
+        }
+    }
+    const amount = moneyInput({ value: deal.amount ?? '' });
+    const unitKey = el('input', { type: 'text', value: deal.unit_key || '', maxLength: 120, placeholder: 'اسم الوحدة أو رقمها (اختياري)' });
+    const expectedClose = el('input', { type: 'date', value: deal.expected_close_date || '' });
+    const broker = isAdmin() ? select(brokers, deal.broker_id || '') : null;
+    const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'حفظ التعديل' });
+
+    const form = el('form', {}, [
+        el('div', { class: 'form-grid' }, [
+            field('قيمة الصفقة (ريال)', amount, {
+                hint: stage && stage.is_won
+                    ? 'الصفقة تمت: إن لم يُحصَّل شيء من العمولة تتبعها العمولة تلقائياً، وإلا تُعلَّم للمراجعة.'
+                    : 'أساس العمولة عند الإتمام.'
+            }),
+            field('الإغلاق المتوقع', expectedClose),
+            field('الوحدة', unitKey, { span2: true }),
+            broker ? field('الوسيط', broker, { span2: true }) : null
+        ]),
+        el('div', { class: 'btn-row btn-row-end' }, [
+            el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
+            saveBtn
+        ])
+    ]);
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const value = parseNumber(amount.value);
+        if (stage && stage.is_won && (value === null || value <= 0)) {
+            return void notify('الصفقة تمت: قيمتها مطلوبة لأنها أساس العمولة', 'error', 7000);
+        }
+        const patch = {
+            amount: value,
+            unit_key: unitKey.value.trim() || null,
+            expected_close_date: expectedClose.value || null
+        };
+        if (broker && broker.value) patch.broker_id = broker.value;
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'جارٍ الحفظ…';
+        const { data, error } = await supabase.from('deals').update(patch).eq('id', deal.id).select('id');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'حفظ التعديل';
+        if (error) return void fail(error, 'تعذّر تعديل الصفقة');
+        if (!data || data.length === 0) return void notify('لا تملك صلاحية تعديل هذه الصفقة', 'error', 8000);
+        closeModal();
+        notify('تم حفظ تعديل الصفقة', 'success');
+        reload();
+    });
+
+    openModal('تعديل الصفقة', form, { narrow: true });
 }
 
 function printDealSummary(deal, stage, names) {

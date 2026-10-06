@@ -287,7 +287,8 @@ function dealButton(dealContext, row) {
         onclick: () => openDealForm(dealContext.client, {
             requirement_id: dealContext.requirementId,
             project_id: row.project_id,
-            unit_key: row.unit_key
+            unit_key: row.unit_key,
+            amount: row.price ?? null
         }, (deal) => { location.hash = '#/deals/' + deal.id; })
     });
 }

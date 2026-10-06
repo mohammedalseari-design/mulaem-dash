@@ -607,7 +607,11 @@ body.crm-dark .login-box { background: #1d3b40; }
     margin: 12px 0 14px;
     font-variant-numeric: tabular-nums;
 }
-.share-property .btn { width: 100%; margin-top: auto; }
+.share-property .btn { width: 100%; }
+/* صورة العقار وأزراره: «أنا مهتم» أولاً، ثم الخريطة، ثم النسخ (029) */
+.share-photo { display: block; width: calc(100% + 40px); max-width: none; margin: -20px -20px 10px; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 16px 16px 0 0; background: var(--soft); }
+.share-actions { display: grid; gap: 8px; margin-top: auto; }
+.share-broker { font-weight: 600; }
 
 /* ===================== الجوال ===================== */
 

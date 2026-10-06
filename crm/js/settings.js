@@ -5,12 +5,26 @@
 //
 // الأوزان تُقرأ داخل match_requirement عند كل استدعاء، فتغييرها يظهر في النتيجة
 // التالية مباشرة بلا نشر ولا ترحيل.
+//
+// حدود المساعد اليومية تُقرأ قبل كل نداء نموذج (agent_router_budget في 022_agent_router.sql،
+// وwa_triage_daily_usd_cap في 026_wa_triage.sql)، فتغييرها يسري على الطلب التالي. ورقم واتساب
+// المكتب يظهر في صفحة العروض للعميل («أنا مهتم») متى أعادته get_client_share (029).
 
 import { supabase } from './supabase.js';
 import {
     el, replace, loading, errorBox, field, input, parseNumber,
-    notify, fail, number, pageHead
+    notify, fail, number, pageHead, waNumber
 } from './ui.js';
+
+// الحدود اليومية: مفتاح crm_settings، والقيمة الافتراضية كما في الترحيل، وأقصى ما يُقبل من الشاشة
+const LIMITS = [
+    { key: 'agent_daily_usd_cap', label: 'حد صرف المساعد اليومي (دولار)', fallback: 2, max: 50, step: 'any',
+      hint: 'إذا بلغه المساعد توقفت طلبات اليوم وتفشل، ويعيد الموظف إرسالها غداً. الدولار ≈ 3.75 ريال.' },
+    { key: 'agent_daily_escalations', label: 'حد الانتقال إلى النماذج الأقوى يومياً', fallback: 10, max: 200, step: '1',
+      hint: 'عدد المرات التي يُسمح فيها بالنموذج الأغلى في اليوم.' },
+    { key: 'wa_triage_daily_usd_cap', label: 'حد صرف فرز واتساب (Jev) اليومي (دولار)', fallback: 0.5, max: 20, step: 'any',
+      hint: 'يخص صفحة «عروض واتساب» وحدها.' }
+];
 
 // مفاتيح jsonb كما هي في قاعدة البيانات، والنص المقابل للعرض فقط
 const WEIGHTS = [
@@ -29,7 +43,7 @@ export async function renderSettings(root) {
     const { data, error } = await supabase
         .from('crm_settings')
         .select('key, value')
-        .in('key', ['match_weights', 'default_city']);
+        .in('key', ['match_weights', 'default_city', 'office_whatsapp'].concat(LIMITS.map((l) => l.key)));
 
     if (!root.isConnected) return;
     if (error) return void replace(root, errorBox(error, 'تعذّر تحميل الإعدادات'));
@@ -129,7 +143,97 @@ export async function renderSettings(root) {
     });
 
     if (!root.isConnected) return;
-    replace(root, [pageHead('الإعدادات', 'أوزان المطابقة والمدينة الافتراضية. التغيير يسري فوراً.'), form]);
+    replace(root, [
+        pageHead('الإعدادات', 'أوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        form,
+        limitsForm(stored),
+        officeForm(stored)
+    ]);
+}
+
+// قراءة رقم من jsonb كما تقرؤه agent_setting_number: رقم أو نص رقمي، وإلا الافتراضي
+function storedNumber(value, fallback) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(value)) return Number(value);
+    return fallback;
+}
+
+function limitsForm(stored) {
+    const boxes = LIMITS.map((limit) => ({
+        limit,
+        node: input({ type: 'number', min: '0', max: String(limit.max), step: limit.step, inputMode: 'decimal',
+            value: String(storedNumber(stored[limit.key], limit.fallback)) })
+    }));
+    const spent = el('div', { class: 'crm-subtle', text: 'صرف المساعد اليوم: جارٍ الحساب…' });
+    todaySpend().then((value) => {
+        if (!spent.isConnected) return;
+        spent.textContent = value === null ? '' : 'صرف المساعد اليوم حتى الآن: ' + value.toFixed(2) + ' دولار.';
+    });
+    const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'حفظ الحدود' });
+    const form = el('form', { class: 'crm-card' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'حدود المساعد اليومية' })]),
+        el('div', { class: 'form-grid' }, boxes.map((box) => field(box.limit.label, box.node, { hint: box.limit.hint }))),
+        spent,
+        el('div', { class: 'btn-row btn-row-end' }, saveBtn)
+    ]);
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const rows = [];
+        for (const box of boxes) {
+            const value = parseNumber(box.node.value);
+            if (value === null || value < 0 || value > box.limit.max) {
+                return void notify('«' + box.limit.label + '» يجب أن يكون بين 0 و' + box.limit.max, 'error', 7000);
+            }
+            rows.push({ key: box.limit.key, value: box.limit.step === '1' ? Math.round(value) : value });
+        }
+        await saveRows(saveBtn, 'حفظ الحدود', rows, 'تم حفظ الحدود — تسري على الطلب التالي');
+    });
+    return form;
+}
+
+// صرف اليوم (توقيت الرياض) من سجل نداءات النموذج — مقروء للمدير وحده، فغيره لا يرى سطراً
+async function todaySpend() {
+    const now = new Date();
+    const riyadh = new Date(now.getTime() + (now.getTimezoneOffset() + 180) * 60000);
+    const start = new Date(Date.UTC(riyadh.getFullYear(), riyadh.getMonth(), riyadh.getDate()) - 180 * 60000);
+    const { data, error } = await supabase.from('agent_model_calls').select('cost_usd')
+        .gte('created_at', start.toISOString()).range(0, 999);
+    if (error) return null;
+    return (data || []).reduce((sum, row) => sum + Number(row.cost_usd || 0), 0);
+}
+
+function officeForm(stored) {
+    const phone = input({ type: 'tel', dir: 'ltr', maxLength: 20, placeholder: '05xxxxxxxx',
+        value: typeof stored.office_whatsapp === 'string' ? stored.office_whatsapp : '' });
+    const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'حفظ الرقم' });
+    const form = el('form', { class: 'crm-card' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'واتساب المكتب' })]),
+        el('div', { class: 'form-grid' }, [
+            field('رقم واتساب المكتب', phone, { hint: 'يظهر للعميل في صفحة العروض بزر «أنا مهتم — واتساب». اتركه فارغاً لإخفاء الزر.' })
+        ]),
+        el('div', { class: 'btn-row btn-row-end' }, saveBtn)
+    ]);
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const value = phone.value.trim();
+        if (value && !/^9665\d{8}$/.test(waNumber(value))) {
+            return void notify('اكتب رقم جوال سعودياً، مثل 0551234567', 'error', 7000);
+        }
+        await saveRows(saveBtn, 'حفظ الرقم', [{ key: 'office_whatsapp', value: value ? waNumber(value) : '' }], 'تم حفظ رقم واتساب المكتب');
+    });
+    return form;
+}
+
+async function saveRows(button, label, rows, done) {
+    button.disabled = true;
+    button.textContent = 'جارٍ الحفظ…';
+    const { data, error } = await supabase.from('crm_settings').upsert(rows, { onConflict: 'key' }).select('key');
+    button.disabled = false;
+    button.textContent = label;
+    if (error) return void fail(error, 'تعذّر الحفظ');
+    if (!data || data.length === 0) return void notify('لا تملك صلاحية تعديل الإعدادات', 'error', 8000);
+    notify(done, 'success');
 }
 
 function isObject(value) {

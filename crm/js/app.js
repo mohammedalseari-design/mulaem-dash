@@ -312,12 +312,43 @@ function hideBoot() {
     if (boot) boot.classList.add('crm-hidden');
 }
 
-function showLogin(message) {
+// علامة «كان داخلاً» في هذا المتصفح (يشاركها js/script.js): من وصل إلى شاشة الدخول وهي قائمة انتهت جلسته
+// دون أن يخرج بنفسه، فيُقال له ذلك بدل شاشة دخول صامتة. الخروج المقصود يمحوها أولاً.
+const SIGNED_IN_KEY = 'mulaem-signed-in';
+function markSignedIn() { try { localStorage.setItem(SIGNED_IN_KEY, '1'); } catch (_) { /* تخزين محجوب */ } }
+function clearSignedIn() { try { localStorage.removeItem(SIGNED_IN_KEY); } catch (_) { /* تخزين محجوب */ } }
+function takeSessionEnded() {
+    let was = false;
+    try { was = localStorage.getItem(SIGNED_IN_KEY) === '1'; } catch (_) { was = false; }
+    clearSignedIn();
+    return was;
+}
+
+// رسائل الدخول بالعربية كما في js/supabase-shim.js، لا نص Supabase الإنجليزي
+function loginErrorText(error) {
+    const e = error || {};
+    const message = String(e.message || '');
+    if (e.name === 'AuthRetryableFetchError' || e.name === 'AuthUnknownError' || e.status >= 500 || e instanceof TypeError) {
+        return 'تعذّر الاتصال بالخادم. تأكد من الإنترنت ثم أعد المحاولة.';
+    }
+    if (e.code === 'user_banned' || /banned/i.test(message)) return 'تم تعطيل حسابك من قبل الإدارة. تواصل مع المدير.';
+    if (e.status === 429 || e.code === 'over_request_rate_limit') {
+        return 'محاولات دخول كثيرة من هذه الشبكة. انتظر بضع دقائق ثم أعد المحاولة.';
+    }
+    if (e.code === 'invalid_credentials' || /invalid login credentials/i.test(message) || e.status === 400) {
+        return 'اسم المستخدم أو كلمة المرور غير صحيحة.';
+    }
+    return 'تعذّر تسجيل الدخول: ' + errorText(error);
+}
+
+// info: رسالة إخبار لا خطأ (انتهاء الجلسة)، بلون هادئ
+function showLogin(message, info) {
     appReady = false;
     hideBoot();
     document.getElementById('appScreen').classList.remove('active');
     document.getElementById('loginScreen').classList.remove('crm-hidden');
     const box = document.getElementById('loginError');
+    box.classList.toggle('is-info', Boolean(info));
     // .login-error مخفي أصلاً في css/style.css (display:none) واللوحة القديمة تُظهره بـ style.display،
     // فإزالة crm-hidden وحدها كانت تترك نموذج الدخول بلا سبب المنع أو الخطأ
     if (message) {
@@ -332,6 +363,7 @@ function showLogin(message) {
 }
 
 function showApp() {
+    markSignedIn();
     hideBoot();
     document.getElementById('loginScreen').classList.add('crm-hidden');
     document.getElementById('appScreen').classList.add('active');
@@ -351,6 +383,13 @@ function showApp() {
 function wireLogin() {
     const form = document.getElementById('loginForm');
     const button = document.getElementById('loginBtn');
+    // الرسالة تبقى ظاهرة حتى يبدأ الموظف الكتابة من جديد
+    for (const id of ['username', 'password']) {
+        document.getElementById(id).addEventListener('input', () => {
+            const box = document.getElementById('loginError');
+            if (box.style.display === 'block') showLogin();
+        });
+    }
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -373,7 +412,7 @@ function wireLogin() {
                 showApp();
             }
         } catch (error) {
-            showLogin('تعذّر تسجيل الدخول: ' + errorText(error));
+            showLogin(loginErrorText(error));
         } finally {
             button.disabled = false;
             button.textContent = 'دخول';
@@ -384,6 +423,7 @@ function wireLogin() {
 function wireLogout() {
     document.getElementById('logoutBtn').addEventListener('click', async () => {
         try {
+            clearSignedIn();
             await signOut();
             location.reload();
         } catch (error) {
@@ -420,6 +460,7 @@ let selfSignOut = false;
 
 async function endSession() {
     selfSignOut = true;
+    clearSignedIn();
     await signOut().catch(() => {});
 }
 
@@ -456,7 +497,9 @@ async function boot() {
         return;
     }
 
-    if (!state.session) return showLogin();
+    if (!state.session) {
+        return takeSessionEnded() ? showLogin('انتهت جلستك. سجّل الدخول من جديد.', true) : showLogin();
+    }
     if (!profile) {
         await endSession();
         return showLogin('لا يوجد ملف مستخدم مرتبط بهذا الحساب. راجع المدير.');

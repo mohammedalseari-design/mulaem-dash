@@ -10,15 +10,22 @@ import {
 } from './ui.js';
 import { openClientForm } from './client-form.js';
 
+// البحث والحالة والصفحة ومكان التمرير تبقى ما دامت الصفحة مفتوحة: الرجوع من ملف عميل يعيد القائمة
+// كما تُركت بدل أولها. لا تخزين في المتصفح؛ إعادة التحميل تبدأ من جديد.
+const remembered = { page: 0, search: '', status: '', scroll: 0 };
+
 export async function renderClients(root) {
-    const view = { page: 0, search: '', status: '' };
+    const view = remembered;
+    const restoreScroll = view.scroll;
+    view.scroll = 0;
     let names = new Map();
 
     const body = el('div');
     const searchBox = el('input', {
-        type: 'search', class: 'crm-search', placeholder: 'ابحث بالاسم أو رقم الجوال…', autocomplete: 'off'
+        type: 'search', class: 'crm-search', placeholder: 'ابحث بالاسم أو رقم الجوال…', autocomplete: 'off',
+        value: view.search
     });
-    const statusBox = select(optionList(CLIENT_STATUS, 'كل الحالات'), '');
+    const statusBox = select(optionList(CLIENT_STATUS, 'كل الحالات'), view.status);
 
     let debounce = null;
     searchBox.addEventListener('input', () => {
@@ -85,6 +92,7 @@ export async function renderClients(root) {
     }
 
     await load();
+    if (restoreScroll > 0 && root.isConnected) requestAnimationFrame(() => window.scrollTo(0, restoreScroll));
 }
 
 function table(rows, names) {
@@ -101,7 +109,7 @@ function table(rows, names) {
     for (const row of rows) {
         const tr = el('tr', {
             class: 'clickable',
-            onclick: () => { location.hash = '#/clients/' + row.id; }
+            onclick: () => { remembered.scroll = window.scrollY; location.hash = '#/clients/' + row.id; }
         }, [
             el('td', {}, el('strong', { text: row.full_name })),
             el('td', {}, phoneLinks(row.phone)),

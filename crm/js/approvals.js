@@ -18,7 +18,7 @@ import { sourcesList, decisionsBox } from './assistant.js';
 import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn
+    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn, money
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -538,10 +538,11 @@ function draftCards(rows, names, reload, twinState) {
 function draftCard(draft, names, reload, twinState) {
     const card = el('div', { class: 'agent-draft' });
     const isNew = !draft.target_id;
+    const titleNode = el('strong', { text: isNew ? 'سجل جديد' : 'تعديل على سجل قائم — ' + draft.target_id });
 
     card.appendChild(el('div', { class: 'agent-source-head' }, [
         badge(label(DRAFT_TARGET, draft.target_kind), 'blue'),
-        el('strong', { text: isNew ? 'سجل جديد' : 'تعديل على سجل قائم — ' + draft.target_id }),
+        titleNode,
         badge(label(DRAFT_STATUS, draft.status), DRAFT_STATUS_TONE[draft.status] || 'neutral'),
         el('span', { class: 'crm-subtle', text: 'أعدّها ' + staffName(names, draft.created_by) })
     ]));
@@ -551,6 +552,18 @@ function draftCard(draft, names, reload, twinState) {
         card.appendChild(el('div', { class: 'crm-warn-box' }, [
             el('strong', { text: 'تنبيه السعر — راجعه قبل الاعتماد' }),
             el('ul', { class: 'agent-list' }, alerts.map((c) => el('li', { text: c.note + (c.quote ? ' — ' + c.quote : '') })))
+        ]));
+    }
+
+    const existing = isNew && OPEN_DRAFT.includes(draft.status)
+        ? (draft.duplicates || []).filter((d) => d && d.kind === 'project' && d.id) : [];
+    if (existing.length) {
+        card.appendChild(el('div', { class: 'crm-warn-box dup-strong' }, [
+            el('strong', { text: 'يطابق مشروعاً قائماً — تأكد قبل الاعتماد أنه ليس مكرراً، أو استعمل «مطابقة مع الأصل»' }),
+            el('ul', { class: 'agent-list' }, existing.slice(0, 3).map((d) => el('li', {
+                text: 'المشروع رقم ' + d.id + (d.name ? ' «' + d.name + '»' : '') + (d.district ? ' (' + d.district + ')' : '')
+                    + (d.reason ? ' — ' + d.reason : '')
+            })))
         ]));
     }
 
@@ -575,6 +588,7 @@ function draftCard(draft, names, reload, twinState) {
         replace(fieldsBox, loading('جارٍ قراءة السجل الهدف'));
         targetRow(draft.target_kind, draft.target_id).then((row) => {
             if (!fieldsBox.isConnected) return;
+            if (row) titleNode.textContent = 'تعديل على: ' + targetName(draft, row);
             replace(fieldsBox, [
                 row ? null : el('div', { class: 'crm-warn-box', text: 'تعذّرت قراءة السجل الهدف — المقارنة غير متاحة، والاعتماد سيتحقق منه على الخادم.' }),
                 fieldsTable(draft, row)
@@ -616,10 +630,12 @@ function fieldsTable(draft, current) {
     const body = el('tbody');
     // القيم المركّبة التي تكتبها وظيفة الاستخراج (التفاصيل، الطلب المرفق، الوحدات) تُفرد صفوفاً
     // بدليل كل حقل فرعي على حدة، بدل نص JSON واحد لا يُراجَع.
-    const addRow = (displayKey, value, ev, skipped, cur) => {
-        const before = current ? valueText(cur) : null;
-        const after = valueText(value);
-        const changed = current ? before !== after : true;
+    const addRow = (displayKey, value, ev, skipped, cur, rawKey) => {
+        const changed = current ? valueText(cur) !== valueText(value) : true;
+        const isMoney = PRICE_KEY.test(rawKey || '') && amountOf(value) !== null;
+        const before = current ? (isMoney && amountOf(cur) !== null ? money(amountOf(cur)) + ' ريال' : valueText(cur)) : null;
+        const after = isMoney ? money(amountOf(value)) + ' ريال' : valueText(value);
+        const diff = current && isMoney && changed ? priceDiff(amountOf(cur), amountOf(value)) : null;
         body.appendChild(el('tr', { class: changed ? '' : 'agent-row-same' }, [
             el('td', {}, [
                 el('strong', { text: displayKey }),
@@ -627,7 +643,7 @@ function fieldsTable(draft, current) {
                 isSuggested(ev, value) ? el('div', {}, badge('اسم مقترح', 'gold')) : null
             ]),
             current ? el('td', { class: 'crm-subtle', text: before }) : null,
-            el('td', { text: after }),
+            el('td', {}, [el('span', { text: after }), diff]),
             el('td', { class: 'crm-subtle' }, evidenceCell(ev, value))
         ]));
     };
@@ -637,20 +653,50 @@ function fieldsTable(draft, current) {
         const value = proposed[key];
         const nested = value && typeof value === 'object' && !Array.isArray(value) && (key === 'details' || key === 'requirement');
         if (!nested) {
-            addRow(label(AGENT_FIELD, key, key), value, evidence[key], skipped, current ? current[key] : undefined);
+            addRow(label(AGENT_FIELD, key, key), value, evidence[key], skipped, current ? current[key] : undefined, key);
             continue;
         }
         const currentSub = current && current[key] && typeof current[key] === 'object' ? current[key] : {};
         for (const sub of Object.keys(value)) {
             if (sub === 'models' && Array.isArray(value.models)) continue;
             addRow(label(AGENT_FIELD, key, key) + ' — ' + label(AGENT_FIELD, sub, sub), value[sub],
-                   evidence[key + '.' + sub], skipped, currentSub[sub]);
+                   evidence[key + '.' + sub], skipped, currentSub[sub], sub);
         }
     }
     const table = el('table', { class: 'users-table crm-table' }, [head, body]);
     const models = proposed.details && Array.isArray(proposed.details.models) ? proposed.details.models : null;
     if (!models) return table;
     return el('div', {}, [table, unitsTable(models, evidence, allowed.indexOf('details') === -1)]);
+}
+
+// حقول المال تُعرض بفواصل وريال. النص لا يُعدّ رقماً إلا إن كان أرقاماً وفواصل فقط («يبدأ من 600 ألف» يبقى نصاً).
+const PRICE_KEY = /price|budget|amount|commission/i;
+
+function amountOf(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string' || !/^\s*[\d٠-٩.,٬\s]+\s*$/.test(value)) return null;
+    const n = Number(toAsciiDigits(value).replace(/[^\d.]/g, ''));
+    return Number.isFinite(n) && value.trim() !== '' ? n : null;
+}
+
+// مقدار التغيير ونسبته تحت القيمة المقترحة؛ أكثر من 15% يُلوَّن تنبيهاً
+function priceDiff(before, after) {
+    if (before === null || after === null || before === after) return null;
+    const delta = after - before;
+    const pct = before ? (delta / before) * 100 : null;
+    const sign = delta > 0 ? '+' : '−';
+    const text = (delta > 0 ? 'زيادة ' : 'نقص ') + money(Math.abs(delta)) + ' ريال'
+        + (pct === null ? '' : ' (' + sign + Math.abs(pct).toFixed(1) + '%)');
+    return el('div', { class: 'price-diff' + (pct === null || Math.abs(pct) > 15 ? ' price-diff-big' : '') }, text);
+}
+
+// اسم السجل الهدف لعنوان مسودة التعديل، مع رقمه
+function targetName(draft, row) {
+    const id = ' (رقم ' + draft.target_id + ')';
+    if (draft.target_kind === 'project') return (row.name || 'مشروع') + id;
+    if (draft.target_kind === 'client') return (row.full_name || 'عميل') + id;
+    if (draft.target_kind === 'unit') return 'وحدة «' + (row.name || row.type || '—') + '»' + id;
+    return label(DRAFT_TARGET, draft.target_kind) + id;
 }
 
 // وحدات المشروع المقترحة: صف لكل نموذج، والدليل مجمَّع أسفل الجدول لكل خلية لها اقتباس.
@@ -661,7 +707,11 @@ function unitsTable(models, evidence, skipped) {
     const body = el('tbody');
     const quotes = el('ul', { class: 'agent-list' });
     models.forEach((m, i) => {
-        body.appendChild(el('tr', {}, UNIT_COLUMNS.map((c) => el('td', { text: valueText(m ? m[c] : null) }))));
+        body.appendChild(el('tr', {}, UNIT_COLUMNS.map((c) => {
+            const value = m ? m[c] : null;
+            const amount = PRICE_KEY.test(c) ? amountOf(value) : null;
+            return el('td', { text: amount !== null ? money(amount) : valueText(value) });
+        })));
         for (const c of UNIT_COLUMNS) {
             const ev = evidence['units.' + i + '.' + c];
             if (!ev || !ev.quote) continue;

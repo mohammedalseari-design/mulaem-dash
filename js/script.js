@@ -132,18 +132,23 @@ window.addEventListener('load', async function () {
         return;
     }
     if (check.status !== 'ok') {
-        // حساب موقوف، أو جلسة بلا ملف مستخدم: تُنهى ونبقى على شاشة الدخول
+        // حساب موقوف، أو جلسة بلا ملف مستخدم: تُنهى ونبقى على شاشة الدخول.
+        // ومن كان داخلاً في هذا المتصفح ولم يخرج بنفسه (علامة mulaem-signed-in) يُقال له إن جلسته انتهت
+        const ended = takeSessionEnded();
         await endSession();
         // على جهاز مشترك قد لا يكون الجالس أمام الشاشة صاحب الجلسة المحفوظة: نسمّي الحساب
         if (check.status === 'blocked') {
             const account = check.username ? `حساب «${check.username}»` : 'الحساب';
             showLoginNotice(`تم تعطيل ${account} من قبل الإدارة. تواصل مع المدير.`);
+        } else if (ended) {
+            showLoginNotice('انتهت جلستك. سجّل الدخول من جديد.');
         }
         finishSessionCheck();
         return;
     }
 
     finishSessionCheck();
+    markSignedIn();
     currentUser = check.user;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appContainer').classList.add('active');
@@ -172,6 +177,7 @@ document.getElementById('loginForm').addEventListener('submit', async function (
         const result = await response.json();
 
         if (result.status === 'success') {
+            markSignedIn();
             currentUser = result.user;
 
             document.getElementById('loginScreen').style.display = 'none';
@@ -209,13 +215,23 @@ document.getElementById('loginForm').addEventListener('submit', async function (
     }
 });
 
+// رسالة الخطأ تبقى حتى يبدأ المستخدم الكتابة (كانت تختفي بعد 3 ثوانٍ قبل أن تُقرأ)
 function showError(msg) {
     const errorDiv = document.getElementById('loginError');
     errorDiv.textContent = msg;
     errorDiv.style.display = 'block';
-    setTimeout(() => {
-        errorDiv.style.display = 'none';
-    }, 3000);
+}
+['username', 'password'].forEach(function (id) {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('input', function () { document.getElementById('loginError').style.display = 'none'; });
+});
+
+// علامة «كان داخلاً» يشاركها crm/js/app.js: الخروج المقصود يمحوها، وانتهاء الجلسة يتركها فيُخبَر المستخدم
+function markSignedIn() { try { localStorage.setItem('mulaem-signed-in', '1'); } catch (e) { /* تخزين محجوب */ } }
+function takeSessionEnded() {
+    let was = false;
+    try { was = localStorage.getItem('mulaem-signed-in') === '1'; localStorage.removeItem('mulaem-signed-in'); } catch (e) { was = false; }
+    return was;
 }
 
 // رسالة ثابتة على شاشة الدخول (showError تخفي رسالتها بعد 3 ثوانٍ)
@@ -286,6 +302,7 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
                     new Promise((resolve) => setTimeout(resolve, 3000))
                 ]);
             }
+            try { localStorage.removeItem('mulaem-signed-in'); } catch (e) { /* تخزين محجوب */ }
             await endSession();
             location.reload();
         }

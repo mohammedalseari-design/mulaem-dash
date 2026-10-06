@@ -20,6 +20,9 @@ const TABS = [
     { key: 'timeline', label: 'السجل', render: renderTimeline }
 ];
 
+// آخر تبويب لكل عميل ما دامت الصفحة مفتوحة: الرجوع من مطابقة أو صفقة يعيدك إلى التبويب نفسه
+const lastTab = new Map();
+
 function visibleTabs() {
     return TABS.filter((tab) => !tab.deny || tab.deny !== myRole());
 }
@@ -57,7 +60,7 @@ export async function renderClient(root, clientId) {
     renderHeader(header, context);
 
     const tabs = visibleTabs();
-    let active = tabs[0].key;
+    let active = tabs.some((t) => t.key === lastTab.get(clientId)) ? lastTab.get(clientId) : tabs[0].key;
     for (const tab of tabs) {
         tabsBar.appendChild(el('button', {
             type: 'button', class: 'admin-tab', text: tab.label,
@@ -68,6 +71,7 @@ export async function renderClient(root, clientId) {
 
     function selectTab(key) {
         active = key;
+        lastTab.set(clientId, key);
         for (const button of tabsBar.querySelectorAll('.admin-tab')) {
             button.classList.toggle('active', button.dataset.tab === key);
         }

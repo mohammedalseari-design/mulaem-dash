@@ -118,6 +118,7 @@ function requestsTable(rows) {
         el('th', { text: 'النوع' }),
         el('th', { text: 'العنوان' }),
         el('th', { text: 'الحالة' }),
+        el('th', { text: 'المطلوب منك' }),
         el('th', { text: 'المرفقات' }),
         el('th', { text: 'المسودات' }),
         el('th', { text: 'التاريخ' })
@@ -134,6 +135,7 @@ function requestsTable(rows) {
             el('td', { text: label(AGENT_KIND, row.kind) }),
             el('td', {}, el('strong', { text: dash(row.title) })),
             el('td', {}, statusBadge(row)),
+            el('td', {}, nextStep(row)),
             el('td', { class: 'num', text: number((row.agent_sources || []).length) }),
             el('td', { class: 'num', text: drafts.length + (waiting ? ' (' + waiting + ' بانتظار الاعتماد)' : '') }),
             el('td', { class: 'crm-subtle', text: fmtDateTime(row.created_at) })
@@ -291,6 +293,22 @@ function statusBadge(request) {
         return badge(AGENT_STAGE[request.stage] + '…', AGENT_REQUEST_STATUS_TONE.running);
     }
     return badge(label(AGENT_REQUEST_STATUS, request.status), AGENT_REQUEST_STATUS_TONE[request.status] || 'neutral');
+}
+
+// «المطلوب منك» في «طلباتي»: الخطوة التالية بكلمات الموظف، من حالة الطلب ومسوداته. الأهم أولاً:
+// ما ينتظر يده (اختيار، مسودة لم تُرسل، مسودة أُعيدت، فشل)، ثم ما ينتظر غيره.
+function nextStep(row) {
+    const drafts = row.agent_drafts || [];
+    const count = (status) => drafts.filter((d) => d.status === status).length;
+    if (row.status === 'ready' && Array.isArray(row.candidates) && row.candidates.length) return badge('اختر المشروع المقصود', 'orange');
+    if (count('returned')) return badge('أُعيدت إليك — راجعها وأرسلها', 'red');
+    if (count('draft')) return badge('أرسل المسودة للاعتماد', 'orange');
+    if (row.status === 'failed') return badge('تعذّر — أعد المحاولة', 'red');
+    if (row.status === 'queued' || row.status === 'running') return el('span', { class: 'crm-subtle', text: 'انتظر — المساعد يعمل' });
+    if (count('submitted')) return el('span', { class: 'crm-subtle', text: 'بانتظار اعتماد المدير' });
+    if (drafts.length && drafts.every((d) => d.status === 'applied' || d.status === 'approved')) return badge('اعتُمدت ✓', 'green');
+    if (drafts.length && drafts.every((d) => d.status === 'rejected')) return el('span', { class: 'crm-subtle', text: 'رُفضت' });
+    return el('span', { class: 'crm-subtle', text: 'لا شيء' });
 }
 
 // صفحة الطلب تُعاد قراءتها كل بضع ثوانٍ ما دام التنفيذ جارياً، وتتوقف حين يغادرها المستخدم.

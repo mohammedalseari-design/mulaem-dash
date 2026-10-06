@@ -210,19 +210,21 @@ function openDocumentMenu(deal, stage, names) {
     openModal('اختيار المستند', el('div', { class: 'btn-row' }, buttons), { narrow: true });
 }
 
-function printDealDocument(deal, stage, names, kind) {
+async function printDealDocument(deal, stage, names, kind) {
     const clientName = deal.client ? deal.client.full_name : 'العميل';
     const projectName = deal.project ? deal.project.name : (deal.project_id ? 'عقار رقم ' + deal.project_id : 'غير محدد');
     const brokerName = staffName(names, deal.broker_id);
     const amount = deal.amount === null || deal.amount === undefined ? 'غير محددة' : money(deal.amount) + ' ريال';
     const titles = { summary: 'ملخص الصفقة', offer: 'عرض عقاري', eoi: 'خطاب إبداء رغبة', invoice: 'فاتورة عمولة' };
     const title = titles[kind] || titles.summary;
-    const rows = documentRows(kind, deal, stage, clientName, projectName, brokerName, amount);
     // بلا noopener/noreferrer: أيٌّ منهما يجعل window.open تُرجع null دائماً، فكان المستند لا يُكتب أبداً
-    // ويظهر «اسمح بالنوافذ المنبثقة» مع نافذة فارغة. نقطع opener بأنفسنا قبل الكتابة، وnull بعدها حظرٌ حقيقي
+    // ويظهر «اسمح بالنوافذ المنبثقة» مع نافذة فارغة. نقطع opener بأنفسنا قبل الكتابة، وnull بعدها حظرٌ حقيقي.
+    // النافذة تُفتح قبل أي انتظار (حاجب النوافذ يسمح بها داخل الضغطة فقط)، ثم تُقرأ تفاصيل الوحدة للعرض.
     const popup = window.open('', '_blank', 'width=900,height=700');
     if (!popup) return void notify('اسمح بالنوافذ المنبثقة لطباعة المستند', 'error', 8000);
     popup.opener = null;
+    const unitRows = kind === 'offer' ? await offerRows(deal) : null;
+    const rows = documentRows(kind, deal, stage, clientName, projectName, brokerName, amount, unitRows);
 
     const cells = rows.map((row) => '<tr><th>' + escapeHtml(row[0]) + '</th><td>' + escapeHtml(row[1]) + '</td></tr>').join('');
     popup.document.write('<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>' + escapeHtml(title) + ' - ' + escapeHtml(clientName) + '</title>'
@@ -233,7 +235,38 @@ function printDealDocument(deal, stage, names, kind) {
     popup.document.close();
 }
 
-function documentRows(kind, deal, stage, clientName, projectName, brokerName, amount) {
+// «عرض عقاري» يُعطى للعميل: مواصفات الوحدة وموقعها من v_units، لا المرحلة الداخلية ولا تاريخ الإغلاق المتوقع
+async function offerRows(deal) {
+    if (!deal.project_id) return [];
+    let query = supabase.from('v_units')
+        .select('unit_key, unit_type, district, city, rooms, bathrooms, area, price, construction_status, developer, latitude, longitude')
+        .eq('project_id', deal.project_id)
+        .order('unit_ord', { ascending: true })
+        .range(0, 0);
+    if (deal.unit_key) query = query.eq('unit_key', deal.unit_key);
+    const { data, error } = await query;
+    const unit = !error && data && data[0];
+    if (!unit) return [];
+    const has = (value) => value !== null && value !== undefined && value !== '';
+    const rows = [];
+    if (has(unit.unit_type)) rows.push(['نوع الوحدة', unit.unit_type]);
+    const place = [unit.district, unit.city].filter(Boolean).join('، ');
+    if (place) rows.push(['الموقع', place]);
+    if (has(unit.rooms)) rows.push(['الغرف', String(unit.rooms)]);
+    if (has(unit.bathrooms)) rows.push(['دورات المياه', String(unit.bathrooms)]);
+    if (has(unit.area)) rows.push(['المساحة', money(unit.area) + ' م²']);
+    if (has(unit.construction_status)) rows.push(['الحالة الإنشائية', unit.construction_status]);
+    if (has(unit.developer)) rows.push(['المطوّر', unit.developer]);
+    if (has(unit.price)) rows.push(['السعر المعروض', money(unit.price) + ' ريال']);
+    const lat = Number(unit.latitude);
+    const lng = Number(unit.longitude);
+    if (has(unit.latitude) && has(unit.longitude) && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+        rows.push(['الخريطة', 'https://www.google.com/maps?q=' + lat + ',' + lng]);
+    }
+    return rows;
+}
+
+function documentRows(kind, deal, stage, clientName, projectName, brokerName, amount, unitRows) {
     const common = [
         ['العميل', clientName],
         ['العقار', projectName],
@@ -241,7 +274,7 @@ function documentRows(kind, deal, stage, clientName, projectName, brokerName, am
         ['قيمة الصفقة', amount],
         ['الوسيط', brokerName]
     ];
-    if (kind === 'offer') return common.concat([['المرحلة', stage ? stage.name_ar : dash(deal.stage_id)], ['الإغلاق المتوقع', fmtDate(deal.expected_close_date)]]);
+    if (kind === 'offer') return common.concat(unitRows && unitRows.length ? unitRows : [['تفاصيل الوحدة', 'غير مسجّلة في النظام']]);
     if (kind === 'eoi') return common.concat([['نوع المستند', 'خطاب إبداء رغبة غير ملزم حتى توقيع العقد النهائي'], ['تاريخ العرض', fmtDate(new Date().toISOString())]]);
     if (kind === 'invoice') return common.concat([['نوع المستند', 'فاتورة عمولة'], ['حالة الصفقة', stage ? stage.name_ar : dash(deal.stage_id)], ['رقم الصفقة', deal.id]]);
     return common.concat([['المرحلة', stage ? stage.name_ar : dash(deal.stage_id)], ['الإغلاق المتوقع', fmtDate(deal.expected_close_date)], ['تاريخ الإنشاء', fmtDateTime(deal.opened_at)]]);
@@ -281,10 +314,12 @@ function stageCard(deal, stages, reload) {
     const steps = el('div', { class: 'deal-steps' });
     const current = stages.find((s) => s.id === deal.stage_id) || null;
     const currentOrder = current ? current.sort_order : 0;
+    // «خسرت» آخر المراحل ترتيباً، فكانت كل المراحل قبلها تُلوَّن «منجزة» كأن الصفقة مرّت بها
+    const lost = Boolean(current && current.is_terminal && !current.is_won);
 
     for (const stage of stages) {
         if (stage.is_terminal) continue;
-        const done = stage.sort_order < currentOrder;
+        const done = !lost && stage.sort_order < currentOrder;
         const on = stage.id === deal.stage_id;
         steps.appendChild(el('div', {
             class: 'deal-step' + (on ? ' on' : '') + (done ? ' done' : ''),

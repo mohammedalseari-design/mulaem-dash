@@ -97,19 +97,43 @@ export async function openFollowUpForm(client, onSaved, presetRequirementId) {
 
 // "تم": تسأل عن النتيجة ثم تحدّث الحالة. done_at يضعه الخادم.
 // ومعها «المتابعة التالية» مفعّلة افتراضياً (غداً، بنفس الساعة والقناة والغرض) حتى لا يبقى عميل بلا موعد قادم.
+// و«لم يرد — أجّلها» في النافذة نفسها: العميل الذي لم يرد لا يُسجَّل منجزاً، بل يُنقل موعده ويُكتب ذلك في سجله.
 export function openDoneForm(followUp, onDone) {
     const outcome = el('textarea', { rows: 2, placeholder: 'ماذا حدث في هذه المتابعة؟' });
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-success btn-sm', text: 'تأكيد الإنجاز' });
     const next = nextFollowUpFields(followUp);
+    const later = snoozeFields(followUp);
+
+    let mode = 'done';
+    const modeDone = el('button', { type: 'button', class: 'fu-mode-btn', 'aria-pressed': 'true', text: 'تمت المتابعة' });
+    const modeLater = el('button', { type: 'button', class: 'fu-mode-btn', 'aria-pressed': 'false', text: 'لم يرد — أجّلها' });
+    const doneBody = el('div', { class: 'fu-mode-body' }, [el('div', { class: 'form-group' }, outcome), next.section]);
+    function setMode(value) {
+        mode = value;
+        modeDone.setAttribute('aria-pressed', String(value === 'done'));
+        modeLater.setAttribute('aria-pressed', String(value === 'later'));
+        doneBody.hidden = value !== 'done';
+        later.section.hidden = value !== 'later';
+        // الحقول المخفية تُعطَّل حتى لا يوقف تحققُ المتصفح الإرسال بحقل لا يراه الموظف
+        outcome.disabled = value !== 'done';
+        next.setActive(value === 'done');
+        later.setActive(value === 'later');
+        saveBtn.className = 'btn btn-sm ' + (value === 'done' ? 'btn-success' : 'btn-primary');
+        saveBtn.textContent = value === 'done' ? 'تأكيد الإنجاز' : 'تأجيل المتابعة';
+    }
+    modeDone.addEventListener('click', () => setMode('done'));
+    modeLater.addEventListener('click', () => setMode('later'));
+    later.setActive(false);
 
     const form = el('form', {}, [
         // اسم العميل في النافذة: على الجوال يُفتح «تم» من بطاقة، فلا يُغلق متابعة عميل آخر خطأً
         followUp.client && followUp.client.full_name
             ? el('p', { style: 'margin-bottom:4px;font-weight:700', text: 'العميل: ' + followUp.client.full_name })
             : null,
-        el('p', { class: 'crm-subtle', style: 'margin-bottom:14px', text: 'الموعد: ' + fmtDateTime(followUp.due_at) }),
-        el('div', { class: 'form-group' }, outcome),
-        next.section,
+        el('p', { class: 'crm-subtle', style: 'margin-bottom:10px', text: 'الموعد: ' + fmtDateTime(followUp.due_at) }),
+        el('div', { class: 'fu-mode', role: 'group', 'aria-label': 'ماذا حدث؟' }, [modeDone, modeLater]),
+        doneBody,
+        later.section,
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
             saveBtn
@@ -118,6 +142,7 @@ export function openDoneForm(followUp, onDone) {
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
+        if (mode === 'later') return void postpone(followUp, later, saveBtn, onDone);
         // يُتحقق من الموعد التالي قبل أي كتابة، فلا تُغلق المتابعة ثم يُرفض التالي
         const nextPayload = next.payload();
         if (nextPayload && nextPayload.error) return void notify(nextPayload.error, 'error');
@@ -157,11 +182,94 @@ export function openDoneForm(followUp, onDone) {
     openModal('نتيجة المتابعة', form, { narrow: true });
 }
 
+// «لم يرد — أجّلها»: يُنقل موعد المتابعة نفسها (تبقى معلّقة)، ثم تُكتب ملاحظة في سجل العميل لأن نقل الموعد
+// لا يسجّل حدثاً بنفسه. فشل الملاحظة لا يُرجع التأجيل، ويُقال صراحة.
+async function postpone(followUp, later, saveBtn, onDone) {
+    const dueAt = toLocalISO(later.dueDate.value, later.dueTime.value);
+    if (!dueAt) return void notify('حدّد تاريخ ووقت الموعد الجديد', 'error');
+    if (Date.parse(dueAt) < Date.now() - 60000) return void notify('الموعد الجديد فات — اختر موعداً قادماً', 'error');
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'جارٍ التأجيل…';
+    const { data: updated, error } = await supabase
+        .from('follow_ups')
+        .update({ due_at: dueAt })
+        .eq('id', followUp.id)
+        .eq('status', 'pending')
+        .select('id, due_at');
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'تأجيل المتابعة';
+    if (error) return void fail(error, 'تعذّر تأجيل المتابعة');
+    if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذه المتابعة أو أنها لم تعد معلّقة', 'error', 8000);
+
+    const when = fmtDateTime(updated[0].due_at);
+    const note = later.note.value.trim();
+    const { error: noteError } = await supabase.from('crm_events').insert({
+        client_id: followUp.client_id,
+        entity_type: 'note',
+        event_type: 'note',
+        payload: { text: 'لم يرد العميل — أُجّلت المتابعة إلى ' + when + (note ? ' · ' + note : '') }
+    });
+    closeModal();
+    if (onDone) onDone();
+    if (noteError) return void fail(noteError, 'أُجّلت المتابعة إلى ' + when + '، لكن تعذّرت كتابة الملاحظة في سجل العميل');
+    notify('أُجّلت المتابعة إلى ' + when, 'success', 6000);
+}
+
+// قسم التأجيل: الافتراضي بعد ساعتين (مقرّباً لنصف الساعة التالية)، مع «غداً» و«بعد 3 أيام» بساعة الموعد الأصلي.
+function snoozeFields(followUp) {
+    const hour = dueHour(followUp);
+    const soon = new Date(Date.now() + 2 * 3600000);
+    soon.setMinutes(soon.getMinutes() <= 30 ? 30 : 60, 0, 0);
+    const dueDate = input({ type: 'date', required: true, value: localDateValue(soon) });
+    const dueTime = input({ type: 'time', required: true, value: pad2(soon.getHours()) + ':' + pad2(soon.getMinutes()) });
+    const note = input({ maxLength: 200, placeholder: 'مثال: الجوال مغلق، أو طلب الاتصال بعد العصر' });
+
+    const choices = [
+        { text: 'بعد ساعتين', date: soon, time: dueTime.value },
+        { text: 'غداً', date: daysFromToday(1), time: hour },
+        { text: 'بعد 3 أيام', date: daysFromToday(3), time: hour }
+    ];
+    const quick = choices.map((choice, index) => {
+        const chip = el('button', { type: 'button', class: 'chip' + (index === 0 ? ' on' : ''), text: choice.text });
+        chip.addEventListener('click', () => {
+            dueDate.value = localDateValue(choice.date);
+            dueTime.value = choice.time;
+            for (const other of quick) other.classList.toggle('on', other === chip);
+        });
+        return chip;
+    });
+    const clearQuick = () => { for (const chip of quick) chip.classList.remove('on'); };
+    dueDate.addEventListener('change', clearQuick);
+    dueTime.addEventListener('change', clearQuick);
+
+    const section = el('fieldset', { class: 'next-fu fu-later' }, [
+        el('legend', { text: 'إلى متى نؤجّلها؟' }),
+        el('div', { class: 'next-fu-quick' }, quick),
+        el('div', { class: 'next-fu-grid fu-later-grid' }, [
+            field('التاريخ', dueDate, { required: true }),
+            field('الوقت', dueTime, { required: true }),
+            field('ملاحظة (اختياري)', note)
+        ])
+    ]);
+    section.hidden = true;
+
+    function setActive(active) {
+        for (const control of [dueDate, dueTime, note]) control.disabled = !active;
+    }
+    return { section, dueDate, dueTime, note, setActive };
+}
+
+// ساعة الموعد الأصلي بصيغة hh:mm، أو العاشرة صباحاً إن لم يكن له موعد صالح
+function dueHour(followUp) {
+    const due = followUp.due_at ? new Date(followUp.due_at) : null;
+    return due && !Number.isNaN(due.getTime()) ? pad2(due.getHours()) + ':' + pad2(due.getMinutes()) : '10:00';
+}
+
 // قسم «متى المتابعة التالية؟» في نافذة «تم»: الافتراضي غداً بساعة الموعد الحالي وقناته وغرضه.
 // payload() تعيد null إن أُلغي القسم، أو { error } إن كان الموعد ناقصاً أو فائتاً.
 function nextFollowUpFields(followUp) {
-    const due = followUp.due_at ? new Date(followUp.due_at) : null;
-    const hour = due && !Number.isNaN(due.getTime()) ? pad2(due.getHours()) + ':' + pad2(due.getMinutes()) : '10:00';
+    const hour = dueHour(followUp);
     const enabled = el('input', { type: 'checkbox', checked: true });
     const toggle = el('label', { class: 'chip on next-fu-toggle' }, [enabled, 'أضف متابعة تالية']);
     const dueDate = input({ type: 'date', required: true, value: localDateValue(daysFromToday(1)) });
@@ -201,6 +309,12 @@ function nextFollowUpFields(followUp) {
         grid
     ]);
 
+    // setActive(false) حين يختار الموظف «لم يرد»: يُعطَّل القسم كله، ويعود كما تركه العلم عند الرجوع
+    function setActive(active) {
+        enabled.disabled = !active;
+        for (const control of [dueDate, dueTime, channel, purpose]) control.disabled = !active || !enabled.checked;
+    }
+
     function payload() {
         if (!enabled.checked) return null;
         const dueAt = toLocalISO(dueDate.value, dueTime.value);
@@ -218,7 +332,7 @@ function nextFollowUpFields(followUp) {
         return row;
     }
 
-    return { section, payload };
+    return { section, payload, setActive };
 }
 
 function daysFromToday(days) {

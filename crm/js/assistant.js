@@ -144,12 +144,38 @@ function requestsTable(rows) {
 
 /* ===================== نموذج الطلب ===================== */
 
-function openRequestForm(kind) {
-    const title = input({ maxLength: 120, placeholder: 'مثال: كتيّب مشروع الياسمين' });
+// مواقع إعلانات ترفض القراءة الآلية دائماً (تجربة 2026-10-03 على sa.aqar.fm): الطلب برابطها وحده يفشل
+// ويُحسب من الحد اليومي، فيُنبَّه الموظف قبل الإرسال ويُطلب منه النص أو صورة الشاشة.
+const CLOSED_SITES = [
+    { host: 'aqar.fm', name: 'عقار' },
+    { host: 'bayut.sa', name: 'بيوت' },
+    { host: 'bayut.com', name: 'بيوت' }
+];
+
+function closedSite(value) {
+    let host;
+    try { host = new URL(value).hostname.toLowerCase(); } catch (_) { return null; }
+    return CLOSED_SITES.find((site) => host === site.host || host.endsWith('.' + site.host)) || null;
+}
+
+function closedSiteText(site) {
+    return 'موقع «' + site.name + '» لا يسمح بقراءة إعلاناته آلياً. الصق نص الإعلان في «نص ملصوق» أو ارفع صورة شاشة له، ويبقى الرابط مرجعاً.';
+}
+
+// prefill: { title, instruction } من طلب سابق تعذّر تنفيذه («أعد المحاولة بطلب جديد»)
+function openRequestForm(kind, prefill) {
+    const title = input({ maxLength: 120, placeholder: 'مثال: كتيّب مشروع الياسمين', value: (prefill && prefill.title) || '' });
     const instruction = el('textarea', { rows: 4, required: true, placeholder: 'اكتب ما تريد من المساعد بالعربية…' });
+    if (prefill && prefill.instruction) instruction.value = prefill.instruction;
     const pasted = el('textarea', { rows: 6, placeholder: 'ألصق نص الرسالة أو الإعلان هنا…' });
     const files = el('input', { type: 'file', multiple: true, accept: ACCEPT_ATTR });
     const link = input({ type: 'url', dir: 'ltr', placeholder: 'https://…' });
+    const linkWarn = el('div', { class: 'link-warn', role: 'status', hidden: true });
+    link.addEventListener('input', () => {
+        const site = closedSite(link.value.trim());
+        linkWarn.hidden = !site;
+        linkWarn.textContent = site ? closedSiteText(site) : '';
+    });
     const deep = el('input', { type: 'checkbox' });
     const deepChip = el('label', { class: 'chip' }, [deep, 'تفكير عميق (أبطأ وأغلى)']);
     deep.addEventListener('change', () => deepChip.classList.toggle('on', deep.checked));
@@ -167,7 +193,10 @@ function openRequestForm(kind) {
                 hint: 'PDF أو صور أو CSV/XLSX — حتى ' + MAX_FILES + ' ملفات، ' + (MAX_FILE_BYTES / 1048576)
                     + ' ميغابايت للملف، و' + MAX_PDF_PAGES + ' صفحة للـPDF.'
             }),
-            field('رابط', link, { span2: true, hint: 'يُفتح من الخادم إن كانت الصفحة عامة (بلا تسجيل دخول) ويسمح robots.txt بقراءتها، وتُحفظ نسخة منها مع الطلب؛ وإلا يُطلب منك لصق النص.' }),
+            append(field('رابط', link, {
+                span2: true,
+                hint: 'يُقرأ إن كانت الصفحة عامة ويسمح الموقع بالقراءة الآلية، وتُحفظ نسخة منها مع الطلب. «عقار» و«بيوت» لا يسمحان: الصق نص الإعلان أو ارفع صورة شاشة له.'
+            }), linkWarn),
             el('div', { class: 'form-group span-2' }, [
                 deepChip,
                 el('small', { class: 'hint', text: 'يبدأ بالنموذج الأقوى مباشرة بدل السريع — للمصادر المعقدة فقط، ويُحسب من سقف التصعيد اليومي.' })
@@ -190,6 +219,9 @@ function openRequestForm(kind) {
             return void notify('أضف مصدراً واحداً على الأقل: نصاً أو ملفاً أو رابطاً', 'error', 7000);
         }
         if (url && !safeUrl(url)) return void notify('الرابط يجب أن يبدأ بـ http:// أو https://', 'error');
+        // رابط موقع مغلق وحده لا يُرسل: سيفشل ويُحسب من الحد اليومي
+        const site = url ? closedSite(url) : null;
+        if (site && !text && chosen.length === 0) return void notify(closedSiteText(site), 'error', 9000);
 
         const total = chosen.length + (text ? 1 : 0) + (url ? 1 : 0);
         if (total > MAX_FILES) return void notify('حد المرفقات ' + MAX_FILES + ' لكل طلب', 'error');
@@ -233,6 +265,22 @@ function openRequestForm(kind) {
 }
 
 /* ===================== صفحة الطلب ===================== */
+
+// رسائل الفشل كما تعني قارئها. سقف الصرف اليومي يُفشل الطلب نهائياً (agent-run: Stop بلا إعادة)، فعبارة
+// الخادم «يُستأنف غداً» غير صحيحة وتُستبدل. ومشكلات المفتاح والرصيد للمدير وحده؛ الموظف يرى الخطوة التالية.
+function failureText(text) {
+    const message = String(text || '');
+    const retryHint = '، ثم اضغط «أعد المحاولة بطلب جديد».';
+    if (/سقفه/.test(message)) {
+        return isAdmin()
+            ? message.replace(/يُستأنف غداً أو يرفع المدير السقف/g, 'هذا الطلب لن يُستأنف تلقائياً: أعد إرساله غداً')
+            : 'توقف المساعد اليوم لأنه بلغ حد الصرف اليومي، وهذا الطلب لن يُكمل تلقائياً. انتظر إلى الغد' + retryHint;
+    }
+    if (!isAdmin() && /OpenRouter|مفتاح|رصيد/.test(message)) {
+        return 'المساعد متوقف مؤقتاً لسبب فني عند المدير. أبلغه بذلك' + retryHint;
+    }
+    return message;
+}
 
 // الحالة كما يراها الموظف: استلام، قراءة، استخراج، تحقق، جاهز للمراجعة، تعذّر التنفيذ.
 // "جاهز" مع مرشّحين يعني أن الوكيل لم يجزم بالسجل المقصود وينتظر اختيار الموظف.
@@ -281,6 +329,7 @@ async function drawAgentRequest(root, requestId) {
     const draftRows = drafts.data || [];
     const canDelete = request.status === 'queued' && draftRows.length === 0 && request.requested_by === myId();
     const canCancel = (request.status === 'queued' || request.status === 'running') && request.requested_by === myId();
+    const canRetry = request.status === 'failed' && request.requested_by === myId();
     const candidates = Array.isArray(request.candidates) ? request.candidates : [];
     const waitingChoice = request.status === 'ready' && candidates.length > 0;
     const inProgress = request.status === 'queued' || request.status === 'running';
@@ -292,6 +341,10 @@ async function drawAgentRequest(root, requestId) {
                 el('h2', { text: label(AGENT_KIND, request.kind) + (request.title ? ' — ' + request.title : '') }),
                 el('div', { class: 'btn-row' }, [
                     el('a', { class: 'btn btn-outline btn-sm', href: '#/assistant', text: 'رجوع' }),
+                    canRetry ? el('button', {
+                        type: 'button', class: 'btn btn-primary btn-sm', text: 'أعد المحاولة بطلب جديد',
+                        onclick: () => openRequestForm(request.kind, { title: request.title, instruction: request.instruction })
+                    }) : null,
                     canCancel ? el('button', {
                         type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء التنفيذ',
                         onclick: async () => {
@@ -326,7 +379,7 @@ async function drawAgentRequest(root, requestId) {
                 request.attempts > 1 ? kv('المحاولات', number(request.attempts)) : null
             ]),
             progressSteps(request),
-            request.error_ar && !waitingChoice ? el('div', { class: request.status === 'failed' ? 'crm-error' : 'crm-warn-box', text: request.error_ar }) : null,
+            request.error_ar && !waitingChoice ? el('div', { class: request.status === 'failed' ? 'crm-error' : 'crm-warn-box', text: failureText(request.error_ar) }) : null,
             waitingChoice ? candidatePicker(request, candidates, reload) : null,
             request.status === 'ready' && !waitingChoice && draftRows.length === 0
                 ? el('div', { class: 'crm-warn-box', text: 'انتهى التنفيذ دون مسودات.' }) : null,

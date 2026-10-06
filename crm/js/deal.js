@@ -231,13 +231,17 @@ function stageCard(deal, stages, reload) {
         }));
     }
 
+    // الصفقة المغلقة (تمت أو خسرت) تُعاد إلى مرحلة جارية أولاً، فلا تُتمّ صفقة خاسرة بضغطة
+    // ولا تُقلب صفقة تمت إلى خاسرة مباشرة.
+    const closed = Boolean(current && current.is_terminal);
     const actions = el('div', { class: 'btn-row' });
     for (const stage of stages) {
         if (stage.id === deal.stage_id) continue;
+        if (closed && stage.is_terminal) continue;
         const button = el('button', {
             type: 'button',
             class: 'btn btn-xs ' + (stage.is_terminal ? (stage.is_won ? 'btn-success' : 'btn-danger') : 'btn-outline'),
-            text: 'الانتقال إلى ' + stage.name_ar
+            text: (closed ? 'إعادة فتح إلى ' : 'الانتقال إلى ') + stage.name_ar
         });
         button.addEventListener('click', () => moveTo(button, deal, stage, reload));
         actions.appendChild(button);
@@ -246,7 +250,11 @@ function stageCard(deal, stages, reload) {
     return el('div', { class: 'crm-card' }, [
         el('div', { class: 'crm-card-head' }, [el('h2', { text: 'المرحلة' })]),
         steps,
-        el('div', { class: 'crm-subtle', style: 'margin:14px 0 8px', text: 'الانتقال إلى مرحلة أخرى:' }),
+        closed
+            ? el('div', { class: 'crm-subtle deal-reopen-note', text: current.is_won
+                ? 'الصفقة مغلقة («تمت»). لإعادة فتحها اختر مرحلة، والعمولة المنشأة تبقى فراجعها من قسم العمولة.'
+                : 'الصفقة مغلقة («خسرت»). لإعادة فتحها اختر مرحلة، ثم تُغلق بـ«تمت» أو «خسرت» من جديد.' })
+            : el('div', { class: 'crm-subtle', style: 'margin:14px 0 8px', text: 'الانتقال إلى مرحلة أخرى:' }),
         actions
     ]);
 }

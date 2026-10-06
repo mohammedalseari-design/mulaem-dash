@@ -305,7 +305,10 @@ function savedTable(rows, dealContext, onChanged) {
 
     const body = el('tbody');
     for (const row of rows) {
-        const noteBox = input({ value: row.note || '', placeholder: 'ملاحظة اختيارية', class: 'crm-note' });
+        const noteBox = input({ value: row.note || '', placeholder: 'ملاحظة اختيارية', class: 'crm-note', 'aria-label': 'ملاحظة' });
+        const noteMark = el('span', { class: 'note-saved', 'aria-live': 'polite' });
+        // تُحفظ الملاحظة وحدها عند الخروج من الخانة، فلا تضيع إذا كُتبت بعد «مهتم» أو قبلها
+        noteBox.addEventListener('change', () => saveNote(row, noteBox, noteMark));
         const buttons = el('div', { class: 'btn-row' });
         for (const option of STATE_BUTTONS) {
             const button = el('button', {
@@ -323,13 +326,32 @@ function savedTable(rows, dealContext, onChanged) {
             el('td', { text: dash(row.unit_key) }),
             el('td', { class: 'num', text: number(row.score) }),
             el('td', {}, badge(label(MATCH_STATE, row.state), MATCH_STATE_TONE[row.state] || 'neutral')),
-            el('td', {}, noteBox),
+            el('td', {}, el('div', { class: 'note-cell' }, [noteBox, noteMark])),
             el('td', { class: 'crm-subtle', text: fmtDate(row.updated_at) }),
             el('td', { class: 'cell-actions' }, buttons)
         ]));
     }
 
     return el('table', { class: 'users-table crm-table' }, [head, body]);
+}
+
+async function saveNote(row, noteBox, mark) {
+    const note = noteBox.value.trim() || null;
+    if (note === (row.note || null)) return;
+    mark.className = 'note-saved';
+    mark.textContent = 'جارٍ الحفظ…';
+    const { data: updated, error } = await supabase
+        .from('property_matches')
+        .update({ note: note })
+        .eq('id', row.id)
+        .select('id');
+    if (error || !updated || updated.length === 0) {
+        mark.className = 'note-saved is-error';
+        mark.textContent = 'لم تُحفظ';
+        return void (error ? fail(error, 'تعذّر حفظ الملاحظة') : notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000));
+    }
+    row.note = note;
+    mark.textContent = 'حُفظت ✓';
 }
 
 async function setState(button, row, state, note, onChanged) {

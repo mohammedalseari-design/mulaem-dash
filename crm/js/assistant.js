@@ -20,7 +20,7 @@ import {
 } from './agent.js';
 import {
     el, append, clear, replace, loading, empty, errorBox, badge, pager, field, input,
-    openModal, closeModal, notify, fail, errorText, fmtDateTime, number, dash
+    openModal, closeModal, notify, fail, errorText, fmtDateTime, number, dash, pageHead, actionBtn
 } from './ui.js';
 
 /* ===================== البلاطات الأربع ===================== */
@@ -54,12 +54,10 @@ export async function renderAssistant(root) {
 
     const body = el('div');
     replace(root, [
+        pageHead('المساعد الذكي', 'اختر نوع الطلب واكتب بالعربية وأرفق المصدر. ما يخرج منه مسودة يعتمدها المدير قبل أن تدخل النظام.', [
+            isAdmin() ? actionBtn('طلبات الاعتماد', 'clipboard', { href: '#/approvals' }) : null
+        ]),
         el('div', { class: 'crm-card' }, [
-            el('div', { class: 'crm-card-head' }, [
-                el('h2', { text: 'المساعد الذكي' }),
-                isAdmin() ? el('a', { class: 'btn btn-outline btn-sm', href: '#/approvals', text: 'طلبات الاعتماد' }) : null
-            ]),
-            el('p', { class: 'crm-subtle', text: 'اكتب ما تريد بالعربية وأرفق المصدر. ما يخرج منه مسودة يعتمدها المدير قبل أن تدخل النظام.' }),
             statusBanner(),
             tiles
         ]),

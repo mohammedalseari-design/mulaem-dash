@@ -9,7 +9,7 @@
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import {
-    el, replace, loading, empty, errorBox, badge, pager, money, fmtDate, fmtDateTime, dash
+    el, replace, loading, empty, errorBox, badge, pager, money, fmtDate, fmtDateTime, dash, pageHead
 } from './ui.js';
 
 // نصوص الملاحظات تأتي من العرض نفسه؛ ما لا نعرفه يُعرض رمادياً بلا تخمين
@@ -37,13 +37,7 @@ export async function renderInventory(root) {
     const gapBody = el('div');
 
     replace(root, [
-        el('div', { class: 'page-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'جودة المخزون' }),
-                el('p', { text: 'نظرة تشغيلية على جودة العقارات وأولوية عرضها.' })
-            ]),
-            el('span', { class: 'page-intro-meta', text: 'المخزون المعتمد' })
-        ]),
+        pageHead('جودة المخزون', 'عروض تحتاج انتباهاً، وتكرار محتمل، وأولوية العرض.'),
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [el('h2', { text: 'عروض تحتاج انتباه' })]),
             attentionBody

@@ -11,7 +11,7 @@ import { staffMap, staffName, dealStages } from './data.js';
 import { DEAL_STAGE_TONE } from './labels.js';
 import {
     el, clear, replace, loading, empty, errorBox, badge,
-    money, fmtDate, number
+    money, fmtDate, number, pageHead, actionBtn
 } from './ui.js';
 
 const CARD_FIELDS = 'id, stage_id, amount, unit_key, project_id, broker_id, expected_close_date, updated_at,'
@@ -49,24 +49,10 @@ export async function renderBoard(root) {
     });
 
     replace(root, [
-        el('div', { class: 'page-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'الصفقات' }),
-                el('p', { text: 'تابع حركة الصفقات من الاهتمام حتى الإغلاق.' })
-            ]),
-            el('span', { class: 'page-intro-meta', text: 'مسار الصفقات' })
+        pageHead('الصفقات', 'من الاهتمام حتى الإغلاق. تُفتح الصفقة من ملف العميل أو من مطابقة، وكل عمود يعرض 25 صفقة ثم «المزيد».', [
+            actionBtn('العملاء', 'users', { href: '#/clients' })
         ]),
-        el('div', { class: 'crm-card' }, [
-            el('div', { class: 'crm-card-head' }, [
-                el('h2', { text: 'لوحة الصفقات' }),
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/clients', text: 'العملاء' })
-            ]),
-            el('div', {
-                class: 'crm-subtle', style: 'margin-bottom:14px',
-                text: 'تُفتح الصفقات من ملف العميل أو من صف مطابقة. كل عمود يعرض 25 صفقة ثم "المزيد".'
-            }),
-            board
-        ]),
+        el('div', { class: 'crm-card' }, [board]),
         el('div', { class: 'crm-card' }, closedSection)
     ]);
 }

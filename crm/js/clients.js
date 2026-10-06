@@ -6,7 +6,7 @@ import { staffMap, staffName, sanitizeSearch, phoneNeedle } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager,
-    fmtDateTime, select, optionList, dash, phoneLinks
+    fmtDateTime, select, optionList, dash, phoneLinks, pageHead, actionBtn
 } from './ui.js';
 import { openClientForm } from './client-form.js';
 
@@ -36,22 +36,11 @@ export async function renderClients(root) {
     });
 
     const card = el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [
-            el('h2', { text: 'العملاء' }),
-            el('button', {
-                type: 'button', class: 'btn btn-primary btn-sm', text: 'عميل جديد',
-                onclick: () => openClientForm(null, () => { view.page = 0; load(); })
-            })
-        ]),
         el('div', { class: 'crm-toolbar' }, [searchBox, statusBox]),
         body
     ]);
-    root.appendChild(el('div', { class: 'page-intro' }, [
-        el('div', {}, [
-            el('h1', { text: 'العملاء' }),
-            el('p', { text: 'إدارة العملاء والطلبات والمتابعات من مكان واحد.' })
-        ]),
-        el('span', { class: 'page-intro-meta', text: 'قائمة العملاء' })
+    root.appendChild(pageHead('العملاء', 'ابحث بالاسم أو الجوال، وافتح ملف العميل لطلباته ومتابعاته وصفقاته.', [
+        actionBtn('عميل جديد', 'userPlus', { onclick: () => openClientForm(null, () => { view.page = 0; load(); }) }, true)
     ]));
     root.appendChild(card);
 

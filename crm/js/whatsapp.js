@@ -25,7 +25,7 @@ import { sha256Hex, createRequest, startExtraction, extractionStatus } from './a
 import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
-import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart } from './ui.js';
+import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn } from './ui.js';
 import {
     BUCKETS, DEFAULT_MODE, INTENTS, INTENT_AR, MODES, MODE_AR, MODE_HINT, MODE_KEY, REPORT_DAYS, SURFACED_AR, VERDICT_AR,
     bucketOf, countBuckets, createRunner, createStore, describe, isSurfaced, itemText, labelTriage, normalizeMode, outError,
@@ -266,13 +266,10 @@ export async function renderWhatsApp(root) {
     folderInput.addEventListener('change', () => { load(folderGroups(Array.from(folderInput.files || []))); folderInput.value = ''; });
 
     replace(root, [
+        pageHead('عروض واتساب', 'ارفع تصدير محادثات المجموعات، حدّد العروض الجديدة، واضغط «إرسال للمساعد». تصلك مسوداتها في «طلبات الاعتماد».', [
+            actionBtn('طلبات الاعتماد', 'clipboard', { href: '#/approvals' })
+        ]),
         el('div', { class: 'crm-card' }, [
-            el('div', { class: 'crm-card-head' }, [
-                el('h2', { text: 'عروض واتساب' }),
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/approvals', text: 'طلبات الاعتماد' })
-            ]),
-            el('p', { class: 'crm-subtle', text: 'ارفع تصدير محادثات المجموعات، فيظهر لك ما نُشر بعد آخر مراجعة مصنّفاً ومن غير تكرار. '
-                + 'حدّد العروض واضغط «إرسال للمساعد»: يصير كل عرض طلباً للمساعد الذكي، وتظهر مسودته في «طلبات الاعتماد» خلال دقائق لتعتمدها قبل أن تدخل المخزون.' }),
             el('details', { class: 'wa-howto' }, [
                 el('summary', { text: 'كيف أصدّر المحادثة من واتساب؟' }),
                 el('ol', {}, [

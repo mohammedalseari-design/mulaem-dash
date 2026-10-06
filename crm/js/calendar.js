@@ -4,7 +4,7 @@ import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_TONE, label } from './labels.js';
 import {
-    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash, phoneLinks
+    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash, phoneLinks, pageHead
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
@@ -15,21 +15,8 @@ export async function renderCalendar(root) {
     const names = await staffMap().catch(() => new Map());
 
     replace(root, [
-        el('div', { class: 'page-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'المواعيد والمتابعات' }),
-                el('p', { text: 'رتّب ما يحتاج إجراء اليوم وتابع ما تأخر.' })
-            ]),
-            el('span', { class: 'page-intro-meta', text: 'المتابعات القادمة' })
-        ]),
-        el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [
-            el('h2', { text: 'المواعيد والمتابعات' }),
-            el('div', { class: 'crm-subtle', text: 'المواعيد مبنية على سجل المتابعات الحالي' })
-        ]),
-        toolbar,
-        body
-        ])
+        pageHead('المواعيد', 'كل المتابعات حسب موعدها: القادمة واليوم والمتأخرة والمنجزة.'),
+        el('div', { class: 'crm-card' }, [toolbar, body])
     ]);
 
     const scopes = [

@@ -9,7 +9,7 @@
 import { supabase } from './supabase.js';
 import {
     el, replace, loading, errorBox, field, input, parseNumber,
-    notify, fail, number
+    notify, fail, number, pageHead
 } from './ui.js';
 
 // مفاتيح jsonb كما هي في قاعدة البيانات، والنص المقابل للعرض فقط
@@ -129,7 +129,7 @@ export async function renderSettings(root) {
     });
 
     if (!root.isConnected) return;
-    replace(root, form);
+    replace(root, [pageHead('الإعدادات', 'أوزان المطابقة والمدينة الافتراضية. التغيير يسري فوراً.'), form]);
 }
 
 function isObject(value) {

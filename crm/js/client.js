@@ -4,7 +4,7 @@ import { supabase } from './supabase.js';
 import { myRole } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
-import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, phoneLinks } from './ui.js';
+import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, waNumber, actionBtn } from './ui.js';
 import { openClientForm } from './client-form.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
@@ -47,19 +47,11 @@ export async function renderClient(root, clientId) {
         return;
     }
 
-    const header = el('div', { class: 'crm-card' });
+    // الترويسة: اسم العميل عنواناً للصفحة وأزرار التواصل بجانبه، ثم بطاقة بياناته (renderHeader)
+    const header = el('div', { class: 'client-top' });
     const tabsBar = el('div', { class: 'admin-tabs crm-tabs' });
     const tabBody = el('div');
-    append(root, [
-        el('div', { class: 'page-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'ملف العميل' }),
-                el('p', { text: 'بيانات العميل وطلباته ومتابعاته وصفقاته.' })
-            ]),
-            el('span', { class: 'page-intro-meta', text: 'ملف العميل' })
-        ]),
-        header, tabsBar, tabBody
-    ]);
+    append(root, [header, tabsBar, tabBody]);
 
     const context = { client: client, names: names, reload: () => renderClient(root, clientId) };
     renderHeader(header, context);
@@ -99,27 +91,28 @@ function renderHeader(host, context) {
         el('span', {}, value instanceof Node ? value : document.createTextNode(dash(value)))
     ]);
 
-    const phoneLink = client.phone ? phoneLinks(client.phone) : null;
+    const phone = client.phone || null;
 
     replace(host, [
-        el('div', { class: 'client-head' }, [
-            el('div', {}, [
-                el('h2', { text: client.full_name }),
-                el('div', { class: 'btn-row' }, [
+        el('header', { class: 'w4-head pg-head' }, [
+            el('div', { class: 'w4-title' }, [
+                el('h1', { text: client.full_name }),
+                el('div', { class: 'pg-badges' }, [
                     badge(label(CLIENT_STATUS, client.status), CLIENT_STATUS_TONE[client.status] || 'neutral'),
-                    badge(label(CLIENT_TYPE, client.client_type), 'neutral')
+                    badge(label(CLIENT_TYPE, client.client_type), 'neutral'),
+                    client.city ? el('span', { class: 'w4-sub', text: client.city }) : null
                 ])
             ]),
-            el('div', { class: 'btn-row' }, [
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/clients', text: 'رجوع' }),
-                el('button', {
-                    type: 'button', class: 'btn btn-secondary btn-sm', text: 'تعديل البيانات',
-                    onclick: () => openClientForm(client, () => context.reload())
-                })
+            el('div', { class: 'w4-quick' }, [
+                phone ? actionBtn('اتصال', 'phone', { href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), title: 'اتصال: ' + phone }) : null,
+                phone ? actionBtn('واتساب', 'chat', { href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener', title: 'واتساب: ' + phone }) : null,
+                actionBtn('تعديل البيانات', null, { onclick: () => openClientForm(client, () => context.reload()) }, true),
+                actionBtn('رجوع', null, { href: '#/clients' })
             ])
         ]),
+        el('div', { class: 'crm-card client-info' }, [
         el('div', { class: 'kv-grid' }, [
-            kv('الجوال', phoneLink || dash(null)),
+            kv('الجوال', phone ? el('span', { class: 'phone-num', text: phone }) : dash(null)),
             kv('جوال إضافي', client.phone_alt),
             kv('البريد الإلكتروني', client.email),
             kv('المدينة', client.city),
@@ -135,5 +128,6 @@ function renderHeader(host, context) {
                 el('span', { class: 'tl-body', text: client.notes })
             ])
             : null
+        ])
     ]);
 }

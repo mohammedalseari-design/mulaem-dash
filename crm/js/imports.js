@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js';
-import { el, replace, notify, fail, parseNumber } from './ui.js';
+import { el, replace, notify, fail, parseNumber, pageHead } from './ui.js';
 
 const PROJECT_FIELDS = ['project_ref', 'name', 'type', 'city', 'district', 'address', 'purpose', 'availability', 'construction_status', 'price', 'area', 'rooms', 'units_count', 'buildings_count', 'developer', 'contact_phone', 'contact_email', 'contact_url', 'source_url', 'brochure_url', 'image_url', 'latitude', 'longitude', 'notes'];
 const UNIT_FIELDS = ['project_ref', 'unit_ref', 'unit_type', 'rooms', 'bathrooms', 'area', 'price', 'commission', 'status', 'count', 'developer'];
@@ -280,9 +280,11 @@ export async function renderImports(root) {
         } catch (error) { fail(error, 'تعذر اعتماد الاستيراد'); }
         approve.disabled = false; approve.textContent = 'إرسال للاعتماد';
     });
-    replace(root, el('div', { class: 'crm-card crm-import-page' }, [
-        el('div', { class: 'crm-card-head' }, [el('div', {}, [el('h1', { text: 'استيراد المشاريع' }), el('p', { class: 'crm-subtle', text: 'ارفع المشاريع والوحدات مرة واحدة، راجع الأخطاء، ثم اعتمد الحفظ.' })])]),
-        el('div', { class: 'crm-import-files' }, [projectInput, unitInput]), updateExistingLabel, status, previewBox,
-        el('div', { class: 'crm-actions' }, [approve])
-    ]));
+    replace(root, [
+        pageHead('استيراد المشاريع', 'ارفع المشاريع والوحدات مرة واحدة، راجع الأخطاء، ثم أرسلها للاعتماد.'),
+        el('div', { class: 'crm-card crm-import-page' }, [
+            el('div', { class: 'crm-import-files' }, [projectInput, unitInput]), updateExistingLabel, status, previewBox,
+            el('div', { class: 'crm-actions' }, [approve])
+        ])
+    ]);
 }

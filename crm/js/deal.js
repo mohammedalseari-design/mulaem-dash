@@ -55,13 +55,6 @@ export async function renderDeal(root, dealId) {
     const historyBody = el('div');
     const commissionHost = el('div');
     append(root, [
-        el('div', { class: 'page-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'ملف الصفقة' }),
-                el('p', { text: 'مراحل الصفقة، سجل الحركة، والعمولة المرتبطة بها.' })
-            ]),
-            el('span', { class: 'page-intro-meta', text: 'سجل الصفقة' })
-        ]),
         headerCard(deal, stage, names),
         stageCard(deal, stages, reload),
         el('div', { class: 'crm-card' }, [

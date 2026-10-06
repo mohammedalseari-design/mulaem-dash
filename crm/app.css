@@ -429,3 +429,68 @@ body.crm-dark .w4-done { color: #0f171c; }
     .side { display: none !important; }
     .shell { display: block; }
 }
+
+/* ===================== باقي الصفحات (التصميم الرابع) ===================== */
+/* رأس موحد لكل صفحة (pageHead في ui.js: نفس .w4-head)، ثم بطاقة المحتوى. لا عنوان مكرر داخل البطاقة. */
+
+.crm-view > .pg-head, .client-top > .pg-head { margin-bottom: 16px; }
+.pg-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 4px; }
+.pg-badges .w4-sub { font-size: 0.86rem; }
+
+.crm-card { padding: 18px 20px; border-radius: var(--r-lg); margin-bottom: 16px; }
+.crm-card-head { margin-bottom: 12px; padding-bottom: 10px; }
+.crm-card > h2, .crm-card-head h2 { font-size: 1.02rem; font-weight: 700; }
+.crm-toolbar { gap: 8px; margin-bottom: 14px; }
+.crm-toolbar input, .crm-toolbar select { min-height: 40px; }
+
+.users-table th, .crm-table th { padding: 10px 14px; font-size: 0.8rem; font-weight: 600; color: var(--muted); background: var(--surface-2); }
+.users-table td, .crm-table td { padding: 11px 14px; font-size: 0.9rem; }
+.crm-table td a { color: var(--ink); font-weight: 600; text-decoration: none; }
+.crm-table td a:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.crm-table td a.btn { font-weight: 600; }
+
+/* ملف العميل: بطاقة بيانات مضغوطة تحت الرأس */
+.client-top { display: grid; }
+.client-info .kv-grid { margin-top: 0; padding-top: 0; border-top: 0; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 20px; }
+.client-info .kv span:first-child { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
+.client-info .kv span:last-child { color: var(--ink); font-size: 0.95rem; font-weight: 600; }
+.client-info .phone-num { direction: ltr; unicode-bidi: isolate; }
+.crm-tabs { margin: 0 0 14px; }
+
+/* صفحة الصفقة: عنوان البطاقة الأولى هو عنوان الصفحة */
+.client-head h2 { font-size: 1.35rem; font-weight: 700; margin-bottom: 6px; }
+
+/* العقارات: ثماني خانات مقروءة */
+.pr-name { display: grid; gap: 2px; min-width: 0; }
+.pr-name strong { color: var(--ink); font-weight: 700; }
+.pr-name .crm-subtle { font-size: 0.8rem; }
+.pr-place, .pr-status { display: grid; gap: 4px; justify-items: start; }
+.pr-status .crm-subtle { font-size: 0.78rem; }
+.pr-price { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.pr-table .unit-thumb, .pr-table .unit-thumb-placeholder { width: 64px; height: 48px; border-radius: 8px; }
+
+/* المساعد: بطاقات الأنواع */
+.agent-tiles { margin-top: 0; }
+.agent-tile { border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+.agent-tile:hover:not(:disabled) { transform: none; border-color: var(--brand); box-shadow: var(--shadow-1); }
+
+/* الصفقات: أعمدة اللوحة أهدأ */
+.deal-col { background: var(--surface-2); border-color: var(--line); border-radius: var(--r-lg); }
+.deal-card { border-radius: var(--r-md); }
+.deal-card:hover { border-color: var(--brand); }
+
+@media (max-width: 700px) {
+    .crm-card { padding: 14px; }
+    .crm-view > .pg-head, .client-top > .pg-head { margin-bottom: 12px; }
+    .client-info .kv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* العقارات: اسم العقار لا ينكسر في أسطر كثيرة، وخانة العمولة بعرض رقمها فقط */
+.pr-table .pr-name { min-width: 170px; }
+.pr-table td.num .crm-money { width: 100px; min-width: 0; }
+.pr-table td { padding-inline: 10px; }
+.pr-table td:nth-child(4) { white-space: nowrap; }
+.pr-table .cell-actions { display: grid; gap: 6px; }
+.pr-table .cell-actions .btn { min-height: 32px; padding: 4px 10px; font-size: 0.82rem; }
+.pr-table th:nth-child(6), .pr-table td:nth-child(6) { width: 1%; white-space: nowrap; }
+@media (max-width: 700px) { .pr-table .pr-name { min-width: 0; } }

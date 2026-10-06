@@ -18,7 +18,7 @@ import { sourcesList, decisionsBox } from './assistant.js';
 import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits
+    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -42,24 +42,22 @@ export async function renderApprovals(root) {
         load();
     });
 
-    replace(root, el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [
-            el('h2', { text: 'طلبات الاعتماد' }),
-            el('div', {}, [
-                el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تنظيف التكرارات', onclick: () => cleanDuplicateProjects(load) }),
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/assistant', text: 'المساعد الذكي' })
-            ])
+    replace(root, [
+        pageHead('طلبات الاعتماد', 'لا يدخل النظام سجلٌّ من المساعد قبل اعتمادك. الاعتماد يكتب السجل مرة واحدة ويُسجَّل في سجل الأحداث.', [
+            actionBtn('المساعد الذكي', 'sparkle', { href: '#/assistant' })
         ]),
-        el('p', { class: 'crm-subtle', text: 'لا يدخل النظام سجلٌّ من المساعد قبل اعتماد المدير. الاعتماد يكتب السجل مرة واحدة ويُسجَّل في سجل الأحداث.' }),
-        el('div', { class: 'crm-toolbar' }, [statusBox, el('div', { class: 'crm-spacer' }),
-            el('button', {
-                type: 'button', class: 'btn btn-outline btn-sm', text: 'ارفض المكررات',
-                title: 'رفض مسودات المشاريع الجديدة المكررة لمشروع قائم دفعة واحدة — الاعتماد يبقى واحدة واحدة',
-                onclick: (event) => rejectDuplicates(event.currentTarget, load)
-            })
-        ]),
-        body
-    ]));
+        el('div', { class: 'crm-card' }, [
+            el('div', { class: 'crm-toolbar' }, [statusBox, el('div', { class: 'crm-spacer' }),
+                el('button', {
+                    type: 'button', class: 'btn btn-outline btn-sm', text: 'ارفض المكررات',
+                    title: 'رفض مسودات المشاريع الجديدة المكررة لمشروع قائم دفعة واحدة — الاعتماد يبقى واحدة واحدة',
+                    onclick: (event) => rejectDuplicates(event.currentTarget, load)
+                }),
+                el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تنظيف التكرارات', onclick: () => cleanDuplicateProjects(load) })
+            ]),
+            body
+        ])
+    ]);
 
     let names = new Map();
     try {

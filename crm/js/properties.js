@@ -16,7 +16,7 @@ import { safeUrl } from './agent.js';
 import { UNIT_STATUS, UNIT_STATUS_TONE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, input, select,
-    moneyInput, parseNumber, money, number, dash, notify, fail
+    moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn
 } from './ui.js';
 
 export async function renderProperties(root) {
@@ -28,15 +28,12 @@ export async function renderProperties(root) {
     const body = el('div', {}, loading());
     const toolbar = el('div', { class: 'crm-toolbar' });
 
-    replace(root, el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'العقارات' })]),
-        el('div', { class: 'crm-subtle', style: 'margin-bottom:14px' }, [
-            document.createTextNode('التعديل على العقارات يتم من اللوحة '),
-            el('a', { href: '../index.html', text: 'افتح اللوحة' })
+    replace(root, [
+        pageHead('العقارات', 'كل الوحدات المعتمدة. إضافة المشروع وتعديله من صفحة المشاريع.', [
+            actionBtn('المشاريع والخريطة', 'map', { href: '../index.html' })
         ]),
-        toolbar,
-        body
-    ]));
+        el('div', { class: 'crm-card' }, [toolbar, body])
+    ]);
 
     // لا ترمي هذه الدالة أبداً؛ الفشل يصل في ‎*Error‎ فيتحوّل الحقل إلى نص حر
     const vocabulary = await inventoryVocabulary();
@@ -212,52 +209,52 @@ function table(rows) {
     // مركز الاتصال لا صفقات له، فالزر لا يُبنى له أصلاً
     const dealAllowed = myRole() !== 'callcenter';
 
+    // ثماني خانات مقروءة بدل ثلاث عشرة: العقار ووحدته ومطوره معاً، والنوع والحي معاً، والمواصفات في سطر
     const head = el('thead', {}, el('tr', {}, [
-        el('th', { text: 'العقار' }),
         el('th', { text: 'الصورة' }),
-        el('th', { text: 'الوحدة' }),
-        el('th', { text: 'المطور' }),
-        el('th', { text: 'النوع' }),
-        el('th', { text: 'الحي' }),
-        el('th', { text: 'الغرف' }),
-        el('th', { text: 'دورات المياه' }),
-        el('th', { text: 'المساحة' }),
+        el('th', { text: 'العقار' }),
+        el('th', { text: 'النوع والحي' }),
+        el('th', { text: 'المواصفات' }),
         el('th', { text: 'السعر' }),
         el('th', { text: 'العمولة' }),
-        el('th', { text: 'حالة البناء' }),
-        el('th', { text: 'حالة الوحدة' }),
+        el('th', { text: 'الحالة' }),
         el('th', { text: '' })
     ]));
 
     const body = el('tbody');
     for (const row of rows) {
+        const sub = [row.unit_key, row.developer].filter(Boolean).join(' · ');
+        // صيغة قصيرة تتسع في سطر: «غرف 5 · حمامات 4 · 300 م²»
+        const specs = [
+            present(row.rooms) ? 'غرف ' + number(row.rooms) : null,
+            present(row.bathrooms) ? 'حمامات ' + number(row.bathrooms) : null,
+            present(row.area) ? number(row.area) + ' م²' : null
+        ].filter(Boolean).join(' · ');
         body.appendChild(el('tr', {}, [
-            el('td', {}, el('div', {}, [
-                el('strong', { text: dash(row.project_name) }),
-                el('div', { class: 'crm-subtle', text: 'رقم ' + dash(row.project_id) })
-            ])),
             el('td', {}, unitImage(row)),
-            el('td', { text: dash(row.unit_key) }),
-            el('td', { text: dash(row.developer) }),
-            el('td', { text: dash(row.unit_type) }),
-            el('td', {}, [
-                document.createTextNode(dash(row.district)),
-                row.district_inferred ? document.createTextNode(' ') : null,
-                row.district_inferred ? badge('مستنتج', 'orange') : null
-            ]),
-            el('td', { class: 'num', text: number(row.rooms) }),
-            el('td', { class: 'num', text: number(row.bathrooms) }),
-            el('td', { class: 'num', text: number(row.area) }),
-            el('td', { class: 'num', text: money(row.price) }),
+            el('td', {}, el('div', { class: 'pr-name' }, [
+                el('strong', { text: dash(row.project_name) }),
+                el('span', { class: 'crm-subtle', text: (sub || 'رقم ' + dash(row.project_id)) })
+            ])),
+            el('td', {}, el('div', { class: 'pr-place' }, [
+                el('span', { text: [row.unit_type, row.district].filter(Boolean).join(' · ') || dash(null) }),
+                row.district_inferred ? badge('حي مستنتج', 'orange') : null
+            ])),
+            el('td', { text: specs || dash(null) }),
+            el('td', { class: 'num pr-price', text: money(row.price) }),
             el('td', { class: 'num' }, commissionCell(row)),
-            el('td', { text: dash(row.construction_status) }),
-            el('td', {}, badge(label(UNIT_STATUS, row.unit_status), UNIT_STATUS_TONE[row.unit_status] || 'neutral')),
+            el('td', {}, el('div', { class: 'pr-status' }, [
+                badge(label(UNIT_STATUS, row.unit_status), UNIT_STATUS_TONE[row.unit_status] || 'neutral'),
+                row.construction_status ? el('span', { class: 'crm-subtle', text: row.construction_status }) : null
+            ])),
             el('td', { class: 'cell-actions' }, rowActions(row, dealAllowed))
         ]));
     }
 
-    return el('table', { class: 'users-table crm-table' }, [head, body]);
+    return el('table', { class: 'users-table crm-table pr-table' }, [head, body]);
 }
+
+const present = (value) => value !== null && value !== undefined && value !== '';
 
 /* ===================== العمولة ===================== */
 

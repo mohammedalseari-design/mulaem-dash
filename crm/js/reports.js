@@ -1,7 +1,7 @@
 // #/reports — التقارير التحليلية، منفصلة عن Dashboard الأساسي.
 
 import { supabase } from './supabase.js';
-import { el, replace, loading, empty, errorBox, badge, money, number, dash, notify } from './ui.js';
+import { el, replace, loading, empty, errorBox, badge, money, number, dash, notify, pageHead } from './ui.js';
 
 export async function renderReports(root) {
     const funnelBody = el('div');
@@ -20,13 +20,7 @@ export async function renderReports(root) {
     const printButton = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'طباعة / PDF' });
 
     replace(root, el('div', { class: 'dashboard-shell' }, [
-        el('div', { class: 'dashboard-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'التقارير' }),
-                el('p', { text: 'قراءة تشغيلية للقمع والأداء والمخزون.' })
-            ]),
-            el('div', { class: 'dashboard-intro-meta', text: 'بيانات النظام الحالية' })
-        ]),
+        pageHead('التقارير', 'القمع والأداء والمخزون، مع تصدير وطباعة.', [exportButton, printButton]),
         el('div', { class: 'crm-toolbar' }, [
             el('span', { class: 'crm-subtle', text: 'نطاق القمع' }), period,
             el('span', { class: 'crm-subtle', text: 'الوسيط' }), broker, exportButton, printButton

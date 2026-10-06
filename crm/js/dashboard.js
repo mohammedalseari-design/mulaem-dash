@@ -8,7 +8,7 @@
 
 import { supabase } from './supabase.js';
 import {
-    el, append, replace, loading, empty, errorBox, money, number, dash
+    el, append, replace, loading, empty, errorBox, money, number, dash, pageHead, actionBtn
 } from './ui.js';
 import { WORK_CARDS } from './work.js';
 
@@ -66,12 +66,8 @@ export async function renderDashboard(root) {
     const attentionBody = el('div');
 
     replace(root, el('div', { class: 'dashboard-shell' }, [
-        el('div', { class: 'dashboard-intro' }, [
-            el('div', {}, [
-                el('h1', { text: 'نظرة عامة' }),
-                el('p', { text: 'صورة مختصرة عن العملاء والصفقات والمخزون.' })
-            ]),
-            el('div', { class: 'dashboard-intro-meta', text: 'آخر تحديث من بيانات النظام' })
+        pageHead('لوحة الإدارة', 'صورة مختصرة عن العملاء والصفقات والمخزون.', [
+            actionBtn('التقارير', 'chart', { href: '#/reports' })
         ]),
         stats,
         card('يحتاج انتباه', attentionBody),

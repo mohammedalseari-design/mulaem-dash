@@ -370,3 +370,27 @@ export function icon(name, cls = 'ico') {
     }
     return svg;
 }
+
+/* ===================== رأس الصفحة (التصميم الرابع) ===================== */
+
+// عنوان الصفحة وسطر قصير يشرحها، والإجراءات الرئيسية بجانبه — نفس رأس «عملي اليوم» (crm/app.css: .w4-head).
+// يحل محل «page-intro» والعنوان المكرر في أول بطاقة، فلا يظهر اسم الصفحة مرتين.
+export function pageHead(title, sub, actions = []) {
+    const list = (Array.isArray(actions) ? actions : [actions]).filter(Boolean);
+    return el('header', { class: 'w4-head pg-head' }, [
+        el('div', { class: 'w4-title' }, [
+            el('h1', { text: title }),
+            sub ? el('p', { class: 'w4-sub', text: sub }) : null
+        ]),
+        list.length ? el('div', { class: 'w4-quick' }, list) : null
+    ]);
+}
+
+// زر إجراء في رأس الصفحة: رابط إن أُعطي href، وإلا زر. primary للإجراء الأهم وحده.
+export function actionBtn(text, iconName, attrs = {}, primary = false) {
+    const tag = attrs.href ? 'a' : 'button';
+    return el(tag, Object.assign({
+        class: 'btn ' + (primary ? 'btn-primary' : 'btn-outline') + ' w4-qbtn',
+        type: tag === 'button' ? 'button' : null
+    }, attrs), [iconName ? icon(iconName) : null, el('span', { text: text })]);
+}

@@ -458,14 +458,14 @@
 
                 <!-- للمدير: الموافقات والمستخدمون والنشاطات. ولكل الأدوار: نظرة المسوقين وفرص اليوم. مطويتان حتى تُفتحا -->
                 <details class="p4-fold p4-fold-admin">
-                    <summary>لوحة التحكم: الموافقات والمستخدمون والنشاطات</summary>
+                    <summary>لوحة التحكم: الاعتماد والمستخدمون والنشاطات</summary>
                     <!-- Admin Dashboard -->
                     <div class="admin-dashboard" id="adminDashboard">
                         <div class="admin-top-bar">
                             <span class="admin-title">لوحة التحكم</span>
                             <div class="admin-tabs">
                                 <button class="admin-tab active" onclick="switchAdminTab('overview')">نظرة عامة</button>
-                                <button class="admin-tab" id="approvalsTab" onclick="switchAdminTab('approvals')">الموافقات <span id="approvalsBadge" class="tab-count-badge"></span></button>
+                                <button class="admin-tab" id="approvalsTab" onclick="switchAdminTab('approvals')">الاعتماد <span id="approvalsBadge" class="tab-count-badge"></span></button>
                                 <button class="admin-tab" onclick="switchAdminTab('users')">المستخدمين</button>
                                 <button class="admin-tab" onclick="switchAdminTab('activity')">النشاطات</button>
                             </div>
@@ -500,8 +500,8 @@
                                     <input type="text" id="newFullname" placeholder="الاسم الكامل" required class="user-field-input">
                                     <input type="password" id="newPassword" placeholder="كلمة المرور" required class="user-field-input">
                                     <select id="newRole" required class="user-field-input">
-                                        <option value="field">موظف ميداني</option>
-                                        <option value="callcenter">كول سنتر</option>
+                                        <option value="field">وسيط</option>
+                                        <option value="callcenter">مركز اتصال</option>
                                         <option value="admin">مدير (Admin)</option>
                                     </select>
                                     <button type="submit" class="btn btn-primary btn-add-user">إضافة</button>

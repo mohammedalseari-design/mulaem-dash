@@ -245,7 +245,7 @@ function showLoginNotice(msg) {
 function setUserBadge() {
     const badge = document.getElementById('currentUser');
     if (!badge || !currentUser) return;
-    const roleLabels = { admin: 'مدير', field: 'ميداني', callcenter: 'كول سنتر' };
+    const roleLabels = { admin: 'مدير', field: 'وسيط', callcenter: 'مركز اتصال' };
     badge.textContent = `${currentUser.fullname} — ${roleLabels[currentUser.role] || currentUser.role}`;
     badge.className = `user-badge role-${currentUser.role}`;
 }
@@ -1238,7 +1238,7 @@ document.getElementById('projectForm').addEventListener('submit', async function
 
         if (result.status === 'success') {
             if (!editId && currentUser.role === 'field') {
-                showNotification('تم إرسال المشروع! سيظهر للكول سنتر بعد موافقة المدير.', 'info');
+                showNotification('تم إرسال المشروع! سيظهر لمركز الاتصال بعد اعتماد المدير.', 'info');
             } else {
                 showNotification(editId ? 'تم تعديل المشروع بنجاح!' : 'تمت إضافة المشروع بنجاح!', 'success');
             }
@@ -1598,7 +1598,8 @@ function loadMyProjects() {
 
     const mine = projects.filter(p => p && p.added_by === currentUser.username);
 
-    if (countEl) countEl.textContent = mine.length + ' مشروع';
+    if (countEl) countEl.textContent = mine.length === 1 ? 'مشروع واحد' : mine.length === 2 ? 'مشروعان'
+        : mine.length >= 3 && mine.length <= 10 ? mine.length + ' مشاريع' : mine.length + ' مشروعاً';
 
     if (mine.length === 0) {
         container.innerHTML = '<div class="my-projects-empty">لم ترفع أي مشاريع بعد</div>';
@@ -1708,7 +1709,7 @@ async function loadUsers() {
 }
 
 function getRoleName(role) {
-    const names = { 'admin': 'مدير', 'field': 'ميداني', 'callcenter': 'كول سنتر' };
+    const names = { 'admin': 'مدير', 'field': 'وسيط', 'callcenter': 'مركز اتصال' };
     return names[role] || role;
 }
 

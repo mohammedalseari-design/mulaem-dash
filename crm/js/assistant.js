@@ -127,7 +127,6 @@ function requestsTable(rows) {
     const body = el('tbody');
     for (const row of rows) {
         const drafts = row.agent_drafts || [];
-        const waiting = drafts.filter((d) => d.status === 'submitted').length;
         body.appendChild(el('tr', {
             class: 'clickable',
             onclick: () => { location.hash = '#/assistant/' + row.id; }
@@ -137,7 +136,8 @@ function requestsTable(rows) {
             el('td', {}, statusBadge(row)),
             el('td', {}, nextStep(row)),
             el('td', { class: 'num', text: number((row.agent_sources || []).length) }),
-            el('td', { class: 'num', text: drafts.length + (waiting ? ' (' + waiting + ' بانتظار الاعتماد)' : '') }),
+            // ما ينتظر الاعتماد يقوله عمود «المطلوب منك»؛ هنا العدد وحده (كان «2 (1 بانتظار…)» يختلط اتجاهه)
+            el('td', { class: 'num', text: number(drafts.length) }),
             el('td', { class: 'crm-subtle', text: fmtDateTime(row.created_at) })
         ]));
     }

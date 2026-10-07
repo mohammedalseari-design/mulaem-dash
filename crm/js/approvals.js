@@ -11,14 +11,15 @@ import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import {
     AGENT_KIND, AGENT_APPLY_ERROR, AGENT_APPLIED_FIELDS, AGENT_FIELD,
-    DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label
+    DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label,
+    PURPOSE, UNIT_STATUS, CLIENT_STATUS, CLIENT_TYPE, PRIORITY
 } from './labels.js';
 import { recheckTwins, recordLink, safeUrl, sourceRows, targetRow, valueText } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
 import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn, money
+    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn, money, countText
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -235,7 +236,7 @@ function projectApprovalSection(rows, reload) {
                 el('div', { class: 'crm-subtle', text: project.price ? 'يبدأ من ' + Number(project.price).toLocaleString('en-US') + ' ريال' : 'السعر غير محدد' }),
                 el('div', { class: 'crm-subtle', text: 'المطور: ' + (details.developer || 'غير محدد') }),
                 el('div', { class: 'crm-subtle', text: [
-                    details.units_count ? details.units_count + ' وحدة' : null,
+                    details.units_count ? countText(Number(details.units_count) || 0, ['وحدة واحدة', 'وحدتان', 'وحدات', 'وحدة']) : null,
                     details.buildings_count ? details.buildings_count + ' عمارة' : null,
                     project.area ? Number(project.area).toLocaleString('en-US') + ' م²' : null
                 ].filter(Boolean).join(' · ') || 'تفاصيل الوحدات غير منشورة' }),
@@ -633,8 +634,8 @@ function fieldsTable(draft, current) {
     const addRow = (displayKey, value, ev, skipped, cur, rawKey) => {
         const changed = current ? valueText(cur) !== valueText(value) : true;
         const isMoney = PRICE_KEY.test(rawKey || '') && amountOf(value) !== null;
-        const before = current ? (isMoney && amountOf(cur) !== null ? money(amountOf(cur)) + ' ريال' : valueText(cur)) : null;
-        const after = isMoney ? money(amountOf(value)) + ' ريال' : valueText(value);
+        const before = current ? (isMoney && amountOf(cur) !== null ? money(amountOf(cur)) + ' ريال' : enumText(rawKey, cur)) : null;
+        const after = isMoney ? money(amountOf(value)) + ' ريال' : enumText(rawKey, value);
         const diff = current && isMoney && changed ? priceDiff(amountOf(cur), amountOf(value)) : null;
         body.appendChild(el('tr', { class: changed ? '' : 'agent-row-same' }, [
             el('td', {}, [
@@ -667,6 +668,20 @@ function fieldsTable(draft, current) {
     const models = proposed.details && Array.isArray(proposed.details.models) ? proposed.details.models : null;
     if (!models) return table;
     return el('div', {}, [table, unitsTable(models, evidence, allowed.indexOf('details') === -1)]);
+}
+
+// قيم الحقول المرمّزة بالعربية (البيع والإيجار، حالة الوحدة والتوفر، حالة العميل ونوعه، الأولوية)؛
+// ما ليس في القوائم يُعرض كما هو
+const ENUM_LABELS = {
+    purpose: [PURPOSE], availability: [UNIT_STATUS], status: [UNIT_STATUS, CLIENT_STATUS],
+    client_type: [CLIENT_TYPE], priority: [PRIORITY]
+};
+
+function enumText(key, value) {
+    if (typeof value === 'string') {
+        for (const map of ENUM_LABELS[key] || []) if (map[value]) return map[value];
+    }
+    return valueText(value);
 }
 
 // حقول المال تُعرض بفواصل وريال. النص لا يُعدّ رقماً إلا إن كان أرقاماً وفواصل فقط («يبدأ من 600 ألف» يبقى نصاً).
@@ -710,7 +725,7 @@ function unitsTable(models, evidence, skipped) {
         body.appendChild(el('tr', {}, UNIT_COLUMNS.map((c) => {
             const value = m ? m[c] : null;
             const amount = PRICE_KEY.test(c) ? amountOf(value) : null;
-            return el('td', { text: amount !== null ? money(amount) : valueText(value) });
+            return el('td', { text: amount !== null ? money(amount) : enumText(c, value) });
         })));
         for (const c of UNIT_COLUMNS) {
             const ev = evidence['units.' + i + '.' + c];

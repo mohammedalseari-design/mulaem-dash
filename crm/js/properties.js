@@ -16,7 +16,7 @@ import { safeUrl } from './agent.js';
 import { UNIT_STATUS, UNIT_STATUS_TONE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, input, select,
-    moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn
+    moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn, countText
 } from './ui.js';
 
 export async function renderProperties(root) {
@@ -109,7 +109,7 @@ export async function renderProperties(root) {
                 .select(
                     'project_id, project_name, unit_ord, unit_key, unit_type, district, district_inferred,'
                     + ' rooms, bathrooms, area, price, '
-                    + (withUnitFields ? 'project_image, developer, unit_commission, ' : '')
+                    + (withUnitFields ? 'project_image, developer, unit_commission, unit_count, units_left, ' : '')
                     + 'construction_status, unit_status',
                     { count: 'exact' }
                 )
@@ -140,12 +140,15 @@ export async function renderProperties(root) {
         let result = await buildQuery(true);
         if (result.error && (String(result.error.message || '').includes('unit_commission')
             || String(result.error.message || '').includes('project_image')
-            || String(result.error.message || '').includes('developer'))) {
+            || String(result.error.message || '').includes('developer')
+            || String(result.error.message || '').includes('units_left'))) {
             result = await buildQuery(false);
             if (result.data) result.data.forEach((row) => {
                 row.project_image = null;
                 row.developer = null;
                 row.unit_commission = null;
+                row.unit_count = null;
+                row.units_left = null;
             });
         }
         const { data, error, count } = result;
@@ -176,7 +179,7 @@ export async function renderProperties(root) {
 
         const total = count === null || count === undefined ? rows.length : count;
         replace(body, [
-            el('div', { class: 'crm-subtle', style: 'margin-bottom:12px', text: number(total) + ' وحدة' }),
+            el('div', { class: 'crm-subtle', style: 'margin-bottom:12px', text: countText(total, ['وحدة واحدة', 'وحدتان', 'وحدات', 'وحدة']) }),
             el('div', { class: 'crm-table-wrap' }, table(rows)),
             pager(view.page, total, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
@@ -245,6 +248,10 @@ function table(rows) {
             el('td', { class: 'num' }, commissionCell(row)),
             el('td', {}, el('div', { class: 'pr-status' }, [
                 badge(label(UNIT_STATUS, row.unit_status), UNIT_STATUS_TONE[row.unit_status] || 'neutral'),
+                // نموذج بعدة وحدات: يبقى «متاحاً» حتى تُحجز كلها، والباقي من حجوزات الصفقات (030)
+                row.unit_count > 1 && row.units_left !== null && row.units_left !== undefined
+                    ? el('span', { class: 'crm-subtle', text: 'متبقي ' + row.units_left + ' من ' + row.unit_count })
+                    : null,
                 row.construction_status ? el('span', { class: 'crm-subtle', text: row.construction_status }) : null
             ])),
             el('td', { class: 'cell-actions' }, rowActions(row, dealAllowed))

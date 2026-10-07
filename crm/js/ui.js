@@ -174,7 +174,7 @@ export function pager(page, total, onPage, size = 25) {
         type: 'button', class: 'btn btn-outline btn-xs', text: 'السابق',
         disabled: page <= 0, onclick: () => onPage(page - 1)
     }));
-    bar.appendChild(el('span', { text: 'صفحة ' + (page + 1) + ' من ' + pages + ' — ' + total + ' سجل' }));
+    bar.appendChild(el('span', { text: 'صفحة ' + (page + 1) + ' من ' + pages + ' — ' + countText(total, ['سجل واحد', 'سجلان', 'سجلات', 'سجلاً']) }));
     bar.appendChild(el('button', {
         type: 'button', class: 'btn btn-outline btn-xs', text: 'التالي',
         disabled: page >= pages - 1, onclick: () => onPage(page + 1)
@@ -186,6 +186,17 @@ export function pager(page, total, onPage, size = 25) {
 
 const NUM = new Intl.NumberFormat('en-US');
 const DASH = '—';
+
+// العدد مع المعدود بالعربية: forms = [المفرد بلفظ «واحد»، المثنى، جمع 3–10، مفرد 11 فأكثر].
+// مثال: countText(3, ['سجل واحد', 'سجلان', 'سجلات', 'سجلاً']) ← «3 سجلات». الصفر بصيغة الجمع: «0 سجلات».
+export function countText(n, forms) {
+    const v = Number(n) || 0;
+    if (v === 1) return forms[0];
+    if (v === 2) return forms[1];
+    if (v >= 3 && v <= 10) return v + ' ' + forms[2];
+    if (v === 0) return '0 ' + forms[2];
+    return number(v) + ' ' + forms[3];
+}
 
 export function money(value) {
     if (value === null || value === undefined || value === '') return DASH;

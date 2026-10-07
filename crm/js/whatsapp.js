@@ -25,7 +25,10 @@ import { sha256Hex, createRequest, startExtraction, extractionStatus } from './a
 import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
-import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn } from './ui.js';
+import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn, countText } from './ui.js';
+
+// «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
+const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
 import {
     BUCKETS, DEFAULT_MODE, INTENTS, INTENT_AR, MODES, MODE_AR, MODE_HINT, MODE_KEY, REPORT_DAYS, SURFACED_AR, VERDICT_AR,
     bucketOf, countBuckets, createRunner, createStore, describe, isSurfaced, itemText, labelTriage, normalizeMode, outError,
@@ -356,6 +359,10 @@ export async function renderWhatsApp(root) {
     // كتل كل المصادر ← عناصر، والعرض المنشور في أكثر من مجموعة أو أكثر من مرة يصير عنصراً واحداً
     // يحمل أحدث نسخة، مع قائمة الأماكن الأخرى التي نُشر فيها.
     async function buildItems() {
+        // المعرّفات تتجدد مع كل ملف يُضاف، فالتحديد اليدوي وعلامة «نُسخ» تُحفظ بنص العرض وتُستعاد بعده.
+        // ما حدده Jev لا يُحفظ هنا: يُعاد تحديده من نتيجته في وضعه (applyPreselection)
+        const keepSelected = new Set(page.items.filter((i) => page.selected.has(i.id) && !autoPicked.has(i.id)).map(itemText).filter(Boolean));
+        const keepCopied = new Set(page.items.filter((i) => page.copied.has(i.id)).map(itemText).filter(Boolean));
         const byKey = new Map();
         const items = [];
         let n = 0;
@@ -381,6 +388,12 @@ export async function renderWhatsApp(root) {
         page.copied.clear();
         page.expanded.clear();
         autoPicked.clear();
+        for (const item of items) {
+            const text = itemText(item);
+            if (!text) continue;
+            if (keepSelected.has(text)) page.selected.add(item.id);
+            if (keepCopied.has(text)) page.copied.add(item.id);
+        }
         // المعرّفات تجددت: بطاقات الرسم السابق لا تُحدَّث في مكانها، والرسم التالي كامل
         listView = null;
         redrawPending = false;
@@ -607,7 +620,7 @@ export async function renderWhatsApp(root) {
         const focused = keepSearchFocus || document.activeElement === search;
         const caret = focused ? [search.selectionStart, search.selectionEnd] : null;
         const filters = drawFilters(listed);
-        const count = el('span', { class: 'crm-subtle', text: items.length + ' عنصر' });
+        const count = el('span', { class: 'crm-subtle', text: countText(items.length, ITEM_FORMS) });
         replace(listHead, [
             el('div', { class: 'crm-card-head' }, [el('h2', { text: 'العروض الجديدة' }), count]),
             filters.node
@@ -667,7 +680,7 @@ export async function renderWhatsApp(root) {
         if ((holder && !shown.some((item) => item.id === holder))
             || (!rest && listView.more && listView.more.contains(document.activeElement))) return void drawListSoon();
 
-        listView.count.textContent = items.length + ' عنصر';
+        listView.count.textContent = countText(items.length, ITEM_FORMS);
         if (listView.chips.size) {
             const counts = countBuckets(listed, resultOf);
             for (const [bucket, text] of listView.chips) text.nodeValue = chipText(bucket, counts);
@@ -782,7 +795,7 @@ export async function renderWhatsApp(root) {
         const others = [...new Set(item.copies.filter((c) => c !== item.main).map((c) => c.source.group))];
         const kindBadge = badge(KIND_AR[block.kind], KIND_TONE[block.kind]);
         const badges = [kindBadge].concat(jev.badges);
-        if (item.copies.length > 1) badges.push(badge('نُشر ' + item.copies.length + ' مرات', 'neutral'));
+        if (item.copies.length > 1) badges.push(badge('نُشر ' + countText(item.copies.length, ['مرة واحدة', 'مرتين', 'مرات', 'مرة']), 'neutral'));
         if (block.attachments.length) badges.push(badge(block.attachments.length + ' مرفق', 'blue'));
         else if (block.documents.length) badges.push(badge('مستند لم يُصدَّر', 'orange'));
         else if (block.media) badges.push(badge('صور لم تُصدَّر', 'neutral'));
@@ -919,12 +932,17 @@ export async function renderWhatsApp(root) {
     }
 
     function selectVisible() {
+        let skipped = 0;
         for (const item of visibleItems().slice(0, page.shown)) {
+            if (isSent(item)) continue;
+            // «مستبعد» من Jev لا يُحدَّد جملةً: يُحدَّد بيده من بطاقته إن أراده المالك
+            if (bucketOf(resultOf(item)) === 'skip') { skipped += 1; continue; }
             page.selected.add(item.id);
             unticked.delete(itemText(item));
             autoPicked.delete(item.id);
         }
         drawList();
+        if (skipped) notify('لم يُحدَّد ' + skipped + ' مما استبعده Jev — حدّده من بطاقته إن أردته', 'info', 6000);
     }
 
     // «إلغاء التحديد» إلغاءٌ باليد لكل ما كان محدداً، فلا يعيد التحديد المسبق تحديده
@@ -977,6 +995,7 @@ export async function renderWhatsApp(root) {
         page.sending = true;
         drawBar();
         let done = 0;
+        let stopError = null;
         try {
             for (const item of chosen.slice(0, limit)) {
                 sendBtn.textContent = 'جارٍ الإرسال ' + (done + 1) + ' من ' + limit + '…';
@@ -993,7 +1012,7 @@ export async function renderWhatsApp(root) {
                 done += 1;
             }
         } catch (error) {
-            fail(error, 'توقف الإرسال بعد ' + done + ' من ' + limit);
+            stopError = error;
         } finally {
             page.sending = false;
             sendBtn.textContent = 'إرسال للمساعد';
@@ -1001,8 +1020,15 @@ export async function renderWhatsApp(root) {
             drawSummary();
             drawList();
         }
-        if (done) notify('أُرسل ' + done + ' عرضاً للمساعد. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.', 'success', 7000);
-        if (chosen.length > limit) notify('لم يُرسل ' + (chosen.length - limit) + ' عرضاً لبلوغ الحد اليومي', 'error', 7000);
+        // رسالة واحدة ثابتة بما حدث كله: ما أُرسل، وأين توقف ولماذا، وأن الباقي ما زال محدداً
+        const left = chosen.length - done;
+        if (stopError) {
+            return void fail(stopError, 'أُرسل ' + done + ' من ' + chosen.length + ' ثم توقف الإرسال، والباقي (' + left + ') ما زال محدداً');
+        }
+        if (left > 0) {
+            return void notify('أُرسل ' + done + ' من ' + chosen.length + '. توقف الإرسال لبلوغ الحد اليومي، والباقي (' + left + ') ما زال محدداً.', 'error', 10000);
+        }
+        if (done) notify('أُرسل ' + done + ' للمساعد. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.', 'success', 7000);
     }
 
     /* ---------- فرز Jev ---------- */

@@ -573,3 +573,16 @@ body.crm-dark .login-box { background: var(--surface); }
 .dup-strong .agent-list { color: var(--ink-2); }
 .price-diff { margin-top: 2px; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
 .price-diff-big { color: var(--danger); }
+
+
+/* لوحة الإدارة: «حالة النظام» — نقطة بلون الحالة، والاسم، والقيمة */
+.sys-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 8px 12px; }
+.sys-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.sys-dot { grid-row: 1 / span 2; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.sys-ok .sys-dot { background: var(--ok); }
+.sys-warn .sys-dot { background: var(--amber); }
+.sys-bad .sys-dot { background: var(--danger); }
+.sys-label { color: var(--muted); font-size: 0.8rem; }
+.sys-value { color: var(--ink); font-weight: 600; font-size: 0.92rem; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
+a.sys-value:hover { text-decoration: underline; }
+.sys-bad .sys-value { color: var(--danger); }

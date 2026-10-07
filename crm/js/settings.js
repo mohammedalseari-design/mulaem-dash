@@ -193,7 +193,7 @@ function limitsForm(stored) {
 }
 
 // صرف اليوم (توقيت الرياض) من سجل نداءات النموذج — مقروء للمدير وحده، فغيره لا يرى سطراً
-async function todaySpend() {
+export async function todaySpend() {
     const now = new Date();
     const riyadh = new Date(now.getTime() + (now.getTimezoneOffset() + 180) * 60000);
     const start = new Date(Date.UTC(riyadh.getFullYear(), riyadh.getMonth(), riyadh.getDate()) - 180 * 60000);

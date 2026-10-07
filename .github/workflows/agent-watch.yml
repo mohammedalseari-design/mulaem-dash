@@ -1,0 +1,47 @@
+# حارس المساعد الذكي: يفشل (فيصل المالكَ إيميلٌ من GitHub) إذا توقفت دورة المساعد في الخلفية (مهمة pg_cron
+# agent-run-sweep)، أو بقي طلب «في الانتظار» أو «قيد التنفيذ» أكثر من ساعة. يقرأ فقط، برابط النسخ الاحتياطي.
+name: agent-watch
+
+on:
+  schedule:
+    - cron: '41 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: The background sweep runs and no request is stuck
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is empty — see docs/BACKUP.md"
+            exit 1
+          fi
+          sweep=$(psql "$SUPABASE_DB_URL" -tAX -c "select coalesce(bool_and(active), false) from cron.job where jobname = 'agent-run-sweep'")
+          stuck=$(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.agent_requests where status in ('queued', 'running') and updated_at < now() - interval '1 hour'")
+          echo "دورة المساعد تعمل: $sweep — طلبات عالقة أكثر من ساعة: $stuck"
+          failed=0
+          if [ "$sweep" != "t" ]; then
+            echo "::error::دورة المساعد في الخلفية (agent-run-sweep) متوقفة أو غير موجودة — الطلبات لن تُنفَّذ"
+            failed=1
+          fi
+          if [ "$stuck" != "0" ]; then
+            echo "::error::$stuck طلب للمساعد عالق منذ أكثر من ساعة — افتح «المساعد الذكي» أو «حالة النظام» في لوحة الإدارة"
+            failed=1
+          fi
+          exit $failed

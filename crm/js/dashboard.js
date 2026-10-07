@@ -8,9 +8,10 @@
 
 import { supabase } from './supabase.js';
 import {
-    el, append, replace, loading, empty, errorBox, money, number, dash, pageHead, actionBtn
+    el, append, replace, loading, empty, errorBox, money, number, dash, pageHead, actionBtn, countText
 } from './ui.js';
 import { WORK_CARDS } from './work.js';
+import { todaySpend } from './settings.js';
 
 // بطاقات الشهر الجاري من v_funnel_monthly
 const FUNNEL_CARDS = [
@@ -64,18 +65,22 @@ export async function renderDashboard(root) {
     const lostBody = el('div');
     const monthsBody = el('div');
     const attentionBody = el('div');
+    const systemBody = el('div');
 
     replace(root, el('div', { class: 'dashboard-shell' }, [
         pageHead('لوحة الإدارة', 'صورة مختصرة عن العملاء والصفقات والمخزون.', [
             actionBtn('التقارير', 'chart', { href: '#/reports' })
         ]),
         stats,
+        card('حالة النظام', systemBody),
         card('يحتاج انتباه', attentionBody),
         el('div', { class: 'dashboard-grid dashboard-grid-wide' }, [card('القمع — الشهر الجاري', funnelBody), card('أداء الوسطاء', brokersBody)]),
         el('div', { class: 'dashboard-grid' }, [card('لماذا نخسر (90 يوماً)', lostBody), card('آخر 12 شهراً', monthsBody)])
     ]));
 
     replace(stats, loading());
+    replace(systemBody, loading());
+    renderSystem(systemBody);
     for (const body of [attentionBody, funnelBody, brokersBody, lostBody, monthsBody]) replace(body, loading());
 
     // العروض صغيرة ومحدودة بطبيعتها (12 شهراً، طاقم العمل، أسباب الخسارة)،
@@ -105,6 +110,88 @@ export async function renderDashboard(root) {
         { key: 'deals', label: 'صفقات خاسرة' }
     ], 'لا توجد صفقات خاسرة في آخر 90 يوماً', 'تعذّر تحميل أسباب الخسارة');
     renderTable(monthsBody, funnel, MONTH_COLUMNS, 'لا توجد بيانات شهرية', 'تعذّر تحميل تقرير الأشهر');
+}
+
+/* ===================== حالة النظام ===================== */
+// أربعة أسطر بلون الحالة: آخر نسخة احتياطية (من سجل GitHub العام للمستودع)، وصرف المساعد اليوم مقابل حده،
+// وطلبات المساعد العالقة، وما ينتظر الاعتماد. كل سطر يُحسب وحده، وتعذّر أحدها لا يخفي البقية.
+
+const STUCK_MINUTES = 30;
+
+async function renderSystem(host) {
+    const rows = await Promise.all([backupLine(), spendLine(), stuckLine(), approvalsLine()]);
+    if (!host.isConnected) return;
+    replace(host, el('ul', { class: 'sys-list' }, rows.map((row) => el('li', { class: 'sys-row sys-' + row.tone }, [
+        el('span', { class: 'sys-dot', 'aria-hidden': 'true' }),
+        el('span', { class: 'sys-label', text: row.label }),
+        row.href ? el('a', { class: 'sys-value', href: row.href, text: row.text }) : el('span', { class: 'sys-value', text: row.text })
+    ]))));
+}
+
+function ago(iso) {
+    const hours = Math.floor((Date.now() - Date.parse(iso)) / 3600000);
+    if (hours < 1) return 'قبل أقل من ساعة';
+    if (hours < 48) return 'قبل ' + countText(hours, ['ساعة', 'ساعتين', 'ساعات', 'ساعة']);
+    return 'قبل ' + countText(Math.floor(hours / 24), ['يوم', 'يومين', 'أيام', 'يوماً']);
+}
+
+async function backupLine() {
+    const label = 'النسخة الاحتياطية';
+    try {
+        const res = await fetch('https://api.github.com/repos/mohammedalseari-design/mulaem-dash/actions/workflows/backup.yml/runs?status=success&per_page=1',
+            { headers: { Accept: 'application/vnd.github+json' } });
+        if (!res.ok) throw new Error(String(res.status));
+        const body = await res.json();
+        const run = body && Array.isArray(body.workflow_runs) ? body.workflow_runs[0] : null;
+        if (!run) return { label, tone: 'bad', text: 'لا توجد نسخة ناجحة' };
+        const hours = (Date.now() - Date.parse(run.created_at)) / 3600000;
+        return { label, tone: hours > 36 ? 'bad' : 'ok', text: 'آخر نسخة ناجحة ' + ago(run.created_at) };
+    } catch (_) {
+        return { label, tone: 'unknown', text: 'تعذّر الفحص الآن' };
+    }
+}
+
+async function spendLine() {
+    const label = 'صرف المساعد اليوم';
+    const [spent, capRow] = await Promise.all([
+        todaySpend(),
+        supabase.from('crm_settings').select('value').eq('key', 'agent_daily_usd_cap').maybeSingle()
+    ]);
+    if (spent === null) return { label, tone: 'unknown', text: 'تعذّر الحساب' };
+    const raw = capRow && capRow.data ? capRow.data.value : null;
+    const cap = typeof raw === 'number' ? raw : Number(raw) || 2;
+    const share = cap > 0 ? spent / cap : 1;
+    return {
+        label, href: '#/settings',
+        tone: share >= 1 ? 'bad' : share >= 0.8 ? 'warn' : 'ok',
+        text: spent.toFixed(2) + ' من ' + cap + ' دولار' + (share >= 1 ? ' — توقف المساعد لبلوغ الحد' : '')
+    };
+}
+
+async function stuckLine() {
+    const label = 'طلبات المساعد';
+    const since = new Date(Date.now() - STUCK_MINUTES * 60000).toISOString();
+    const [stuck, running] = await Promise.all([
+        supabase.from('agent_requests').select('id', { count: 'exact', head: true })
+            .in('status', ['queued', 'running']).lt('updated_at', since),
+        supabase.from('agent_requests').select('id', { count: 'exact', head: true }).eq('status', 'running')
+    ]);
+    if (stuck.error || running.error) return { label, tone: 'unknown', text: 'تعذّر الفحص' };
+    if (stuck.count) {
+        return { label, href: '#/assistant', tone: 'bad', text: stuck.count + ' عالق منذ أكثر من ' + STUCK_MINUTES + ' دقيقة' };
+    }
+    return { label, tone: 'ok', text: running.count ? 'يعمل الآن على ' + running.count : 'لا طلبات عالقة' };
+}
+
+async function approvalsLine() {
+    const label = 'بانتظار اعتمادك';
+    const [drafts, projects] = await Promise.all([
+        supabase.from('agent_drafts').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+        supabase.from('projects').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+    ]);
+    if (drafts.error || projects.error) return { label, tone: 'unknown', text: 'تعذّر العدّ' };
+    const n = (drafts.count || 0) + (projects.count || 0);
+    return { label, href: n ? '#/approvals' : null, tone: n ? 'warn' : 'ok', text: n ? n + ' طلب' : 'لا شيء' };
 }
 
 function renderAttention(host, result) {

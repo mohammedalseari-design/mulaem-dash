@@ -51,10 +51,31 @@ jobs:
           rm -f "$file.gz"
           ls -lh "$file.gz.age"
 
-      # حاجز أخير قبل الرفع: إن بقي أي ملف SQL غير مشفّر فلا رفع أصلاً.
+      # النسخة بطريقة Supabase الموصى بها (أدوار، بنية، بيانات): هي التي تُعيد حسابات الدخول (auth.users) إلى مشروع
+      # جديد، فاستعادة pg_dump الخام بمستخدم postgres لا تملك جداول auth. تُجرَّب كل ثلاثة أشهر في restore-drill.yml.
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.119.0
+
+      - name: Dump the Supabase way (roles, schema, data), archive and encrypt
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          AGE_RECIPIENT: age1zrng4hp9mafqnc65q6999v3vt2qd0555ec6y9servrh9ml08j4mq2mjg84
+        run: |
+          dir="mulaem-supabase-$(date -u +%F)"
+          mkdir "$dir"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/roles.sql" --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/schema.sql"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$dir/data.sql" --use-copy --data-only
+          tar -czf "$dir.tar.gz" "$dir"
+          age -r "$AGE_RECIPIENT" -o "$dir.tar.gz.age" "$dir.tar.gz"
+          rm -rf "$dir" "$dir.tar.gz"
+          ls -lh "$dir.tar.gz.age"
+
+      # حاجز أخير قبل الرفع: إن بقي أي ملف SQL أو أرشيف غير مشفّر فلا رفع أصلاً.
       - name: Refuse to upload unencrypted dumps
         run: |
-          leftovers="$(find . -type f \( -name '*.sql' -o -name '*.sql.gz' \))"
+          leftovers="$(find . -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.tar.gz' \))"
           if [ -n "$leftovers" ]; then
             echo "::error::unencrypted dump found, refusing to upload: $leftovers"
             exit 1
@@ -65,5 +86,13 @@ jobs:
         with:
           name: mulaem-db-backup-encrypted
           path: 'mulaem-*.sql.gz.age'
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Upload the encrypted Supabase-way backup
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mulaem-supabase-dump-encrypted
+          path: 'mulaem-supabase-*.tar.gz.age'
           retention-days: 90
           if-no-files-found: error

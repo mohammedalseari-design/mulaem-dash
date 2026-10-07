@@ -13,7 +13,8 @@
 
 | ماذا | أين | كم مرة | يبقى |
 |---|---|---|---|
-| القاعدة كاملة (الجداول والبيانات والدوال) | Actions ← **backup** ← `mulaem-db-backup-encrypted` | كل ليلة | 90 يوماً |
+| القاعدة بطريقة Supabase، **ومعها حسابات الدخول** — استعمل هذه | Actions ← **backup** ← `mulaem-supabase-dump-encrypted` | كل ليلة | 90 يوماً |
+| القاعدة بـ pg_dump الخام (طبقة احتياط ثانية، لا تعيد حسابات الدخول) | Actions ← **backup** ← `mulaem-db-backup-encrypted` | كل ليلة | 90 يوماً |
 | صور المشاريع (حاوية project-images) | Actions ← **storage-backup** ← `mulaem-images-backup-encrypted` | كل أسبوع | 90 يوماً |
 | تجربة أن الاسترجاع يعمل فعلاً | Actions ← **restore-drill** (صفحة التشغيل فيها الجدول والنتيجة) | كل ثلاثة أشهر | — |
 
@@ -26,9 +27,17 @@
 لوحة Supabase ← **New project** ← المنطقة نفسها (أوروبا الوسطى). احفظ كلمة مرور القاعدة في مكان آمن.
 من **Project Settings ← Database ← Connection string ← Session pooler** انسخ الرابط (ضع كلمة المرور مكان `[YOUR-PASSWORD]`).
 
-### 2. القاعدة
-اتبع **docs/BACKUP.md القسمين 3 و4**: نزّل آخر نسخة ليلية، فكّها بمفتاحك، واستعدها على المشروع الجديد بـ psql.
-النسخة تحمل جدول `mulaem_migrations`، فإجراء **migrate** يعرف بعدها ما طُبّق ولا يعيده.
+### 2. القاعدة وحسابات الدخول
+نزّل آخر `mulaem-supabase-dump-encrypted` (Actions ← backup ← التشغيل ← Artifacts)، ثم في مجلد خارج المستودع:
+
+```bash
+age -d -i <ملف-المفتاح-الخاص> -o dump.tar.gz mulaem-supabase-YYYY-MM-DD.tar.gz.age
+tar -xzf dump.tar.gz && cd mulaem-supabase-YYYY-MM-DD
+psql --single-transaction --variable ON_ERROR_STOP=1   --file roles.sql --file schema.sql   --command 'SET session_replication_role = replica'   --file data.sql --dbname "<رابط المشروع الجديد من الخطوة 1>"
+```
+
+هذا أمر Supabase الموثّق للنقل بين المشاريع، ويعيد حسابات الدخول (auth.users) مع البيانات. إجراء **restore-drill** يجرّبه
+بعينه كل ثلاثة أشهر. بعدها احذف الملفات المفكوكة. النسخة تحمل جدول `mulaem_migrations`، فإجراء **migrate** يعرف ما طُبّق.
 
 ### 3. أسرار GitHub
 مستودع mulaem-dash ← **Settings ← Secrets and variables ← Actions**:

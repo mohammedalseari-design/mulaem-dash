@@ -1,7 +1,8 @@
-# تجربة استرجاع: هل تُستعاد القاعدة فعلاً من نسخة كالتي تُؤخذ كل ليلة؟ كل ثلاثة أشهر (ويدوياً).
-# يأخذ نسخة بأمر pg_dump نفسه الذي في backup.yml، ويستعيدها في قاعدة مؤقتة من صورة Supabase نفسها داخل التشغيل،
-# ثم يقارن عدد السجلات في كل جدول بالقاعدة الحية، ويكتب النتيجة والوقت بالعربي. لا يُرفع شيء: البيانات تبقى في
-# التشغيل وتُمحى معه. يقرأ القاعدة الحية فقط. (النسخ المرفوعة نفسها مشفّرة بمفتاحك، ففكّها خطوة لك: docs/RECOVERY.md)
+# تجربة استرجاع: هل يعود النظام فعلاً، بما فيه حسابات الدخول، من نسخة كالتي تُؤخذ كل ليلة؟ كل ثلاثة أشهر (ويدوياً).
+# يأخذ النسخة بطريقة Supabase الموصى بها (أدوار، بنية، بيانات — كما في backup.yml)، ويشغّل Supabase كاملاً داخل التشغيل
+# (القاعدة وخدمة الدخول والمخزن، فتنشأ جداول auth كما في مشروع جديد)، ويستعيد بأمر Supabase الموثّق في معاملة واحدة،
+# ثم يقارن عدد السجلات في كل جدول وحسابات الدخول بالقاعدة الحية، ويكتب النتيجة والوقت بالعربي.
+# لا يُرفع شيء: البيانات تبقى في التشغيل وتُمحى معه. يقرأ القاعدة الحية فقط. (فك تشفير النسخ المرفوعة لك: docs/RECOVERY.md)
 name: restore-drill
 
 on:
@@ -16,19 +17,13 @@ jobs:
   drill:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    services:
-      db:
-        image: supabase/postgres:17.6.1.178
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 54322:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -h localhost"
-          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
-      LOCAL_DB: postgresql://postgres:postgres@localhost:54322/postgres
+      LOCAL_DB: postgresql://postgres:postgres@127.0.0.1:54322/postgres
     steps:
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.119.0
+
       - name: Install the PostgreSQL 17 client
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -38,7 +33,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
 
-      - name: Count the live tables, dump like the nightly backup, restore into the temporary database
+      # مشروع Supabase فارغ في مجلد مؤقت (لا ملفات هجرة)، بالقاعدة وخدمة الدخول والمخزن فقط
+      - name: Start an empty local Supabase
+        run: |
+          mkdir drill && cd drill
+          supabase init
+          supabase start -x studio,imgproxy,mailpit,logflare,vector,supavisor,edge-runtime,realtime,postgres-meta
+          echo "SECONDS_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Count live data, dump the Supabase way, restore with the documented command
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -50,47 +53,66 @@ jobs:
           tables=$(psql "$SUPABASE_DB_URL" -tAX -c "select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by 1")
           : > live.txt
           for t in $tables; do
-            echo "$t $(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.\"$t\"")" >> live.txt
+            echo "public.$t $(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.\"$t\"")" >> live.txt
           done
+          echo "auth.users $(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from auth.users")" >> live.txt
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f roles.sql --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f data.sql --use-copy --data-only
           start=$(date +%s)
-          pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges --clean --if-exists -f dump.sql
-          psql "$LOCAL_DB" -v ON_ERROR_STOP=0 -q -f dump.sql > restore.log 2>&1 || true
+          # أمر Supabase الموثّق للنقل بين المشاريع: معاملة واحدة، يتوقف عند أول خطأ
+          if psql --single-transaction --variable ON_ERROR_STOP=1 \
+               --file roles.sql --file schema.sql \
+               --command 'SET session_replication_role = replica' \
+               --file data.sql --dbname "$LOCAL_DB" > restore.log 2>&1; then
+            echo "ok" > restore-status.txt
+          else
+            echo "failed" > restore-status.txt
+            tail -20 restore.log
+          fi
           echo "$(( $(date +%s) - start ))" > seconds.txt
-          rm -f dump.sql
-          echo "أخطاء الاستعادة كلها: $(grep -c 'ERROR' restore.log || true)"
-          grep 'ERROR' restore.log | head -15 || true
+          rm -f roles.sql schema.sql data.sql
 
-      - name: Compare every table with the live database
+      - name: Compare every table and the login accounts with the live database
         run: |
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          status=$(cat restore-status.txt)
           bad=0
           rows=0
           {
             echo "## تجربة الاسترجاع"
             echo ""
-            echo "النسخة أُخذت بالأمر نفسه الذي يأخذ النسخة الليلية، واستُعيدت في قاعدة مؤقتة خلال $(cat seconds.txt) ثانية."
+            echo "النسخة أُخذت بطريقة Supabase (أدوار، بنية، بيانات) واستُعيدت في Supabase مؤقت خلال $(cat seconds.txt) ثانية."
             echo ""
+            if [ "$status" != "ok" ]; then
+              echo "**✗ أمر الاستعادة توقف بخطأ — راجع سجل التشغيل.**"
+            fi
             echo "| الجدول | في القاعدة الحية | بعد الاسترجاع |"
             echo "|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
           while read -r t live; do
-            restored=$(psql "$LOCAL_DB" -tAX -c "select count(*) from public.\"$t\"" 2>/dev/null || echo "مفقود")
+            restored=$(psql "$LOCAL_DB" -tAX -c "select count(*) from $t" 2>/dev/null || echo "مفقود")
             mark="✓"
             # الكتابة الحية بين العدّ والنسخة تغيّر الأرقام قليلاً؛ الفشل جدول مفقود أو فارغ وهو في الحية غير فارغ
             if [ "$restored" = "مفقود" ] || { [ "$restored" = "0" ] && [ "$live" != "0" ]; }; then mark="✗"; bad=$((bad + 1)); fi
             [ "$restored" != "مفقود" ] && rows=$((rows + restored))
-            echo "| $mark $t | $live | $restored |" >> "$GITHUB_STEP_SUMMARY"
+            label="$t"; [ "$t" = "auth.users" ] && label="حسابات الدخول (auth.users)"
+            echo "| $mark $label | $live | $restored |" >> "$GITHUB_STEP_SUMMARY"
           done < live.txt
           {
             echo ""
-            if [ "$bad" -eq 0 ]; then
-              echo "**✓ الاسترجاع نجح: $(wc -l < live.txt) جدولاً، $rows سجلاً.**"
+            if [ "$bad" -eq 0 ] && [ "$status" = "ok" ]; then
+              echo "**✓ الاسترجاع نجح: $(wc -l < live.txt) جدولاً مع حسابات الدخول، $rows سجلاً.**"
             else
-              echo "**✗ $bad جدول لم يُستعد كما ينبغي — راجع سجل التشغيل.**"
+              echo "**✗ الاسترجاع لم يكتمل — راجع سجل التشغيل.**"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$bad" -gt 0 ]; then
-            echo "::error::$bad table(s) did not restore — the nightly backup method needs attention (docs/RECOVERY.md)"
+          if [ "$status" != "ok" ] || [ "$bad" -gt 0 ]; then
+            echo "::error::the restore drill failed (restore: $status, tables not restored: $bad) — docs/RECOVERY.md"
             exit 1
           fi
-          echo "restored $(wc -l < live.txt) tables, $rows rows"
+          echo "restored $(wc -l < live.txt) tables including auth.users, $rows rows"
+
+      - name: Stop the local Supabase
+        if: always()
+        run: cd drill && supabase stop --no-backup || true

@@ -1,0 +1,252 @@
+# تحديثات القاعدة بضغطة «Approve» بدل اللصق في محرر Supabase.
+#
+# دفعة إلى main فيها ملف جديد في supabase/migrations ← ثلاثة أعمال بالترتيب:
+#   1. plan: يقرأ من القاعدة ما طُبّق (جدول mulaem_migrations، 032)، ويكتب بالعربي «ما الذي سيُطبَّق»، ويلغي
+#      تشغيلات migrate الأقدم التي ما زالت تنتظر الموافقة. لا يكتب في القاعدة شيئاً.
+#   2. rehearse: يأخذ نسخة من بنية القاعدة الحية (بلا بيانات) إلى قاعدة مؤقتة من صورة Supabase نفسها، ويطبّق عليها
+#      التحديثات الجديدة. إن فشل أيٌّ منها توقف كل شيء ولم يُطلب منك شيء.
+#   3. apply: ينتظر موافقة المالك في بيئة production (Review deployments ← Approve)، ثم يطبّق كل تحديث في معاملة
+#      واحدة مع سطره في mulaem_migrations، ويكتب «✓ التحديث NNN مطبّق».
+# الموافقة والرفض للمالك وحده من المتصفح؛ لا يوافق هذا الإجراء ولا أي جلسة Claude على شيء. التفاصيل: docs/DEPLOY.md.
+name: migrate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - '.github/workflows/migrate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # ما طُبّق قبل سجل 032 (باللصق): يُعدّ مطبّقاً ما دام الجدول غير موجود
+  BASELINE: '031'
+
+jobs:
+  plan:
+    if: github.repository == 'mohammedalseari-design/mulaem-dash' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      pending: ${{ steps.list.outputs.pending }}
+    steps:
+      - name: Cancel older migrate runs still waiting for approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN: ${{ github.run_number }}
+        run: |
+          for status in waiting pending queued; do
+            gh run list -R "$REPO" --workflow migrate.yml --status "$status" --limit 50 \
+              --json databaseId,number --jq ".[] | select(.number < $THIS_RUN) | .databaseId" |
+            while read -r id; do
+              echo "إلغاء تشغيل أقدم ينتظر: $id"
+              gh run cancel -R "$REPO" "$id" || true
+            done
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: List the updates not yet applied
+        id: list
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is empty — see docs/BACKUP.md"
+            exit 1
+          fi
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          exists=$(psql "$SUPABASE_DB_URL" -tAX -c "select to_regclass('public.mulaem_migrations') is not null")
+          if [ "$exists" = "t" ]; then
+            applied=$(psql "$SUPABASE_DB_URL" -tAX -c "select name from public.mulaem_migrations")
+          else
+            applied=""
+            echo "سجل التحديثات غير موجود بعد: ما حتى $BASELINE يُعدّ مطبّقاً"
+          fi
+          pending=""
+          for path in $(ls supabase/migrations/*.sql | sort); do
+            f=$(basename "$path")
+            if ! [[ "$f" =~ ^[0-9]{3}_[a-z0-9_]+\.sql$ ]]; then
+              echo "::error::اسم ملف غير مقبول: $f (المطلوب مثل 033_name.sql)"
+              exit 1
+            fi
+            if grep -qiE '^[[:space:]]*(begin|commit|rollback)[[:space:]]*;' "$path"; then
+              echo "::error::$f فيه begin/commit: الإجراء يغلّف كل تحديث بمعاملة بنفسه"
+              exit 1
+            fi
+            if [ -z "$applied" ] && [ "${f:0:3}" \< "$BASELINE" -o "${f:0:3}" = "$BASELINE" ]; then continue; fi
+            if grep -qxF "$f" <<<"$applied"; then continue; fi
+            pending="$pending $f"
+          done
+          pending="${pending# }"
+          echo "pending=$pending" >> "$GITHUB_OUTPUT"
+          {
+            echo "## تحديثات القاعدة"
+            echo ""
+            if [ -z "$pending" ]; then
+              echo "لا تحديثات جديدة. كل شيء مطبّق."
+            else
+              echo "ستُجرَّب أولاً على نسخة مؤقتة، ثم تنتظر موافقتك (Review deployments ← Approve):"
+              echo ""
+              for f in $pending; do
+                title=$(head -1 "supabase/migrations/$f" | sed 's/^--[[:space:]]*//')
+                echo "- **$f** — $title"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "pending: ${pending:-none}"
+
+  rehearse:
+    needs: plan
+    if: needs.plan.outputs.pending != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # صورة Postgres التي تشغّلها Supabase نفسها: فيها أدوار anon/authenticated والمخطط auth والامتدادات
+      db:
+        image: supabase/postgres:17.6.1.178
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -h localhost"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      LOCAL_DB: postgresql://postgres:postgres@localhost:54322/postgres
+      PENDING: ${{ needs.plan.outputs.pending }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.119.0
+
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      # بنية القاعدة الحية بلا بيانات (supabase db dump يستثني مخططات Supabase المدارة)، ثم إلى القاعدة المؤقتة.
+      # ما لا يُستعاد في الصورة المجردة (امتداد أو مخطط تديره خدمة أخرى) يُسجَّل ولا يوقف التجربة.
+      - name: Copy the live schema (no data) into the temporary database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
+          wc -l schema.sql
+          psql "$LOCAL_DB" -v ON_ERROR_STOP=0 -q -f schema.sql > restore.log 2>&1 || true
+          echo "أخطاء الاستعادة (لا توقف التجربة): $(grep -c 'ERROR' restore.log || true)"
+          grep 'ERROR' restore.log | head -20 || true
+
+      - name: Rehearse the new updates on the copy
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          echo "## تجربة على نسخة مؤقتة" >> "$GITHUB_STEP_SUMMARY"
+          for f in $PENDING; do
+            if psql "$LOCAL_DB" -v ON_ERROR_STOP=1 --single-transaction -q -f "supabase/migrations/$f"; then
+              echo "- ✓ $f جُرّب ونجح" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ✗ $f فشل على النسخة المؤقتة — لم يُطبَّق شيء على القاعدة الحقيقية" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$f failed on the temporary copy — nothing was applied to the live database"
+              exit 1
+            fi
+          done
+
+  apply:
+    needs: [plan, rehearse]
+    if: needs.plan.outputs.pending != '' && needs.rehearse.result == 'success'
+    runs-on: ubuntu-latest
+    # البيئة المحمية: لا يبدأ قبل موافقة المالك
+    environment: production
+    concurrency:
+      group: migrate-apply
+      cancel-in-progress: false
+    timeout-minutes: 15
+    env:
+      PENDING: ${{ needs.plan.outputs.pending }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      # كل تحديث وسطره في السجل في معاملة واحدة: إما يُطبَّقان معاً أو لا شيء. ما طُبّق بين الخطة والموافقة يُتخطّى.
+      - name: Apply the approved updates
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          RUN: ${{ github.run_number }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          echo "## التطبيق على القاعدة" >> "$GITHUB_STEP_SUMMARY"
+          for f in $PENDING; do
+            done_already=$(psql "$SUPABASE_DB_URL" -tAX -c "select exists (select 1 from pg_class where oid = to_regclass('public.mulaem_migrations')) and exists (select 1 from public.mulaem_migrations where name = '$f')" 2>/dev/null || echo f)
+            if [ "$done_already" = "t" ]; then
+              echo "- $f كان مطبّقاً من قبل" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            sha=$(sha256sum "supabase/migrations/$f" | cut -c1-64)
+            {
+              echo "\\set ON_ERROR_STOP on"
+              echo "\\i supabase/migrations/$f"
+              echo "insert into public.mulaem_migrations (name, sha256, applied_by) values ('$f', '$sha', 'migrate run $RUN')"
+              echo "on conflict (name) do update set sha256 = excluded.sha256, applied_at = now(), applied_by = excluded.applied_by;"
+            } > apply.sql
+            if psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 --single-transaction -q -f apply.sql; then
+              echo "- ✓ التحديث $f مطبّق" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ✗ التحديث $f لم يُطبَّق (رُدّ كاملاً)" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::$f failed on the live database and was rolled back"
+              exit 1
+            fi
+          done
+
+      - name: Verify the ledger
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          for f in $PENDING; do
+            ok=$(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.mulaem_migrations where name = '$f'")
+            if [ "$ok" != "1" ]; then
+              echo "::error::$f is not in mulaem_migrations after applying"
+              exit 1
+            fi
+          done
+          echo "السجل يحمل: $(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.mulaem_migrations") تحديثاً"

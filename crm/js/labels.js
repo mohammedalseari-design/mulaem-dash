@@ -118,6 +118,9 @@ export const EVENT_TYPE = {
     commission_base_updated: 'تحدّث أساس احتساب العمولة',
     commission_base_mismatch: 'قيمة الصفقة تغيّرت بعد التحصيل — يحتاج مراجعة',
     commission_payment_added: 'سُجّلت دفعة عمولة',
+    // 031_unwon_commission.sql: خروج الصفقة من «تمت»
+    commission_removed: 'أُلغيت العمولة — خرجت الصفقة من «تمت» قبل أي تحصيل',
+    commission_review: 'خرجت الصفقة من «تمت» وعلى عمولتها مال أو فاتورة — تحتاج مراجعة',
     // 011_agent_core.sql: اعتماد مسودة من المساعد الذكي
     agent_draft_applied: 'اعتُمدت مسودة من المساعد الذكي'
 };

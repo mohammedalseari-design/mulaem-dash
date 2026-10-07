@@ -181,8 +181,9 @@ function paymentForm(commission, outstanding, onChange) {
     return form;
 }
 
-export const REVIEW_BADGE = 'الأساس تغيّر — يحتاج مراجعة';
-const REVIEW_WHY = 'قيمة الصفقة عُدِّلت بعد تسجيل مال على هذه العمولة، فلم يُمسّ السجل المالي.';
+export const REVIEW_BADGE = 'تحتاج مراجعة';
+// العلم يرتفع في حالتين (009 و031): عُدِّلت قيمة الصفقة، أو خرجت من «تمت»، وعلى العمولة مال أو فاتورة
+const REVIEW_WHY = 'تغيّرت الصفقة بعد تسجيل مال أو فاتورة على هذه العمولة (عُدِّلت قيمتها أو خرجت من «تمت»)، فلم يُمسّ السجل المالي.';
 const REVIEW_HINT_ADMIN = REVIEW_WHY + ' راجع الأرقام ثم أنهِ المراجعة.';
 const REVIEW_HINT_READER = REVIEW_WHY + ' المراجعة على المدير.';
 

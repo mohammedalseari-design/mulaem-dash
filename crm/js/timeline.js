@@ -173,6 +173,10 @@ function eventDetail(event) {
             }
             return parts.join(' · ');
         }
+        case 'commission_removed':
+            return p.gross !== null && p.gross !== undefined ? 'كانت ' + money(p.gross) + ' ريال، وتُنشأ من جديد إن عادت الصفقة إلى «تمت»' : '';
+        case 'commission_review':
+            return 'السجل المالي لم يُمسّ — راجع العمولة';
         case 'commission_payment_added': {
             const parts = [];
             if (p.amount !== null && p.amount !== undefined) parts.push(money(p.amount) + ' ريال');

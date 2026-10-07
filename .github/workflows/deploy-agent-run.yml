@@ -18,20 +18,67 @@ on:
 permissions:
   contents: read
 
-# نشر واحد في كل مرة، ولا يُقطع نشر بدأ
-concurrency:
-  group: deploy-agent-run
-  cancel-in-progress: false
-
 # bash -eo pipefail: أول أمر يفشل يُسقط الخطوة
 defaults:
   run:
     shell: bash
 
 jobs:
-  deploy:
+  # قبل الموافقة وبلا أي سر: يلغي التشغيلات الأقدم التي ما زالت تنتظر موافقة المالك (لم يُنشر منها شيء)، فلا يبقى
+  # أمامه إلا الأحدث، ويكتب بالعربي ما الذي سيُنشر. لا يوافق ولا يرفض شيئاً: الموافقة للمالك وحده من المتصفح.
+  # لا يلمس تشغيلاً بدأ النشر فعلاً (in_progress)، ولا يلغي نفسه ولا ما بعده.
+  gate:
     if: github.repository == 'mohammedalseari-design/mulaem-dash' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel older runs still waiting for approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN: ${{ github.run_number }}
+        run: |
+          for status in waiting pending queued; do
+            gh run list -R "$REPO" --workflow deploy-agent-run.yml --status "$status" --limit 50 \
+              --json databaseId,number --jq ".[] | select(.number < $THIS_RUN) | .databaseId" |
+            while read -r id; do
+              echo "إلغاء تشغيل أقدم ينتظر: $id"
+              gh run cancel -R "$REPO" "$id" || true
+            done
+          done
+
+      - name: What this run will deploy (Arabic summary)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          {
+            echo "## ما الذي سيُنشر في المساعد الذكي"
+            echo ""
+            echo "وافق على هذا التشغيل وحده؛ التشغيلات الأقدم المنتظرة أُلغيت تلقائياً."
+            echo ""
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              echo "### التغييرات منذ الدفعة السابقة"
+              gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.commits[] | "- " + (.commit.message | split("\n")[0])' || echo "- (تعذّرت قراءة القائمة)"
+              echo ""
+              echo "### ملفات الوظيفة التي تغيّرت"
+              gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename | select(startswith("supabase/functions/agent-run/") or startswith("supabase/functions/_shared/effort-router/") or . == "supabase/config.toml" or . == ".github/workflows/deploy-agent-run.yml") | "- " + .' || true
+            else
+              echo "تشغيل بلا دفعة سابقة معروفة (إعادة تشغيل للتراجع؟): يُنشر ما في $AFTER."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: gate
+    if: github.repository == 'mohammedalseari-design/mulaem-dash' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # نشر واحد في كل مرة، ولا يُقطع نشر بدأ (على مستوى هذا العمل، فيعمل gate في التشغيل الأحدث فوراً)
+    concurrency:
+      group: deploy-agent-run
+      cancel-in-progress: false
     # البيئة المحمية: لا يبدأ العمل قبل موافقة المالك، والسر فيها لا في أسرار المستودع
     environment: production
     timeout-minutes: 20

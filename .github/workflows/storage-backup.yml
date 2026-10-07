@@ -1,0 +1,96 @@
+# نسخة أسبوعية لصور المشاريع (مخزن Supabase «project-images»). النسخة الليلية (backup.yml) تحفظ القاعدة فقط.
+# القائمة من القاعدة (storage.objects) برابط النسخ الاحتياطي، والملفات من روابطها العامة (الحاوية عامة أصلاً)، ثم
+# أرشيف مضغوط ومشفّر بمفتاح age العام للمالك نفسه، يُرفع artifact ويبقى تسعين يوماً. لا يُرفع شيء غير مشفّر.
+# مرفقات المساعد (agent-sources) خاصة ولا تُنسخ هنا: تحتاج مفتاح الخدمة، وهي نسخ عمل لمسودات اعتُمدت أو رُفضت.
+# الاستعادة في docs/RECOVERY.md.
+name: storage-backup
+
+on:
+  schedule:
+    - cron: '27 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PUBLIC_BASE: https://niykzsspdehexphewlxa.supabase.co/storage/v1/object/public/project-images
+    steps:
+      - name: Install the PostgreSQL 17 client and age
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 age
+
+      - name: List the images and check the size
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is empty — see docs/BACKUP.md"
+            exit 1
+          fi
+          psql "$SUPABASE_DB_URL" -tAX -c "select name from storage.objects where bucket_id = 'project-images' and name not like '%/.emptyFolderPlaceholder' order by name" > names.txt
+          total=$(psql "$SUPABASE_DB_URL" -tAX -c "select coalesce(sum((metadata->>'size')::bigint), 0) from storage.objects where bucket_id = 'project-images'")
+          echo "الصور: $(wc -l < names.txt) ملفاً، $((total / 1048576)) ميغابايت"
+          # artifact واحد كبير جداً بطيء ويستهلك المساحة: تنبيه بدل نسخة ناقصة بصمت
+          if [ "$total" -gt 1800000000 ]; then
+            echo "::error::الصور أكبر من 1.8 غيغابايت — تحتاج النسخة طريقة أخرى (docs/RECOVERY.md)"
+            exit 1
+          fi
+
+      - name: Download, archive and encrypt
+        env:
+          AGE_RECIPIENT: age1zrng4hp9mafqnc65q6999v3vt2qd0555ec6y9servrh9ml08j4mq2mjg84
+        run: |
+          mkdir -p images
+          missing=0
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            mkdir -p "images/$(dirname "$name")"
+            # الاسم يُرمَّز جزءاً جزءاً في الرابط (مسافات وحروف عربية)، ويُحفظ كما هو على القرص
+            url="$PUBLIC_BASE/$(jq -rn --arg n "$name" '$n | split("/") | map(@uri) | join("/")')"
+            if ! curl -fsS --retry 3 --max-time 120 -o "images/$name" "$url"; then
+              echo "::warning::تعذّر تنزيل: $name"
+              missing=$((missing + 1))
+            fi
+          done < names.txt
+          cp names.txt images/_list.txt
+          file="mulaem-images-$(date -u +%F).tar.gz"
+          tar -czf "$file" images
+          age -r "$AGE_RECIPIENT" -o "$file.age" "$file"
+          rm -rf images "$file"
+          ls -lh "$file.age"
+          {
+            echo "## نسخة صور المشاريع"
+            echo "- الملفات: $(wc -l < names.txt)، وتعذّر منها: $missing"
+            echo "- الأرشيف المشفّر: $(du -h "$file.age" | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$missing" -gt 0 ]; then
+            echo "::warning::$missing صورة لم تُنزَّل — النسخة رُفعت ناقصة، والقائمة كاملة في _list.txt داخلها"
+          fi
+
+      # حاجز أخير: لا يُرفع إلا المشفّر
+      - name: Refuse to upload anything unencrypted
+        run: |
+          leftovers="$(find . -maxdepth 1 -type f -name 'mulaem-images-*' ! -name '*.age')"
+          if [ -n "$leftovers" ] || [ -d images ]; then
+            echo "::error::unencrypted image archive found, refusing to upload"
+            exit 1
+          fi
+
+      - name: Upload the encrypted image archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mulaem-images-backup-encrypted
+          path: 'mulaem-images-*.tar.gz.age'
+          retention-days: 90
+          if-no-files-found: error

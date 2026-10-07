@@ -1,0 +1,96 @@
+# تجربة استرجاع: هل تُستعاد القاعدة فعلاً من نسخة كالتي تُؤخذ كل ليلة؟ كل ثلاثة أشهر (ويدوياً).
+# يأخذ نسخة بأمر pg_dump نفسه الذي في backup.yml، ويستعيدها في قاعدة مؤقتة من صورة Supabase نفسها داخل التشغيل،
+# ثم يقارن عدد السجلات في كل جدول بالقاعدة الحية، ويكتب النتيجة والوقت بالعربي. لا يُرفع شيء: البيانات تبقى في
+# التشغيل وتُمحى معه. يقرأ القاعدة الحية فقط. (النسخ المرفوعة نفسها مشفّرة بمفتاحك، ففكّها خطوة لك: docs/RECOVERY.md)
+name: restore-drill
+
+on:
+  schedule:
+    - cron: '13 6 1 */3 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      db:
+        image: supabase/postgres:17.6.1.178
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -h localhost"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      LOCAL_DB: postgresql://postgres:postgres@localhost:54322/postgres
+    steps:
+      - name: Install the PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Count the live tables, dump like the nightly backup, restore into the temporary database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is empty — see docs/BACKUP.md"
+            exit 1
+          fi
+          tables=$(psql "$SUPABASE_DB_URL" -tAX -c "select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by 1")
+          : > live.txt
+          for t in $tables; do
+            echo "$t $(psql "$SUPABASE_DB_URL" -tAX -c "select count(*) from public.\"$t\"")" >> live.txt
+          done
+          start=$(date +%s)
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges --clean --if-exists -f dump.sql
+          psql "$LOCAL_DB" -v ON_ERROR_STOP=0 -q -f dump.sql > restore.log 2>&1 || true
+          echo "$(( $(date +%s) - start ))" > seconds.txt
+          rm -f dump.sql
+          echo "أخطاء الاستعادة كلها: $(grep -c 'ERROR' restore.log || true)"
+          grep 'ERROR' restore.log | head -15 || true
+
+      - name: Compare every table with the live database
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          bad=0
+          rows=0
+          {
+            echo "## تجربة الاسترجاع"
+            echo ""
+            echo "النسخة أُخذت بالأمر نفسه الذي يأخذ النسخة الليلية، واستُعيدت في قاعدة مؤقتة خلال $(cat seconds.txt) ثانية."
+            echo ""
+            echo "| الجدول | في القاعدة الحية | بعد الاسترجاع |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while read -r t live; do
+            restored=$(psql "$LOCAL_DB" -tAX -c "select count(*) from public.\"$t\"" 2>/dev/null || echo "مفقود")
+            mark="✓"
+            # الكتابة الحية بين العدّ والنسخة تغيّر الأرقام قليلاً؛ الفشل جدول مفقود أو فارغ وهو في الحية غير فارغ
+            if [ "$restored" = "مفقود" ] || { [ "$restored" = "0" ] && [ "$live" != "0" ]; }; then mark="✗"; bad=$((bad + 1)); fi
+            [ "$restored" != "مفقود" ] && rows=$((rows + restored))
+            echo "| $mark $t | $live | $restored |" >> "$GITHUB_STEP_SUMMARY"
+          done < live.txt
+          {
+            echo ""
+            if [ "$bad" -eq 0 ]; then
+              echo "**✓ الاسترجاع نجح: $(wc -l < live.txt) جدولاً، $rows سجلاً.**"
+            else
+              echo "**✗ $bad جدول لم يُستعد كما ينبغي — راجع سجل التشغيل.**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bad" -gt 0 ]; then
+            echo "::error::$bad table(s) did not restore — the nightly backup method needs attention (docs/RECOVERY.md)"
+            exit 1
+          fi
+          echo "restored $(wc -l < live.txt) tables, $rows rows"

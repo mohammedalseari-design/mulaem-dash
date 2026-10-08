@@ -1,4 +1,4 @@
-/* صفحة المشاريع والخريطة (index.html) — التصميم الرابع، بنفس لغة «عملي اليوم».
+/* صفحة المشاريع والخريطة (projects.html) — التصميم الرابع، بنفس لغة «عملي اليوم».
    يُحمَّل بعد css/style.css وcss/theme.css وcrm/app.css (التي تعطي الألوان والخط والقائمة الجانبية والشريط السفلي).
    هنا تخطيط الصفحة فقط: العنوان والإجراءات، ثم أرقام صغيرة، ثم التصنيفات والفلاتر، ثم المشاريع بجانب الخريطة.
    نموذج الإضافة والتعديل لوحة جانبية (body.p4-form-open) تترك الخريطة ظاهرة لتحديد الموقع بالنقر.
@@ -244,7 +244,7 @@ body.p4-form-open .p4 .main-content {
 }
 .p4-close:hover { background: var(--hover); color: var(--ink); }
 
-/* ===================== لوحة التحكم ونظرة المسوقين: مطويتان ===================== */
+/* ===================== سطر الإدارة ونظرة المسوقين (مطوية) ===================== */
 
 .p4-fold { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
 .p4-fold > summary {
@@ -262,9 +262,12 @@ body.p4-form-open .p4 .main-content {
 .p4-fold > summary::before { content: "‹"; display: inline-block; color: var(--muted); font-size: 1.2rem; line-height: 1; transition: transform 0.15s; }
 .p4-fold[open] > summary::before { transform: rotate(-90deg); }
 .p4-fold[open] > summary { border-bottom: 1px solid var(--line); }
-.p4-fold > .admin-dashboard,
 .p4-fold > .sales-shell { margin: 0; padding: 16px; border: 0; border-radius: 0; box-shadow: none; background: none; }
 body.role-field .p4-fold-admin, body.role-callcenter .p4-fold-admin { display: none; }
+/* سطر المدير: روابط الإدارة في النظام بدل لوحة التحكم القديمة */
+.p4-admin-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; min-height: 48px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); color: var(--muted); font-size: 0.92rem; }
+.p4-admin-note a { display: inline-flex; align-items: center; gap: 6px; color: var(--brand-ink); font-weight: 600; text-decoration: none; }
+.p4-admin-note a:hover { text-decoration: underline; }
 
 /* ===================== أحجام متوسطة ===================== */
 
@@ -346,5 +349,5 @@ body.role-field .p4-fold-admin, body.role-callcenter .p4-fold-admin { display: n
 }
 
 @media print {
-    .p4-tabbar, .p4-quick, .p4-toolbar, .p4 .filter-section, .p4 .map-section, .p4-fold { display: none !important; }
+    .p4-tabbar, .p4-quick, .p4-toolbar, .p4 .filter-section, .p4 .map-section, .p4-fold, .p4-admin-note { display: none !important; }
 }

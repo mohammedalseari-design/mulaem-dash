@@ -322,8 +322,10 @@ function initializeApp() {
         if (mc) mc.style.gridTemplateColumns = '1fr';
     }
 
-    if (currentUser.role === 'admin') {
-        document.getElementById('adminDashboard').classList.add('active');
+    // لوحة التحكم القديمة انتقلت إلى النظام (crm/) في «الباب الواحد»؛ الحارس يبقي الصفحة سليمة بدونها
+    const adminDashboard = document.getElementById('adminDashboard');
+    if (currentUser.role === 'admin' && adminDashboard) {
+        adminDashboard.classList.add('active');
     }
 
     initMap();
@@ -1520,8 +1522,8 @@ function updateAdminDashboard() {
         }
         updateApprovalsBadge();
 
-        // Active users
-        loadUsers();
+        // Active users (جدول المستخدمين صار في النظام: #/users)
+        if (document.getElementById('usersTableBody')) loadUsers();
     } catch (e) {
         console.error('updateAdminDashboard error (non-fatal):', e);
     }

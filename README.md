@@ -11,7 +11,9 @@
 
 | المسار | الوصف |
 |---|---|
-| `index.html` | الصفحة (SPA) — أضيف لها تحميل مكتبة Supabase وملفي `config.js` و`supabase-shim.js`، وحُذف سكربت تتبّع GoDaddy |
+| `index.html` | الباب الواحد: الرابط الأساسي يحوّل إلى النظام `crm/index.html#/work` («عملي اليوم») |
+| `projects.html` | صفحة المشاريع والخريطة (كانت `index.html`) — تحمّل مكتبة Supabase و`config.js` و`supabase-shim.js`. لوحة التحكم القديمة فيها صارت في النظام: `#/approvals` و`#/users` و`#/activity` |
+| `crm/` | النظام: العملاء والعقارات والمواعيد والصفقات والإدارة |
 | `css/style.css`, `images/logo.jpg` | بدون تغيير |
 | `js/script.js` | منطق الواجهة الأصلي **بدون أي تعديل** (ما زال ينادي `api/*.php`) |
 | `js/supabase-shim.js` | يعترض نداءات `api/*.php` ويحوّلها إلى Supabase ويرجع نفس شكل الردود القديمة |

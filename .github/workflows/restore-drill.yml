@@ -60,9 +60,13 @@ jobs:
           supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
           supabase db dump --db-url "$SUPABASE_DB_URL" -f data.sql --use-copy --data-only
           start=$(date +%s)
-          # أمر Supabase الموثّق للنقل بين المشاريع: معاملة واحدة، يتوقف عند أول خطأ
+          # الأدوار وحدها أولاً وبلا توقف: فيها إعدادات أدوار (مثل log_min_messages) لا يملك postgres تغييرها في مشروع جديد،
+          # وغيابها لا يمس البيانات (تجربة 2026-10-08). ثم البنية والبيانات بأمر Supabase الموثّق: معاملة واحدة تتوقف عند أول خطأ
+          psql --variable ON_ERROR_STOP=0 --file roles.sql --dbname "$LOCAL_DB" > roles.log 2>&1 || true
+          echo "تحذيرات الأدوار (لا توقف الاسترجاع): $(grep -c 'ERROR' roles.log || true)"
+          grep 'ERROR' roles.log | head -5 || true
           if psql --single-transaction --variable ON_ERROR_STOP=1 \
-               --file roles.sql --file schema.sql \
+               --file schema.sql \
                --command 'SET session_replication_role = replica' \
                --file data.sql --dbname "$LOCAL_DB" > restore.log 2>&1; then
             echo "ok" > restore-status.txt

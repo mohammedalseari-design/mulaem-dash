@@ -33,10 +33,12 @@
 ```bash
 age -d -i <ملف-المفتاح-الخاص> -o dump.tar.gz mulaem-supabase-YYYY-MM-DD.tar.gz.age
 tar -xzf dump.tar.gz && cd mulaem-supabase-YYYY-MM-DD
-psql --single-transaction --variable ON_ERROR_STOP=1   --file roles.sql --file schema.sql   --command 'SET session_replication_role = replica'   --file data.sql --dbname "<رابط المشروع الجديد من الخطوة 1>"
+psql --file roles.sql --dbname "<رابط المشروع الجديد من الخطوة 1>"
+psql --single-transaction --variable ON_ERROR_STOP=1 --file schema.sql --command 'SET session_replication_role = replica' --file data.sql --dbname "<رابط المشروع الجديد من الخطوة 1>"
 ```
 
-هذا أمر Supabase الموثّق للنقل بين المشاريع، ويعيد حسابات الدخول (auth.users) مع البيانات. إجراء **restore-drill** يجرّبه
+الأمر الأول قد يطبع أخطاء «permission denied for parameter» لإعدادات أدوار لا تُنقل إلى مشروع جديد؛ تجاهلها. الثاني أمر
+Supabase الموثّق للنقل بين المشاريع، ويعيد حسابات الدخول (auth.users) مع البيانات في معاملة واحدة. إجراء **restore-drill** يجرّبه
 بعينه كل ثلاثة أشهر. بعدها احذف الملفات المفكوكة. النسخة تحمل جدول `mulaem_migrations`، فإجراء **migrate** يعرف ما طُبّق.
 
 ### 3. أسرار GitHub

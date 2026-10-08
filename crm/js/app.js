@@ -19,6 +19,8 @@ import { renderCalendar } from './calendar.js';
 import { renderReports } from './reports.js';
 import { renderImports } from './imports.js';
 import { renderWhatsApp } from './whatsapp.js';
+import { renderUsers } from './users.js';
+import { renderActivity } from './activity.js';
 
 /* ===================== المسارات ===================== */
 
@@ -42,7 +44,9 @@ const ROUTES = [
     { pattern: /^#\/imports\/?$/, view: renderImports, nav: '#/imports', admin: true },
     { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/whatsapp', admin: true },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
-    { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true }
+    { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true },
+    { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/users', admin: true },
+    { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/activity', admin: true }
 ];
 
 // admin: بند للمدير وحده. deny: دور محروم من الباب (مركز الاتصال لا صفقات له).
@@ -65,7 +69,10 @@ const NAV = [
     { hash: '#/reports', label: 'التقارير', admin: true, more: true },
     { hash: '#/imports', label: 'استيراد المشاريع', admin: true, more: true },
     { hash: '#/inventory', label: 'جودة المخزون', admin: true, more: true },
-    { hash: '#/settings', label: 'الإعدادات', admin: true, more: true }
+    { hash: '#/settings', label: 'الإعدادات', admin: true, more: true },
+    // نُقلا من لوحة الصفحة القديمة («باب واحد للنظام»، 2026-10-08)
+    { hash: '#/users', label: 'المستخدمون', admin: true, more: true },
+    { hash: '#/activity', label: 'سجل النشاطات', admin: true, more: true }
 ];
 
 // شريط الجوال السفلي: أهم أربع صفحات لكل دور، و«المزيد» يفتح القائمة كلها.
@@ -85,7 +92,7 @@ const NAV_ICON = {
     '../index.html': 'map', '#/work': 'today', '#/clients': 'users', '#/properties': 'building',
     '#/calendar': 'calendar', '#/assistant': 'sparkle', '#/deals': 'briefcase', '#/approvals': 'clipboard',
     '#/whatsapp': 'chat', '#/dashboard': 'grid', '#/reports': 'chart', '#/imports': 'upload',
-    '#/inventory': 'layers', '#/settings': 'sliders'
+    '#/inventory': 'layers', '#/settings': 'sliders', '#/users': 'userPlus', '#/activity': 'clock'
 };
 
 /* ===================== الموجّه ===================== */

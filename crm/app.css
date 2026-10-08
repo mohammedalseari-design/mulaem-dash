@@ -586,3 +586,9 @@ body.crm-dark .login-box { background: var(--surface); }
 .sys-value { color: var(--ink); font-weight: 600; font-size: 0.92rem; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
 a.sys-value:hover { text-decoration: underline; }
 .sys-bad .sys-value { color: var(--danger); }
+
+
+/* المستخدمون: حقل كلمة المرور وبجانبه «اقترح كلمة مرور» */
+.pw-row { display: flex; gap: 8px; align-items: center; }
+.pw-row input { flex: 1 1 auto; min-width: 0; }
+.pw-row .btn { flex: none; }

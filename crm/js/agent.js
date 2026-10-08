@@ -223,7 +223,7 @@ export async function recordLink(kind, id) {
     if (kind === 'project' || kind === 'unit') {
         const ref = unitRef(id);
         const projectId = ref ? ref.projectId : id;
-        return { href: '../index.html', text: 'فتح لوحة المشاريع (رقم ' + projectId + (ref ? '، الوحدة ' + ref.ord : '') + ')' };
+        return { href: '../projects.html', text: 'فتح لوحة المشاريع (رقم ' + projectId + (ref ? '، الوحدة ' + ref.ord : '') + ')' };
     }
     if (kind === 'requirement') {
         const { data } = await supabase.from('client_requirements').select('client_id').eq('id', id).maybeSingle();

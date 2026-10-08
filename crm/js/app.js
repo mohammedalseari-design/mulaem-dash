@@ -53,7 +53,7 @@ const ROUTES = [
 // في الحالتين يُخفى البند من القائمة ويُرفض المسار إن كُتب بالعنوان.
 // external: رابط يغادر الصفحة (اللوحة القديمة) — لا يمر على موجّه الهاش ولا يُضاء أبداً.
 const NAV = [
-    { href: '../index.html', label: 'المشاريع والخريطة', external: true },
+    { href: '../projects.html', label: 'المشاريع والخريطة', external: true },
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
@@ -89,7 +89,7 @@ const TAB_LABEL = {
 
 // أيقونة كل بند (الأسماء في ICON_PATHS في ui.js)
 const NAV_ICON = {
-    '../index.html': 'map', '#/work': 'today', '#/clients': 'users', '#/properties': 'building',
+    '../projects.html': 'map', '#/work': 'today', '#/clients': 'users', '#/properties': 'building',
     '#/calendar': 'calendar', '#/assistant': 'sparkle', '#/deals': 'briefcase', '#/approvals': 'clipboard',
     '#/whatsapp': 'chat', '#/dashboard': 'grid', '#/reports': 'chart', '#/imports': 'upload',
     '#/inventory': 'layers', '#/settings': 'sliders', '#/users': 'userPlus', '#/activity': 'clock'
@@ -462,7 +462,7 @@ function updateThemeButton(button) {
 /* ===================== الإقلاع ===================== */
 
 // إنهاء جلسة نصف صالحة (بلا صف profiles، أو لحساب موقوف) قبل عرض سبب المنع.
-// بدونه تبقى الجلسة في mulaem-auth فترثها اللوحة القديمة في /index.html.
+// بدونه تبقى الجلسة في mulaem-auth فترثها صفحة المشاريع /projects.html.
 let selfSignOut = false;
 
 async function endSession() {

@@ -1,7 +1,7 @@
 // عميل Supabase واحد لكل صفحة.
 //
 // storageKey مطابق تماماً لما تستخدمه اللوحة القديمة ('mulaem-auth')، فالمستخدم
-// الذي سجّل دخوله في /index.html يجد نفسه داخل /crm/ بلا تسجيل دخول ثانٍ، والعكس.
+// الذي سجّل دخوله في /projects.html يجد نفسه داخل /crm/ بلا تسجيل دخول ثانٍ، والعكس.
 // لا نحمّل هنا supabase-shim.js ولا script.js: هذه الصفحة تتحدث إلى PostgREST مباشرة.
 
 const cfg = window.MULAEM_CONFIG;

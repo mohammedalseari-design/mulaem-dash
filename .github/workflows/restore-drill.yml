@@ -61,19 +61,21 @@ jobs:
           supabase db dump --db-url "$SUPABASE_DB_URL" -f data.sql --use-copy --data-only
           start=$(date +%s)
           # الأدوار وحدها أولاً وبلا توقف: فيها إعدادات أدوار (مثل log_min_messages) لا يملك postgres تغييرها في مشروع جديد،
-          # وغيابها لا يمس البيانات (تجربة 2026-10-08). ثم البنية والبيانات بأمر Supabase الموثّق: معاملة واحدة تتوقف عند أول خطأ
+          # وغيابها لا يمس البيانات (تجربة 2026-10-08). ثم البنية في معاملة واحدة تتوقف عند أول خطأ.
           psql --variable ON_ERROR_STOP=0 --file roles.sql --dbname "$LOCAL_DB" > roles.log 2>&1 || true
           echo "تحذيرات الأدوار (لا توقف الاسترجاع): $(grep -c 'ERROR' roles.log || true)"
           grep 'ERROR' roles.log | head -5 || true
-          if psql --single-transaction --variable ON_ERROR_STOP=1 \
-               --file schema.sql \
-               --command 'SET session_replication_role = replica' \
-               --file data.sql --dbname "$LOCAL_DB" > restore.log 2>&1; then
+          if psql --single-transaction --variable ON_ERROR_STOP=1 --file schema.sql --dbname "$LOCAL_DB" > restore.log 2>&1; then
             echo "ok" > restore-status.txt
           else
             echo "failed" > restore-status.txt
             tail -20 restore.log
           fi
+          # البيانات بلا توقف: جداول Supabase الداخلية التي لا نستعملها (مثل storage.buckets_vectors) يرفضها postgres في مشروع
+          # جديد، وتعطيلها كل الاسترجاع خطأ. الحكم هو المقارنة في الخطوة التالية: كل جداولنا وحسابات الدخول بأعدادها.
+          psql --variable ON_ERROR_STOP=0 --command 'SET session_replication_role = replica' --file data.sql --dbname "$LOCAL_DB" > data.log 2>&1 || true
+          echo "تحذيرات البيانات (جداول Supabase الداخلية): $(grep -c 'ERROR' data.log || true)"
+          grep 'ERROR' data.log | head -10 || true
           echo "$(( $(date +%s) - start ))" > seconds.txt
           rm -f roles.sql schema.sql data.sql
 

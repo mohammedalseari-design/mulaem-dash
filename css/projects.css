@@ -264,6 +264,9 @@ body.p4-form-open .p4 .main-content {
 .p4-fold[open] > summary { border-bottom: 1px solid var(--line); }
 .p4-fold > .sales-shell { margin: 0; padding: 16px; border: 0; border-radius: 0; box-shadow: none; background: none; }
 body.role-field .p4-fold-admin, body.role-callcenter .p4-fold-admin { display: none; }
+/* شاشة الدخول القديمة مخفية أثناء فحص الجلسة: من لا جلسة له يُحوَّل إلى دخول النظام (js/script.js)،
+   وتظهر فقط إن تعذّر الفحص نفسه (انقطاع الشبكة) */
+body.session-checking #loginScreen { visibility: hidden; }
 /* سطر المدير: روابط الإدارة في النظام بدل لوحة التحكم القديمة */
 .p4-admin-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; min-height: 48px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); color: var(--muted); font-size: 0.92rem; }
 .p4-admin-note a { display: inline-flex; align-items: center; gap: 6px; color: var(--brand-ink); font-weight: 600; text-decoration: none; }

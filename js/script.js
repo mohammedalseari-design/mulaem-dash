@@ -113,6 +113,7 @@ loginButton.innerHTML = '<span>جاري التحقق من الجلسة...</span>
 
 function finishSessionCheck() {
     sessionCheckPending = false;
+    document.body.classList.remove('session-checking');
     loginButton.disabled = false;
     loginButton.innerHTML = '<span>تسجيل الدخول</span>';
 }
@@ -132,18 +133,12 @@ window.addEventListener('load', async function () {
         return;
     }
     if (check.status !== 'ok') {
-        // حساب موقوف، أو جلسة بلا ملف مستخدم: تُنهى ونبقى على شاشة الدخول.
-        // ومن كان داخلاً في هذا المتصفح ولم يخرج بنفسه (علامة mulaem-signed-in) يُقال له إن جلسته انتهت
-        const ended = takeSessionEnded();
-        await endSession();
-        // على جهاز مشترك قد لا يكون الجالس أمام الشاشة صاحب الجلسة المحفوظة: نسمّي الحساب
-        if (check.status === 'blocked') {
-            const account = check.username ? `حساب «${check.username}»` : 'الحساب';
-            showLoginNotice(`تم تعطيل ${account} من قبل الإدارة. تواصل مع المدير.`);
-        } else if (ended) {
-            showLoginNotice('انتهت جلستك. سجّل الدخول من جديد.');
-        }
-        finishSessionCheck();
+        // باب واحد للدخول: لا جلسة، أو حساب موقوف، أو جلسة بلا ملف مستخدم ← شاشة دخول النظام (crm/).
+        // لا نُنهي الجلسة هنا ولا نقرأ علامة mulaem-signed-in: النظام يفعل ذلك ويعرض السبب
+        // (موقوف، انتهت جلستك)، ثم يعيد الداخل إلى هذه الصفحة (?back=projects، backTarget في crm/js/app.js).
+        // شاشة الدخول القديمة تبقى مخفية (session-checking)، فلا تظهر لحظة قبل التحويل
+        const query = location.search ? location.search + '&' : '?';
+        location.replace('crm/index.html' + query + 'back=projects#/work');
         return;
     }
 
@@ -227,12 +222,8 @@ function showError(msg) {
 });
 
 // علامة «كان داخلاً» يشاركها crm/js/app.js: الخروج المقصود يمحوها، وانتهاء الجلسة يتركها فيُخبَر المستخدم
+// في شاشة دخول النظام (takeSessionEnded هناك)
 function markSignedIn() { try { localStorage.setItem('mulaem-signed-in', '1'); } catch (e) { /* تخزين محجوب */ } }
-function takeSessionEnded() {
-    let was = false;
-    try { was = localStorage.getItem('mulaem-signed-in') === '1'; localStorage.removeItem('mulaem-signed-in'); } catch (e) { was = false; }
-    return was;
-}
 
 // رسالة ثابتة على شاشة الدخول (showError تخفي رسالتها بعد 3 ثوانٍ)
 function showLoginNotice(msg) {

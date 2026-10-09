@@ -331,6 +331,16 @@ function takeSessionEnded() {
     return was;
 }
 
+// ?back=projects: جاء من صفحة المشاريع بلا جلسة (باب واحد للدخول)، فيعود إليها بعد الدخول من النموذج.
+// لا يُعاد إليها من boot حين توجد جلسة صالحة، حتى لا تتقاذف الصفحتان الزائر إن اختلفتا في الحكم
+function backTarget() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('back') !== 'projects') return null;
+    params.delete('back');
+    const query = params.toString();
+    return '../projects.html' + (query ? '?' + query : '');
+}
+
 // رسائل الدخول بالعربية كما في js/supabase-shim.js، لا نص Supabase الإنجليزي
 function loginErrorText(error) {
     const e = error || {};
@@ -416,6 +426,8 @@ function wireLogin() {
                 showLogin('هذا الحساب موقوف. راجع المدير.');
             } else {
                 document.getElementById('password').value = '';
+                const back = backTarget();
+                if (back) return void location.replace(back);
                 showApp();
             }
         } catch (error) {

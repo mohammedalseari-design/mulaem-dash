@@ -458,6 +458,7 @@ async function loadProjects() {
         if (!Array.isArray(projects)) projects = [];
 
         try { updateUI(); } catch (uiErr) { console.error('updateUI error:', uiErr); }
+        loadUnitStock(); // لا يُنتظر: البطاقات تظهر، ثم يُكتب فيها الباقي حين يصل
         try { updateAdminDashboard(); } catch (e) { console.error('Dashboard update failed:', e); }
 
     } catch (error) {
@@ -469,6 +470,86 @@ async function loadProjects() {
         // فلتر أثناء التحميل قد يكون رسم ترقيماً للقائمة القديمة: لا يبقى تحت رسالة الخطأ
         clearProjectPager();
     }
+}
+
+// ── الوحدات المتبقية بعد الصفقات ─────────────────────────────────────────────
+// v_units (030) تعطي لكل نموذج حالته بعد حجوزات الصفقات (محجوزة عند العربون أو العقد، مباعة عند الإتمام)
+// وعدد الباقي منه (units_left). تُقرأ بجلسة المستخدم بعد تحميل المشاريع، فالسياسات نفسها تحدّ ما يراه،
+// ويُكتب منها «متبقي N من M» في البطاقات، والحالة والباقي في نافذة التفاصيل وعرض الوحدات ونص المشاركة.
+// إن تعذّرت القراءة تبقى الصفحة كما كانت (حالة النموذج والعدد كما أُدخلا).
+let unitStock = new Map(); // رقم المشروع ← { total, left, byOrd: رقم النموذج (1..، و0 للعقار كاملاً) ← { count, left, status } }
+const UNIT_PAGE = 1000; // أقصى ما يرده الخادم في الطلب الواحد
+
+async function loadUnitStock() {
+    const sb = window.mulaemSupabase;
+    if (!sb) return;
+    const next = new Map();
+    try {
+        for (let from = 0; ; from += UNIT_PAGE) {
+            const { data, error } = await sb.from('v_units')
+                .select('project_id, unit_ord, unit_count, units_left, unit_status')
+                .order('project_id', { ascending: true })
+                .order('unit_ord', { ascending: true })
+                .range(from, from + UNIT_PAGE - 1);
+            if (error) throw error;
+            (data || []).forEach((row) => {
+                const id = Number(row.project_id);
+                let stock = next.get(id);
+                if (!stock) { stock = { total: 0, left: 0, byOrd: new Map() }; next.set(id, stock); }
+                const count = Math.max(Number(row.unit_count) || 1, 1);
+                // ما ليس «متاحاً» (محجوز أو مباع، بصفقة أو بيد الموظف) لا يبقى منه شيء للعرض
+                const left = row.unit_status === 'available' ? Math.min(Math.max(Number(row.units_left) || 0, 0), count) : 0;
+                stock.total += count;
+                stock.left += left;
+                stock.byOrd.set(Number(row.unit_ord), { count, left, status: row.unit_status });
+            });
+            if (!data || data.length < UNIT_PAGE) break;
+        }
+    } catch (error) {
+        console.warn('Unit stock unavailable:', error);
+        return;
+    }
+    unitStock = next;
+    fillStockSlots();
+    if (viewMode === 'kanban') renderProjectsView();
+}
+
+// حالة نموذج بعينه بعد الصفقات، أو null إن لم تُعرف بعد
+function unitStockOf(projectId, ord) {
+    const stock = unitStock.get(Number(projectId));
+    return stock ? stock.byOrd.get(Number(ord)) || null : null;
+}
+
+// سطر «الوحدات» في البطاقة: «متبقي N من M» لمشروع بعدة وحدات، و«محجوزة» أو «مباعة» لوحدة واحدة
+// حُجزت أو بيعت. لا شيء لمشروع «نفد بالكامل» (شارته تكفي) ولا لوحدة واحدة ما زالت متاحة
+function unitStockText(project) {
+    const stock = unitStock.get(Number(project.id));
+    if (!stock || project.availability === 'sold_out') return '';
+    if (stock.total > 1) return `متبقي ${formatNumber(stock.left)} من ${formatNumber(stock.total)}`;
+    if (stock.left > 0) return '';
+    const only = stock.byOrd.values().next().value;
+    return only && only.status === 'reserved' ? 'محجوزة' : only && only.status === 'sold' ? 'مباعة' : '';
+}
+
+function unitStockSlotHtml(project) {
+    const text = unitStockText(project);
+    return `<div class="project-detail project-stock" data-stock-project="${esc(project.id)}"${text ? '' : ' hidden'}><span>الوحدات</span><span>${esc(text)}</span></div>`;
+}
+
+// البطاقات المرسومة قبل وصول الأرقام: يُكتب فيها الآن دون إعادة رسم الشبكة
+function fillStockSlots() {
+    document.querySelectorAll('[data-stock-project]').forEach((slot) => {
+        const project = projects.find((p) => String(p.id) === slot.getAttribute('data-stock-project'));
+        const text = project ? unitStockText(project) : '';
+        slot.hidden = !text;
+        slot.lastElementChild.textContent = text;
+    });
+}
+
+// حالة النموذج للعرض: بعد الصفقات إن عُرفت، وإلا كما أُدخلت
+function modelStatusOf(projectId, model, index) {
+    const unit = unitStockOf(projectId, index + 1);
+    return unit ? unit.status : (model.status || 'available');
 }
 
 function updateUI() {
@@ -2127,11 +2208,14 @@ window.viewProject = async function (id) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${details.models.map(m => {
+                                        ${details.models.map((m, i) => {
+                                            const status = modelStatusOf(p.id, m, i);
+                                            const unit = unitStockOf(p.id, i + 1);
+                                            const countText = unit && unit.count > 1 ? `متبقي ${unit.left} من ${unit.count}` : (m.count || 1);
                                             let statusBadge = '';
-                                            if (m.status === 'available') statusBadge = '<span style="color: #2ecc71; font-weight: bold;">متاح</span>';
-                                            else if (m.status === 'reserved') statusBadge = '<span style="color: #f39c12; font-weight: bold;">محجوز</span>';
-                                            else if (m.status === 'sold') statusBadge = '<span style="color: #e74c3c; font-weight: bold;">مباع</span>';
+                                            if (status === 'available') statusBadge = '<span style="color: #2ecc71; font-weight: bold;">متاح</span>';
+                                            else if (status === 'reserved') statusBadge = '<span style="color: #f39c12; font-weight: bold;">محجوز</span>';
+                                            else if (status === 'sold') statusBadge = '<span style="color: #e74c3c; font-weight: bold;">مباع</span>';
                                             return `
                                                 <tr style="border-bottom: 1px solid #eee;">
                                                     <td style="padding: 8px;">${esc(m.name)}</td>
@@ -2142,7 +2226,7 @@ window.viewProject = async function (id) {
                                                     <td style="padding: 8px;">${formatNumber(m.price)} ر.س</td>
                                                     <td style="padding: 8px;">${formatNumber(m.commission)} ر.س</td>
                                                     <td style="padding: 8px;">${statusBadge}</td>
-                                                    <td style="padding: 8px;">${esc(m.count || 1)}</td>
+                                                    <td style="padding: 8px;">${esc(countText)}</td>
                                                 </tr>
                                             `;
                                         }).join('')}
@@ -2238,10 +2322,11 @@ window.getWhatsAppMessage = function(id) {
         
         if (details.models && Array.isArray(details.models) && details.models.length > 0) {
             msg += `\n*النماذج والوحدات المتاحة:*\n`;
-            details.models.forEach(m => {
+            details.models.forEach((m, i) => {
+                const status = modelStatusOf(p.id, m, i);
                 let statusText = 'متاح';
-                if (m.status === 'reserved') statusText = 'محجوز';
-                else if (m.status === 'sold') statusText = 'مباع';
+                if (status === 'reserved') statusText = 'محجوز';
+                else if (status === 'sold') statusText = 'مباع';
                 msg += `- ${m.name} (${m.type || 'شقة'}): غرف: ${m.rooms} | حمامات: ${m.bathrooms} | مساحة: ${m.area}م² | سعر: ${formatNumber(m.price)} ر.س | الحالة: ${statusText}\n`;
             });
         }
@@ -2855,6 +2940,7 @@ function renderGridView(filtered) {
                 <div class="project-detail"><span>النوع</span><span style="color:${typeColor}; font-weight:700;">${esc(project.type)}</span></div>
                 <div class="project-detail"><span>السعر</span><span>${esc(projectPriceText(project, 'ر.س'))}</span></div>
                 <div class="project-detail"><span>المساحة</span><span>${esc(projectAreaText(project))}</span></div>
+                ${unitStockSlotHtml(project)}
                 <div class="added-by-badge">
                     <span>${esc(project.employee)}</span>
                 </div>
@@ -2903,9 +2989,10 @@ function renderKanbanBoard(filteredProjects) {
 
         if (p.type === 'شقة') {
             if (details.models && Array.isArray(details.models) && details.models.length > 0) {
-                details.models.forEach(m => {
+                details.models.forEach((m, i) => {
                     cards.push({
                         id: p.id,
+                        ord: i + 1,
                         name: m.name || 'شقة',
                         projectName: p.name,
                         projectStatus: p.status,
@@ -3039,9 +3126,12 @@ function renderKanbanBoard(filteredProjects) {
                 card.className = 'kanban-card';
                 card.onclick = () => viewProject(c.id);
 
+                // بعد الصفقات إن عُرفت (النماذج، والعقار كاملاً برقم 0)؛ «نفد» يُعرض كمباع
+                const unit = unitStockOf(c.id, c.ord || 0);
+                const status = unit ? (unit.status === 'sold_out' ? 'sold' : unit.status) : c.status;
                 let statusText = 'متاح';
-                if (c.status === 'sold') statusText = 'مباع';
-                else if (c.status === 'reserved') statusText = 'محجوز';
+                if (status === 'sold') statusText = 'مباع';
+                else if (status === 'reserved') statusText = 'محجوز';
 
                 card.innerHTML = `
                     <div class="kanban-card-bar" style="background:${barColor};"></div>
@@ -3055,10 +3145,12 @@ function renderKanbanBoard(filteredProjects) {
                         <div class="kanban-card-detail">
                             ${c.area > 0 ? `${formatNumber(c.area)} م²` : ''}${c.rooms > 0 ? ` | ${c.rooms} غرف` : ''}${c.bathrooms > 0 ? ` | ${c.bathrooms} دورات مياه` : ''}
                         </div>
-                        ${c.count > 1 ? `<div class="kanban-card-detail"><strong style="color:#c5a880;">العدد:</strong> ${c.count} وحدة</div>` : ''}
+                        ${c.count > 1 ? (unit
+                            ? `<div class="kanban-card-detail"><strong style="color:#c5a880;">الباقي:</strong> ${unit.left} من ${unit.count}</div>`
+                            : `<div class="kanban-card-detail"><strong style="color:#c5a880;">العدد:</strong> ${c.count} وحدة</div>`) : ''}
                         <div class="kanban-card-footer">
                             <div class="kanban-card-price">ر.س ${formatNumber(c.price)}</div>
-                            <span class="kanban-card-status ${c.status}">${statusText}</span>
+                            <span class="kanban-card-status ${status}">${statusText}</span>
                         </div>
                     </div>
                 `;

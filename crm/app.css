@@ -592,3 +592,10 @@ a.sys-value:hover { text-decoration: underline; }
 .pw-row { display: flex; gap: 8px; align-items: center; }
 .pw-row input { flex: 1 1 auto; min-width: 0; }
 .pw-row .btn { flex: none; }
+
+/* صفحة ممنوعة على الدور: السبب وتحته زر الرجوع (deniedBox في js/app.js) */
+.crm-denied { display: grid; gap: 12px; justify-items: start; }
+.crm-denied .crm-error { justify-self: stretch; }
+
+/* مربع ملفات تحت ملف مسحوب: يقبل الإفلات (wireFileDrop في js/ui.js) */
+.drop-on { outline: 2px dashed var(--brand); outline-offset: 3px; border-radius: var(--r-md); background: var(--brand-soft); }

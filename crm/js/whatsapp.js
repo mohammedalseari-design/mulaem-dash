@@ -25,7 +25,7 @@ import { sha256Hex, createRequest, startExtraction, extractionStatus } from './a
 import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
-import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn, countText } from './ui.js';
+import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn, countText, openModal, closeModal } from './ui.js';
 
 // «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
 const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
@@ -496,8 +496,21 @@ export async function renderWhatsApp(root) {
         ]);
     }
 
-    async function finishReview(event) {
+    // عروض محددة لم تُرسل: «إنهاء المراجعة» يخفيها من «منذ آخر مراجعة»، فيُسأل قبله
+    function finishReview(event) {
         const button = event.currentTarget;
+        const unsent = page.items.filter((item) => page.selected.has(item.id) && !isSent(item)).length;
+        if (!unsent) return void saveReview(button);
+        const go = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'إنهاء المراجعة', onclick: () => { closeModal(); saveReview(button); } });
+        openModal('إنهاء المراجعة', [
+            el('p', { text: 'محدد ولم يُرسل للمساعد بعد: ' + countText(unsent, ITEM_FORMS) + '. بعد إنهاء المراجعة لن يظهر ذلك في «منذ آخر مراجعة».' }),
+            el('div', { class: 'btn-row btn-row-end' }, [
+                el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'رجوع للإرسال', onclick: closeModal }), go
+            ])
+        ], { narrow: true });
+    }
+
+    async function saveReview(button) {
         button.disabled = true;
         const reviewedAt = new Date().toISOString();
         const rows = page.sources.map((s) => ({

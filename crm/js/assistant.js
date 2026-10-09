@@ -319,7 +319,9 @@ export async function renderAgentRequest(root, requestId) {
     await drawAgentRequest(root, requestId);
 }
 
-async function drawAgentRequest(root, requestId) {
+// lastSeen: بصمة ما رُسم في القراءة السابقة أثناء التنفيذ. إن لم يتغير شيء لا يُعاد الرسم، فلا تُغلق معاينة
+// مصدر مفتوحة كل بضع ثوانٍ ولا يضيع موضع القراءة
+async function drawAgentRequest(root, requestId, lastSeen) {
     const { data: request, error } = await supabase
         .from('agent_requests')
         .select('id, kind, title, instruction, status, stage, candidates, target_id, attempts, error_ar,'
@@ -345,12 +347,21 @@ async function drawAgentRequest(root, requestId) {
     if (!root.isConnected) return;
 
     const draftRows = drafts.data || [];
+    const inProgress = request.status === 'queued' || request.status === 'running';
+    const seen = JSON.stringify([request, sources.data, sources.error && sources.error.message, draftRows,
+        drafts.error && drafts.error.message, calls && calls.data, calls && calls.error && calls.error.message]);
+    const poll = () => setTimeout(() => {
+        if (root.isConnected && location.hash === '#/assistant/' + requestId) drawAgentRequest(root, requestId, seen);
+    }, POLL_MS);
+    if (lastSeen && seen === lastSeen) {
+        if (inProgress) poll();
+        return;
+    }
     const canDelete = request.status === 'queued' && draftRows.length === 0 && request.requested_by === myId();
     const canCancel = (request.status === 'queued' || request.status === 'running') && request.requested_by === myId();
     const canRetry = request.status === 'failed' && request.requested_by === myId();
     const candidates = Array.isArray(request.candidates) ? request.candidates : [];
     const waitingChoice = request.status === 'ready' && candidates.length > 0;
-    const inProgress = request.status === 'queued' || request.status === 'running';
     const reload = () => drawAgentRequest(root, requestId);
 
     replace(root, [
@@ -393,8 +404,9 @@ async function drawAgentRequest(root, requestId) {
                 kv('مقدّم الطلب', staffName(names, request.requested_by)),
                 kv('أُنشئ', fmtDateTime(request.created_at)),
                 kv('آخر تحديث', fmtDateTime(request.updated_at)),
-                request.tokens_used ? kv('الرموز المستهلكة', number(request.tokens_used)) : null,
-                request.attempts > 1 ? kv('المحاولات', number(request.attempts)) : null
+                // أرقام التشغيل للمدير وحده
+                isAdmin() && request.tokens_used ? kv('الرموز المستهلكة', number(request.tokens_used)) : null,
+                isAdmin() && request.attempts > 1 ? kv('المحاولات', number(request.attempts)) : null
             ]),
             progressSteps(request),
             request.error_ar && !waitingChoice ? el('div', { class: request.status === 'failed' ? 'crm-error' : 'crm-warn-box', text: failureText(request.error_ar) }) : null,
@@ -415,11 +427,7 @@ async function drawAgentRequest(root, requestId) {
         ])
     ]);
 
-    if (inProgress) {
-        setTimeout(() => {
-            if (root.isConnected && location.hash === '#/assistant/' + requestId) drawAgentRequest(root, requestId);
-        }, POLL_MS);
-    }
+    if (inProgress) poll();
 }
 
 function kv(labelText, value) {

@@ -2,7 +2,7 @@
 
 import { supabase } from './supabase.js';
 import { state, loadSession, signIn, signOut, isAdmin, myRole, ROLE_AR, displayName } from './auth.js';
-import { el, clear, append, notify, fail, errorText, initModal, closeModal, icon } from './ui.js';
+import { el, clear, append, notify, fail, errorText, initModal, closeModal, icon, wireFileDrop } from './ui.js';
 import { renderClients } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
@@ -120,11 +120,11 @@ async function route() {
 
         // الحماية الفعلية في قاعدة البيانات؛ هذا منع مبكر حتى لا تُفتح صفحة فارغة
         if (entry.admin && !isAdmin()) {
-            root.appendChild(el('div', { class: 'crm-error', text: 'هذه الصفحة للمدير فقط.' }));
+            root.appendChild(deniedBox('هذه الصفحة للمدير فقط.'));
             return;
         }
         if (entry.deny && myRole() === entry.deny) {
-            root.appendChild(el('div', { class: 'crm-error', text: 'هذه الصفحة غير متاحة لدورك.' }));
+            root.appendChild(deniedBox('هذه الصفحة غير متاحة لدورك.'));
             return;
         }
 
@@ -139,7 +139,17 @@ async function route() {
         return;
     }
 
+    // رابط قديم أو خاطئ: يُقال ذلك بدل التحويل الصامت
+    notify('هذا الرابط غير موجود في النظام، ففتحنا «عملي اليوم».', 'info', 6000);
     location.hash = DEFAULT_ROUTE;
+}
+
+// صفحة ممنوعة على الدور: السبب ومعه طريق للرجوع
+function deniedBox(text) {
+    return el('div', { class: 'crm-denied' }, [
+        el('div', { class: 'crm-error', text }),
+        el('a', { class: 'btn btn-outline btn-sm', href: DEFAULT_ROUTE, text: 'رجوع إلى «عملي اليوم»' })
+    ]);
 }
 
 function visibleNav() {
@@ -491,6 +501,7 @@ async function boot() {
     initModal();
     watchTables();
     wireTheme();
+    wireFileDrop();
     wireLogin();
     wireLogout();
     window.addEventListener('hashchange', route);

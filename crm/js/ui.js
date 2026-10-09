@@ -101,6 +101,60 @@ export function fail(error, prefix = 'تعذّر إتمام العملية') {
     return null;
 }
 
+/* ===================== سحب الملفات وإفلاتها ===================== */
+
+// ملف يُسحب إلى الصفحة: على مربع فيه حقل ملفات (.crm-import-file أو .form-group) يذهب إلى ذلك الحقل كأنه
+// اختير بالزر، وفي أي مكان آخر لا يفتحه المتصفح ولا يغادر الصفحة (فيضيع ما لم يُحفظ). الإفلات على الحقل نفسه
+// يتركه للمتصفح كما كان. المجلد لا يُفلَت: يُختار بزرّه.
+export function wireFileDrop() {
+    let over = null;
+    const mark = (box) => {
+        if (over === box) return;
+        if (over) over.classList.remove('drop-on');
+        over = box;
+        if (over) over.classList.add('drop-on');
+    };
+    const carriesFiles = (event) => Array.from((event.dataTransfer && event.dataTransfer.types) || []).includes('Files');
+    const zoneOf = (target) => {
+        const box = target && target.closest ? target.closest('.crm-import-file, .form-group') : null;
+        const input = box ? box.querySelector('input[type=file]') : null;
+        return input && !input.disabled ? { box, input } : null;
+    };
+    const accepts = (input, file) => {
+        const tokens = String(input.accept || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+        if (!tokens.length) return true;
+        const name = file.name.toLowerCase();
+        const type = String(file.type || '').toLowerCase();
+        return tokens.some((t) => t.startsWith('.') ? name.endsWith(t) : t.endsWith('/*') ? type.startsWith(t.slice(0, -1)) : type === t);
+    };
+
+    window.addEventListener('dragover', (event) => {
+        if (!carriesFiles(event) || (event.target.matches && event.target.matches('input[type=file]'))) return;
+        event.preventDefault();
+        const zone = zoneOf(event.target);
+        event.dataTransfer.dropEffect = zone && !zone.input.webkitdirectory ? 'copy' : 'none';
+        mark(zone && !zone.input.webkitdirectory ? zone.box : null);
+    });
+    window.addEventListener('dragleave', (event) => { if (!event.relatedTarget) mark(null); });
+    window.addEventListener('dragend', () => mark(null));
+    window.addEventListener('drop', (event) => {
+        mark(null);
+        if (!carriesFiles(event) || (event.target.matches && event.target.matches('input[type=file]'))) return;
+        event.preventDefault();
+        const zone = zoneOf(event.target);
+        if (!zone) return;
+        if (zone.input.webkitdirectory) return void notify('المجلد يُختار بالزر في هذا المربع.', 'info');
+        const files = Array.from(event.dataTransfer.files || []);
+        const fit = files.filter((file) => accepts(zone.input, file));
+        if (!fit.length) return void notify('هذا النوع من الملفات لا يُقبل هنا.', 'error');
+        if (fit.length < files.length) notify('تُرك ' + (files.length - fit.length) + ' من الملفات لأن نوعه لا يُقبل هنا.', 'info');
+        const picked = new DataTransfer();
+        (zone.input.multiple ? fit : fit.slice(0, 1)).forEach((file) => picked.items.add(file));
+        zone.input.files = picked.files;
+        zone.input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+}
+
 /* ===================== النافذة المنبثقة ===================== */
 
 let onModalClose = null;

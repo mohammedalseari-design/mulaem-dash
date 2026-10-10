@@ -213,6 +213,16 @@ export function describe(result) {
 const rank = (confidence) => (confidence === null ? -1 : confidence);
 const byConfidence = (a, b) => rank(b.confidence) - rank(a.confidence) || a.index - b.index;
 
+// ترتيب «اقتراح Jev أولاً» في القائمة: مقترح للإرسال، ثم يحتاج نظرك، ثم غير المفرز، ثم المستبعد. في المقترح وما يحتاج
+// النظر الأعلى ثقةً أولاً، وما تساوى يبقى بترتيب القائمة (الأحدث أولاً). items لا يتغير؛ يعيد مصفوفة جديدة.
+const ORDER_RANK = { send: 0, review: 1, untriaged: 2, skip: 3 };
+export function jevOrder(items, resultOf) {
+    return items.map((item, index) => {
+        const result = resultOf(item);
+        return { item: item, index: index, bucket: ORDER_RANK[bucketOf(result)], confidence: confidenceOf(result) };
+    }).sort((a, b) => a.bucket - b.bucket || (a.bucket <= 1 ? byConfidence(a, b) : a.index - b.index)).map((p) => p.item);
+}
+
 // وضع «تحديد المقترح تلقائياً» وحده، وبعد وصول دفعة فقط: ما حكمه «مقترح للإرسال»، ولم يُرسل، ولم يُلغِ المالك
 // تحديده بيده، وليس محدداً أصلاً — الأعلى ثقةً بالنية أولاً، حتى يبلغ المحدد كله ما بقي من حد طلبات اليوم.
 // items بترتيب القائمة (الأحدث أولاً)، فالتعادل للأحدث. يعيد معرّفات ما يُحدَّد.

@@ -21,7 +21,9 @@
 
 import { supabase } from './supabase.js';
 import { myId } from './auth.js';
-import { sha256Hex, createRequest, startExtraction, extractionStatus } from './agent.js';
+import {
+    sha256Hex, createRequest, startExtraction, extractionStatus, fileKind, pdfPageCount, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES
+} from './agent.js';
 import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
@@ -30,10 +32,11 @@ import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, lo
 // «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
 const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
 const GROUP_FORMS = ['مجموعة واحدة', 'مجموعتان', 'مجموعات', 'مجموعة'];
+const FILE_FORMS = ['ملف واحد', 'ملفان', 'ملفات', 'ملفاً'];
 // عرض الجوال (كما في css/theme.css): المرشحات الإضافية تبدأ مطوية
 const PHONE = window.matchMedia('(max-width: 700px)');
 import {
-    BUCKETS, DEFAULT_MODE, INTENTS, INTENT_AR, MODES, MODE_AR, MODE_HINT, MODE_KEY, REPORT_DAYS, SURFACED_AR, VERDICT_AR,
+    BUCKETS, DEFAULT_MODE, INTENTS, INTENT_AR, MODES, MODE_AR, MODE_HINT, MODE_KEY, REPORT_DAYS, SURFACED_AR, VERDICT_AR, jevOrder,
     bucketOf, countBuckets, createRunner, createStore, describe, isSurfaced, itemText, labelTriage, normalizeMode, outError,
     passesVerdictFilter, preselect, progressLine, reportView, resultFor, sendOrder, triageBatch, triageStatus
 } from './whatsapp-triage.js';
@@ -201,6 +204,7 @@ export async function renderWhatsApp(root) {
         expanded: new Set(), // بطاقات فُتح نصها كاملاً، فلا تُطوى حين تُعاد القائمة
         shown: PAGE,
         moreFilters: null,  // طيّة «الأنواع وحكم Jev»: null = حسب عرض الشاشة، وإلا آخر ما اختاره المستخدم
+        order: 'jev',       // حين يظهر Jev: jev = اقتراحه أولاً (jevOrder)، time = الأحدث أولاً
         // verdicts: شرائح حكم Jev الظاهرة (send | review | skip | untriaged)
         filters: { group: '', kinds: new Set(['offer', 'update', 'document']), since: 'cursor', hideSent: true, q: '', verdicts: new Set(BUCKETS) },
         remaining: null,    // ما بقي من حد طلبات المساعد اليومي
@@ -284,7 +288,7 @@ export async function renderWhatsApp(root) {
                 el('summary', { text: 'كيف أصدّر المحادثة من واتساب؟' }),
                 el('ol', {}, [
                     el('li', { text: 'افتح المجموعة في واتساب، ثم اضغط على اسمها في الأعلى.' }),
-                    el('li', { text: 'انزل إلى «تصدير الدردشة» واختر «بدون وسائط» — المساعد يقرأ نص العرض، والصور والمستندات لا تُرسل من هنا.' }),
+                    el('li', { text: 'انزل إلى «تصدير الدردشة». «إرفاق الوسائط» يضم الكتيّبات والصور فتُرسل مع العرض للمساعد (أبطأ وأغلى قليلاً)، و«بدون وسائط» للنص وحده.' }),
                     el('li', { text: 'احفظ الملف (zip) في جهازك أو أرسله لنفسك، ثم ارفعه هنا. يمكن رفع عدة مجموعات معاً، أو اختيار مجلد فيه كل التصديرات.' })
                 ]),
                 el('p', { class: 'crm-subtle', text: 'قراءة الملف تتم في متصفحك. حين يكون «فرز Jev» مفعّلاً يُرسل نص كل رسالة جديدة واسم مجموعتها '
@@ -562,7 +566,8 @@ export async function renderWhatsApp(root) {
     function visibleItems(listed) {
         const items = listed || listedItems();
         if (!jevVisible()) return items;
-        return items.filter((item) => passesVerdictFilter(resultOf(item), page.filters.verdicts));
+        const shown = items.filter((item) => passesVerdictFilter(resultOf(item), page.filters.verdicts));
+        return page.order === 'jev' ? jevOrder(shown, resultOf) : shown;
     }
 
     function drawFilters(listed) {
@@ -594,10 +599,20 @@ export async function renderWhatsApp(root) {
         const hideBox = el('input', { type: 'checkbox', checked: f.hideSent });
         hideBox.addEventListener('change', () => { f.hideSent = hideBox.checked; page.shown = PAGE; drawList(); });
 
+        // الترتيب يظهر مع Jev فقط: بلا أحكام لا فرق بين الترتيبين
+        const orderSel = jevVisible() ? el('select', { title: 'الترتيب' }, [
+            el('option', { value: 'jev', text: 'اقتراح Jev أولاً' }),
+            el('option', { value: 'time', text: 'الأحدث أولاً' })
+        ]) : null;
+        if (orderSel) {
+            orderSel.value = page.order;
+            orderSel.addEventListener('change', () => { page.order = orderSel.value; page.shown = PAGE; drawList(); });
+        }
+
         const chips = new Map();
         const more = el('details', { class: 'wa-more-filters', open: page.moreFilters === null ? !PHONE.matches : page.moreFilters }, [
             el('summary', { text: jevVisible() ? 'الأنواع وحكم Jev' : 'الأنواع' }),
-            el('div', { class: 'wa-filter-row' }, [kindChips,
+            el('div', { class: 'wa-filter-row' }, [orderSel, kindChips,
                 el('label', { class: 'chip' + (f.hideSent ? ' on' : '') }, [hideBox, 'إخفاء ما أُرسل للمساعد'])]),
             jevVisible() ? verdictChips(listed, chips) : null
         ]);
@@ -754,9 +769,16 @@ export async function renderWhatsApp(root) {
         if (sig === parts.sig) return parts;
         const fresh = jevParts(parts.item, result);
         for (const node of parts.badges) node.remove();
-        parts.kindBadge.after(...fresh.badges);
+        const kindBadge = kindBadgeFor(parts.item.main.block, result);
+        parts.kindBadge.replaceWith(kindBadge);
+        kindBadge.before(...fresh.badges);
         parts.slot.replaceWith(fresh.slot);
-        return Object.assign(parts, { badges: fresh.badges, slot: fresh.slot, fix: fresh.fix, sig: sig });
+        return Object.assign(parts, { badges: fresh.badges, slot: fresh.slot, fix: fresh.fix, sig: sig, kindBadge: kindBadge });
+    }
+
+    // تصنيف القارئ: بلونه ما لم يحكم Jev، ورمادي بعد حكمه (الحكم قبله وأوضح منه)
+    function kindBadgeFor(block, result) {
+        return badge(KIND_AR[block.kind], result ? 'neutral' : KIND_TONE[block.kind]);
     }
 
     // ما يتغير به ما يعرضه Jev على البطاقة: النتيجة (بمفتاحها) وتصحيح المالك
@@ -798,7 +820,7 @@ export async function renderWhatsApp(root) {
     }
 
     // بطاقة عنصر، وأجزاؤها التي تُحدَّث في مكانها مع دفعات الفرز (patchCard):
-    //   { node, item, check, kindBadge, badges: شارات Jev بعد شارة التصنيف، slot: خانة سطر Jev، fix: «تصحيح Jev»، sig }
+    //   { node, item, check, kindBadge, badges: شارات Jev قبل شارة التصنيف، slot: خانة سطر Jev، fix: «تصحيح Jev»، sig }
     function card(item) {
         const block = item.main.block;
         const source = item.main.source;
@@ -822,8 +844,8 @@ export async function renderWhatsApp(root) {
         const result = jevVisible() ? resultOf(item) : null;
         const jev = jevParts(item, result);
         const others = [...new Set(item.copies.filter((c) => c !== item.main).map((c) => c.source.group))];
-        const kindBadge = badge(KIND_AR[block.kind], KIND_TONE[block.kind]);
-        const badges = [kindBadge].concat(jev.badges);
+        const kindBadge = kindBadgeFor(block, result);
+        const badges = jev.badges.concat([kindBadge]);
         if (item.copies.length > 1) badges.push(badge('نُشر ' + countText(item.copies.length, ['مرة واحدة', 'مرتين', 'مرات', 'مرة']), 'neutral'));
         if (block.attachments.length) badges.push(badge(block.attachments.length + ' مرفق', 'blue'));
         else if (block.documents.length) badges.push(badge('مستند لم يُصدَّر', 'orange'));
@@ -1027,15 +1049,20 @@ export async function renderWhatsApp(root) {
         drawBar();
         let done = 0;
         let stopError = null;
+        const files = { sent: 0, left: 0 };
         try {
             for (const item of chosen.slice(0, limit)) {
                 sendBtn.textContent = 'جارٍ الإرسال ' + (done + 1) + ' من ' + limit + '…';
+                const attached = await attachmentsOf(item);
                 const id = await createRequest('project', {
                     title: titleOf(item.main.source.group, item.main.block),
                     instruction: INSTRUCTION,
                     text: item.main.text,
-                    textName: 'whatsapp'
+                    textName: 'whatsapp',
+                    files: attached.files
                 });
+                files.sent += attached.files.length;
+                files.left += attached.left;
                 item.sentRequest = id;
                 page.selected.delete(item.id);
                 autoPicked.delete(item.id);
@@ -1059,7 +1086,35 @@ export async function renderWhatsApp(root) {
         if (left > 0) {
             return void notify('أُرسل ' + done + ' من ' + chosen.length + '. توقف الإرسال لبلوغ الحد اليومي، والباقي (' + left + ') ما زال محدداً.', 'error', 10000);
         }
-        if (done) notify('أُرسل ' + done + ' للمساعد. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.', 'success', 7000);
+        if (done) {
+            notify('أُرسل ' + done + ' للمساعد' + (files.sent ? ' ومعها ' + countText(files.sent, FILE_FORMS) : '')
+                + '. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.'
+                + (files.left ? ' تُرك ' + countText(files.left, FILE_FORMS) + ' لا يقبله المساعد (ليس PDF أو صورة، أو أكبر من حده).' : ''), 'success', 9000);
+        }
+    }
+
+    // مرفقات العرض الموجودة في ملف التصدير (كتيّبات PDF وصور)، من كل نسخه بلا تكرار، في حدود المساعد: PDF أو صورة،
+    // و10 ميغابايت للملف، و20 صفحة للـPDF، و9 ملفات مع النص. ما خرج عنها يُترك ويُعدّ في رسالة الإرسال.
+    async function attachmentsOf(item) {
+        const out = { files: [], left: 0 };
+        const seen = new Set();
+        for (const copy of item.copies) {
+            for (const name of copy.block.attachments || []) {
+                if (seen.has(name)) continue;
+                seen.add(name);
+                const spec = fileKind(name);
+                const load = copy.source.files ? copy.source.files.get(name) : null;
+                if (!load || !spec || (spec.kind !== 'pdf' && spec.kind !== 'image') || out.files.length >= MAX_FILES - 1) { out.left += 1; continue; }
+                const blob = await load();
+                if (blob.size > MAX_FILE_BYTES) { out.left += 1; continue; }
+                if (spec.kind === 'pdf') {
+                    const pages = pdfPageCount(await blob.arrayBuffer());
+                    if (pages !== null && pages > MAX_PDF_PAGES) { out.left += 1; continue; }
+                }
+                out.files.push(new File([blob], name, { type: spec.mime }));
+            }
+        }
+        return out;
     }
 
     /* ---------- فرز Jev ---------- */
@@ -1170,7 +1225,10 @@ export async function renderWhatsApp(root) {
         if (info.failed && !info.out.skipped) console.warn('[CRM] wa-triage', info.out.error || info.out.message || info.out);
         if (!info.failed) applyPreselection();
         drawTriageLine();
-        refreshList();
+        // أثناء الفرز تُحدَّث البطاقات في مكانها ولا تقفز؛ حين تنتهي الجولة يُرسم مرة واحدة بترتيب «اقتراح Jev أولاً»
+        // (ويُؤجَّل الرسم ما دام التركيز في القائمة)
+        if (page.order === 'jev' && jevVisible() && !runner.progress().busy) drawListSoon();
+        else refreshList();
     }
 
     // وضع «تحديد المقترح تلقائياً» وحده. ما حدده Jev يُعاد حسابه من كل النتائج حتى الآن — مع كل دفعة، وبعد كل

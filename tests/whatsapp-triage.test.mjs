@@ -4,7 +4,7 @@
 import {
     BATCH, IN_FLIGHT, BUCKETS, VERDICT_AR, VERDICT_TONE, INTENT_AR, INTENTS, PROPERTY_AR, CITY_AR, REASON_AR, SURFACED_AR,
     MODE_AR, REGEX_MISSED, normalizeMode, itemText, normalizeResult, createStore, remember, resultFor, verdictOf, bucketOf,
-    passesVerdictFilter, countBuckets, confidenceOf, isSurfaced, percentText, describe, preselect, sendOrder, chunk, buildEntries,
+    passesVerdictFilter, countBuckets, confidenceOf, isSurfaced, percentText, describe, preselect, sendOrder, jevOrder, chunk, buildEntries,
     payloadOf, createRunner, progressLine, invokeTriage, triageStatus, triageBatch, labelTriage, outError, reportView, groupToSend
 } from '../crm/js/whatsapp-triage.js';
 import { parseChat, groupFromFileName } from '../crm/js/whatsapp-parse.js';
@@ -223,6 +223,15 @@ t('send order: no preselected items → unchanged', sendOrder(chosen, { auto: ne
 t('send order: owner picks first as listed, then Jev picks by confidence',
     sendOrder(chosen, { auto: new Set(['a', 'b', 'd']), resultOf: (it) => R.get(it.id) }).map((i) => i.id).join() === 'c,b,a,d',
     sendOrder(chosen, { auto: new Set(['a', 'b', 'd']), resultOf: (it) => R.get(it.id) }).map((i) => i.id));
+
+// «اقتراح Jev أولاً»: المقترح بالثقة (a 0.80 وh 0.80 تعادلا فالأحدث a أولاً، وd بلا ثقة آخر المقترح)، ثم ما يحتاج النظر،
+// ثم غير المفرز بترتيب القائمة، ثم المستبعد
+const ordered = [P.a, P.b, P.c, P.d, P.h, item('u1', 'بلا حكم 1'), item('s1', 'مستبعد 1'), item('u2', 'بلا حكم 2')];
+const R2 = new Map([...R, ['s1', result('r', 'ks', 'skip', 'other', 0.99)]]);
+t('jev order: send by confidence, then review, then untriaged as listed, then skip',
+    jevOrder(ordered, (it) => R2.get(it.id) || null).map((i) => i.id).join() === 'b,a,h,d,c,u1,u2,s1',
+    jevOrder(ordered, (it) => R2.get(it.id) || null).map((i) => i.id));
+t('jev order: the input list is not changed', ordered.map((i) => i.id).join() === 'a,b,c,d,h,u1,s1,u2');
 
 /* ===================== سطر الحالة ===================== */
 

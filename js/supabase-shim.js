@@ -250,9 +250,15 @@
                     if (one.error) return fail(one.error.message, 500);
                     return reply(one.data ? projectOut(one.data) : {});
                 }
-                var list = await sb.from('projects').select('*').order('id', { ascending: false });
-                if (list.error) return fail(list.error.message, 500);
-                return reply(list.data.map(projectOut));
+                // كل المشاريع على دفعات من 1000: الخادم يقطع ما زاد على 1000 صف في الطلب الواحد بصمت
+                var all = [];
+                for (var from = 0; ; from += 1000) {
+                    var list = await sb.from('projects').select('*').order('id', { ascending: false }).range(from, from + 999);
+                    if (list.error) return fail(list.error.message, 500);
+                    all = all.concat(list.data || []);
+                    if (!list.data || list.data.length < 1000) break;
+                }
+                return reply(all.map(projectOut));
             }
             var b = readBody(init);
             if (method === 'POST' && !id && !b.id) {

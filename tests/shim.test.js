@@ -7,7 +7,7 @@ function builder(table) {
     select(c) { st.ops.push(['select', c]); return b; }, insert(v) { st.ops.push(['insert', v]); return b; },
     update(v) { st.ops.push(['update', v]); return b; }, delete() { st.ops.push(['delete']); return b; },
     eq(k, v) { st.ops.push(['eq', k, v]); return b; }, order(k, o) { st.ops.push(['order', k, o]); return b; },
-    limit(n) { st.ops.push(['limit', n]); return b; },
+    limit(n) { st.ops.push(['limit', n]); return b; }, range(a, z) { st.ops.push(['range', a, z]); return b; },
     maybeSingle() { st.single = true; return b; },
     then(res, rej) { calls.push(st); const out = scenario.query ? scenario.query(st) : { data: [], error: null }; return Promise.resolve(out).then(res, rej); }
   };
@@ -48,6 +48,11 @@ const row = { id: 7, name: 'مشروع', type: 'شقة', price: 1200000, area: 1
   let r = await (await f('api/projects.php?role=admin&username=u1')).json();
   t('projects list keeps old string contract', Array.isArray(r) && r[0].id === '7' && r[0].price === '1200000.00' && r[0].area === '150.50' && r[0].latitude === '21.5' && r[0].date_added === '2026-08-23 06:39:05' && r[0].deletion_requested === '0' && r[0].address === '' && r[0].details.rooms === 3, r[0]);
   t('projects list ordered by id desc', JSON.stringify(calls.at(-1).ops.find(o => o[0] === 'order')) === JSON.stringify(['order', 'id', { ascending: false }]));
+
+  // أكثر من 1000 مشروع: تُقرأ على دفعات (الخادم يقطع ما زاد على 1000 في الطلب الواحد)
+  scenario = { query: (st) => { const rg = st.ops.find(o => o[0] === 'range'); return { data: Array(rg && rg[1] === 0 ? 1000 : 5).fill(row), error: null }; } };
+  r = await (await f('api/projects.php?role=admin&username=u1')).json();
+  t('projects list reads past 1000 rows in pages', r.length === 1005 && JSON.stringify(calls.at(-1).ops.find(o => o[0] === 'range')) === JSON.stringify(['range', 1000, 1999]), r.length);
 
   scenario = { query: () => ({ data: row, error: null }) };
   r = await (await f('api/projects.php?id=7&role=admin&username=u1')).json(); t('single project by id', r.id === '7' && calls.at(-1).ops.some(o => o[0] === 'eq' && o[2] === '7'));

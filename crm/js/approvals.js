@@ -7,7 +7,7 @@
 // المنع الحقيقي في قاعدة البيانات: الدالة ترفض غير المدير، وسياسة agent_decisions
 // ترفض قرارات الاعتماد والرفض والإعادة من غيره. إخفاء الأزرار للراحة لا للحماية.
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, fetchAll } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import {
     AGENT_KIND, AGENT_APPLY_ERROR, AGENT_APPLIED_FIELDS, AGENT_FIELD,
@@ -119,9 +119,9 @@ export async function renderApprovals(root) {
 // eslint-disable-next-line no-unused-vars
 async function cleanDuplicateProjects(reload) {
     try {
-        const result = await supabase.from('projects')
+        const result = await fetchAll(() => supabase.from('projects')
             .select('id,name,type,city,district,address,purpose,availability,price,area,rooms,notes,details,images,date_added,status')
-            .order('date_added', { ascending: true });
+            .order('date_added', { ascending: true }).order('id', { ascending: true }));
         if (result.error) throw result.error;
         const projects = result.data || [];
         const approved = projects.filter((project) => project.status === 'approved');

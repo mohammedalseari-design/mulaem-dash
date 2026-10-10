@@ -1,4 +1,4 @@
-import { supabase } from './supabase.js';
+import { supabase, fetchAll } from './supabase.js';
 import { el, replace, notify, fail, parseNumber, pageHead } from './ui.js';
 
 const PROJECT_FIELDS = ['project_ref', 'name', 'type', 'city', 'district', 'address', 'purpose', 'availability', 'construction_status', 'price', 'area', 'rooms', 'units_count', 'buildings_count', 'developer', 'contact_phone', 'contact_email', 'contact_url', 'source_url', 'brochure_url', 'image_url', 'latitude', 'longitude', 'notes'];
@@ -138,7 +138,9 @@ export async function renderImports(root) {
     approve.addEventListener('click', async () => {
         approve.disabled = true; approve.textContent = 'جارٍ الحفظ…';
         try {
-            const existing = await supabase.from('projects').select('id,name,city,district,address,availability,price,area,rooms,notes,images,details');
+            // كل المشاريع لا أول 1000 فقط: مشروع قائم لا يُرى هنا يُضاف مرة ثانية
+            const existing = await fetchAll(() => supabase.from('projects')
+                .select('id,name,city,district,address,availability,price,area,rooms,notes,images,details').order('id', { ascending: true }));
             if (existing.error) throw existing.error;
             const byRef = new Map((existing.data || []).map((row) => [row.details && row.details.import_ref, row]));
             const byNaturalKey = new Map((existing.data || []).map((row) => [

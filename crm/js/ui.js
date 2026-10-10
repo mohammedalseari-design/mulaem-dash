@@ -103,7 +103,7 @@ export function fail(error, prefix = 'تعذّر إتمام العملية') {
 
 /* ===================== سحب الملفات وإفلاتها ===================== */
 
-// ملف يُسحب إلى الصفحة: على مربع فيه حقل ملفات (.crm-import-file أو .form-group) يذهب إلى ذلك الحقل كأنه
+// ملف يُسحب إلى الصفحة: على مربع فيه حقل ملفات (.crm-import-file أو .form-group، أو طيّة رفع واتساب) يذهب إلى ذلك الحقل كأنه
 // اختير بالزر، وفي أي مكان آخر لا يفتحه المتصفح ولا يغادر الصفحة (فيضيع ما لم يُحفظ). الإفلات على الحقل نفسه
 // يتركه للمتصفح كما كان. المجلد لا يُفلَت: يُختار بزرّه.
 export function wireFileDrop() {
@@ -116,7 +116,7 @@ export function wireFileDrop() {
     };
     const carriesFiles = (event) => Array.from((event.dataTransfer && event.dataTransfer.types) || []).includes('Files');
     const zoneOf = (target) => {
-        const box = target && target.closest ? target.closest('.crm-import-file, .form-group') : null;
+        const box = target && target.closest ? target.closest('.crm-import-file, .form-group, .wa-upload') : null;
         const input = box ? box.querySelector('input[type=file]') : null;
         return input && !input.disabled ? { box, input } : null;
     };

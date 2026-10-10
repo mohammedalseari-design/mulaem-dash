@@ -29,6 +29,9 @@ import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, lo
 
 // «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
 const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
+const GROUP_FORMS = ['مجموعة واحدة', 'مجموعتان', 'مجموعات', 'مجموعة'];
+// عرض الجوال (كما في css/theme.css): المرشحات الإضافية تبدأ مطوية
+const PHONE = window.matchMedia('(max-width: 700px)');
 import {
     BUCKETS, DEFAULT_MODE, INTENTS, INTENT_AR, MODES, MODE_AR, MODE_HINT, MODE_KEY, REPORT_DAYS, SURFACED_AR, VERDICT_AR,
     bucketOf, countBuckets, createRunner, createStore, describe, isSurfaced, itemText, labelTriage, normalizeMode, outError,
@@ -197,6 +200,7 @@ export async function renderWhatsApp(root) {
         selected: new Set(),
         expanded: new Set(), // بطاقات فُتح نصها كاملاً، فلا تُطوى حين تُعاد القائمة
         shown: PAGE,
+        moreFilters: null,  // طيّة «الأنواع وحكم Jev»: null = حسب عرض الشاشة، وإلا آخر ما اختاره المستخدم
         // verdicts: شرائح حكم Jev الظاهرة (send | review | skip | untriaged)
         filters: { group: '', kinds: new Set(['offer', 'update', 'document']), since: 'cursor', hideSent: true, q: '', verdicts: new Set(BUCKETS) },
         remaining: null,    // ما بقي من حد طلبات المساعد اليومي
@@ -252,19 +256,22 @@ export async function renderWhatsApp(root) {
     let redrawPending = false;
     for (const box of [listHead, list, more]) box.addEventListener('focusout', flushPending);
     const barCount = el('span', { text: 'لا شيء محدد' });
-    const barQuota = el('span', { class: 'crm-subtle' });
-    const sendBtn = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'إرسال للمساعد', disabled: true, onclick: sendSelected });
-    const copyBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'نسخ المحدد', disabled: true, onclick: copySelected });
+    const barQuota = el('span', { class: 'crm-subtle wa-bar-busy' });
+    const sendBtn = el('button', { type: 'button', class: 'btn btn-primary btn-sm wa-bar-busy', text: 'إرسال للمساعد', disabled: true, onclick: sendSelected });
+    const copyBtn = el('button', { type: 'button', class: 'btn btn-outline btn-sm wa-bar-busy', text: 'نسخ المحدد', disabled: true, onclick: copySelected });
     const bar = el('div', { class: 'wa-bar', hidden: true }, [
         el('div', { class: 'wa-bar-info' }, [barCount, barQuota]),
         el('div', { class: 'wa-bar-actions' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'تحديد الظاهر', onclick: selectVisible }),
-            el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء التحديد', onclick: clearSelection }),
+            el('button', { type: 'button', class: 'btn btn-outline btn-sm wa-bar-busy', text: 'إلغاء التحديد', onclick: clearSelection }),
             copyBtn,
             sendBtn
         ])
     ]);
 
+    // مربعا الرفع في طيّة واحدة تُغلق بعد أول قراءة ناجحة، فتظهر العروض بلا تمرير طويل على الجوال
+    const uploadTitle = el('summary', { text: 'رفع ملفات التصدير' });
+    let uploadBox = null;
     fileInput.addEventListener('change', () => { load(fileLoaders(Array.from(fileInput.files || []))); fileInput.value = ''; });
     folderInput.addEventListener('change', () => { load(folderGroups(Array.from(folderInput.files || []))); folderInput.value = ''; });
 
@@ -285,12 +292,12 @@ export async function renderWhatsApp(root) {
                     + 'Jev، وهو نموذج ذكاء اصطناعي لشركة خارجية (TypeSafe عبر OpenRouter). الأسماء المكتوبة داخل الرسالة تصل كما هي. '
                     + 'لا تحفظ ملائم نص الرسالة، ولا يصل إلى المساعد إلا العرض الذي ترسله أنت.' })
             ]),
-            el('div', { class: 'crm-import-files' }, [
+            uploadBox = el('details', { class: 'wa-upload', open: true }, [uploadTitle, el('div', { class: 'crm-import-files' }, [
                 el('label', { class: 'crm-import-file' }, [el('strong', { text: 'ملفات التصدير' }), fileInput,
                     el('small', { class: 'crm-subtle', text: 'zip أو ‎_chat.txt‎ — يمكن اختيار أكثر من ملف. ملف ‎_chat.txt‎ وحده: سمّه باسم المجموعة قبل الرفع.' })]),
                 el('label', { class: 'crm-import-file' }, [el('strong', { text: 'مجلد التصديرات' }), folderInput,
                     el('small', { class: 'crm-subtle', text: 'مجلد فيه مجلدات «WhatsApp Chat - …» أو ملفات zip' })])
-            ]),
+            ])]),
             jevBox,
             status,
             summary
@@ -330,6 +337,10 @@ export async function renderWhatsApp(root) {
         await loadCursors();
         await buildItems();
         statusText.textContent = 'مجموعات مقروءة: ' + page.sources.length + (problems.length ? ' — تعذّر: ' + problems.join('، ') : '');
+        if (page.sources.length) {
+            uploadTitle.textContent = 'إضافة ملفات أخرى (المرفوع: ' + countText(page.sources.length, GROUP_FORMS) + ')';
+            uploadBox.open = false;
+        }
         page.shown = PAGE;
         drawSummary();
         enqueueTriage();
@@ -584,11 +595,16 @@ export async function renderWhatsApp(root) {
         hideBox.addEventListener('change', () => { f.hideSent = hideBox.checked; page.shown = PAGE; drawList(); });
 
         const chips = new Map();
-        return { node: el('div', {}, [
-            el('div', { class: 'crm-toolbar' }, [groupSel, sinceSel, search]),
+        const more = el('details', { class: 'wa-more-filters', open: page.moreFilters === null ? !PHONE.matches : page.moreFilters }, [
+            el('summary', { text: jevVisible() ? 'الأنواع وحكم Jev' : 'الأنواع' }),
             el('div', { class: 'wa-filter-row' }, [kindChips,
                 el('label', { class: 'chip' + (f.hideSent ? ' on' : '') }, [hideBox, 'إخفاء ما أُرسل للمساعد'])]),
             jevVisible() ? verdictChips(listed, chips) : null
+        ]);
+        more.addEventListener('toggle', () => { page.moreFilters = more.open; });
+        return { node: el('div', {}, [
+            el('div', { class: 'crm-toolbar' }, [groupSel, sinceSel, search]),
+            more
         ]), search: search, chips: chips };
     }
 
@@ -977,6 +993,8 @@ export async function renderWhatsApp(root) {
 
     function drawBar() {
         const n = page.selected.size;
+        // لا شيء محدد: على الجوال يبقى سطر واحد («لا شيء محدد» و«تحديد الظاهر») بدل ربع الشاشة
+        bar.classList.toggle('wa-bar-idle', n === 0);
         // ما حدده Jev قد يقع بعد البطاقات المعروضة: عدده هنا ليعرف المالك ما سيرسله
         barCount.textContent = n ? 'المحدد: ' + n + (autoPicked.size ? ' (حدّد Jev منها ' + autoPicked.size + ')' : '') : 'لا شيء محدد';
         barQuota.textContent = sendingBlocked() ? 'الإرسال متوقف: الاستخراج التلقائي غير مفعّل'

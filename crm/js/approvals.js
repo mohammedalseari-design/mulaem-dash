@@ -579,8 +579,14 @@ function draftCard(draft, names, reload, twinState) {
         ]));
     }
 
+    // مسودة لا إجراء عليها (أُعيدت للموظف، رُفضت، طُبّقت): حقولها وتفاصيلها مطوية، فلا تطيل الصفحة على الجوال.
+    // تنبيه المحتوى المريب يبقى ظاهراً خارج الطيّ
+    const actionable = draft.status === 'submitted';
+    const body = actionable ? card : el('details', { class: 'agent-draft-more' }, el('summary', { text: 'تفاصيل المسودة' }));
+    if (!actionable) card.appendChild(body);
+
     const fieldsBox = el('div');
-    card.appendChild(fieldsBox);
+    body.appendChild(fieldsBox);
 
     // جدول قبل/بعد يحتاج الصف الهدف؛ يُقرأ مرة واحدة لكل مسودة
     if (isNew) {
@@ -598,15 +604,15 @@ function draftCard(draft, names, reload, twinState) {
     }
 
     if ((draft.missing || []).length) {
-        card.appendChild(el('div', { class: 'agent-block' }, [
+        body.appendChild(el('div', { class: 'agent-block' }, [
             el('h4', { text: 'حقول لم يذكرها المصدر' }),
             chips(draft.missing)
         ]));
     }
-    card.appendChild(listBlock('تعارضات', draft.conflicts, 'لا تعارضات'));
-    card.appendChild(duplicatesBlock(draft.duplicates, twinState));
+    body.appendChild(listBlock('تعارضات', draft.conflicts, 'لا تعارضات'));
+    body.appendChild(duplicatesBlock(draft.duplicates, twinState));
     card.appendChild(suspiciousBlock(draft.suspicious));
-    card.appendChild(touchedBlock(draft));
+    body.appendChild(touchedBlock(draft));
     card.appendChild(actionsRow(draft, reload));
     card.appendChild(decisionsBox(draft.id));
     return card;
@@ -644,7 +650,7 @@ function fieldsTable(draft, current) {
                 isSuggested(ev, value) ? el('div', {}, badge('اسم مقترح', 'gold')) : null
             ]),
             current ? el('td', { class: 'crm-subtle', text: before }) : null,
-            el('td', {}, [el('span', { text: after }), diff]),
+            el('td', { class: 'agent-proposed' }, [el('span', { text: after }), diff]),
             el('td', { class: 'crm-subtle' }, evidenceCell(ev, value))
         ]));
     };
@@ -664,7 +670,7 @@ function fieldsTable(draft, current) {
                    evidence[key + '.' + sub], skipped, currentSub[sub], sub);
         }
     }
-    const table = el('table', { class: 'users-table crm-table' }, [head, body]);
+    const table = el('table', { class: 'users-table crm-table agent-fields' }, [head, body]);
     const models = proposed.details && Array.isArray(proposed.details.models) ? proposed.details.models : null;
     if (!models) return table;
     return el('div', {}, [table, unitsTable(models, evidence, allowed.indexOf('details') === -1)]);
@@ -738,7 +744,7 @@ function unitsTable(models, evidence, skipped) {
     });
     return el('div', { class: 'agent-block' }, [
         el('h4', {}, [el('span', { text: 'الوحدات المقترحة (' + models.length + ')' }), skipped ? badge('لن تُكتب', 'red') : null]),
-        el('div', { class: 'crm-table-wrap' }, el('table', { class: 'users-table crm-table' }, [head, body])),
+        el('div', { class: 'crm-table-wrap' }, el('table', { class: 'users-table crm-table agent-units' }, [head, body])),
         quotes.firstChild ? quotes : el('div', { class: 'crm-subtle', text: 'بلا اقتباسات' })
     ]);
 }

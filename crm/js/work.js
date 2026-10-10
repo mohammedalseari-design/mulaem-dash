@@ -13,11 +13,11 @@
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
-import { CHANNEL, label } from './labels.js';
+import { CHANNEL, PURPOSE, label } from './labels.js';
 import { myRole } from './auth.js';
 import {
     el, replace, clear, loading, errorBox, pager, fmtDateTime,
-    localDayStart, number, waNumber, icon
+    localDayStart, number, waNumber, icon, openModal, money
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 import { openClientForm } from './client-form.js';
@@ -39,6 +39,65 @@ const KPIS = [
     { key: 'new_requirements_7d', label: 'طلبات آخر 7 أيام' },
     { key: 'active_clients', label: 'عملاء نشطون' }
 ];
+
+// رقمان ليس لهما صفحة: البطاقة تفتح نافذة بما وراء الرقم، وكل سطر يفتح طلب العميل ومطابقاته
+const KPI_LISTS = { viewings_today: openViewingsToday, new_requirements_7d: openNewRequirements };
+const KPI_LIST_MAX = 30;
+
+// المعاينات: مطابقات صارت «معاينة» اليوم (كما يعدّها v_my_work في 006)
+async function openViewingsToday(title) {
+    const box = el('div', {}, loading());
+    openModal(title, box);
+    const { data, error } = await supabase
+        .from('property_matches')
+        .select('id, requirement_id, unit_key, updated_at, project:projects(name), requirement:client_requirements(client_id, property_type, client:clients(full_name))')
+        .eq('state', 'viewing').gte('updated_at', localDayStart(0)).lt('updated_at', localDayStart(1))
+        .order('updated_at', { ascending: false }).range(0, KPI_LIST_MAX - 1);
+    if (!box.isConnected) return;
+    if (error) return void replace(box, errorBox(error, 'تعذّر تحميل المعاينات'));
+    if (!data || !data.length) return void replace(box, empty('check', 'لا معاينات اليوم', 'تظهر هنا المطابقات التي صارت «معاينة» اليوم.'));
+    replace(box, kpiList(data.map((row) => {
+        const req = row.requirement || {};
+        return {
+            href: req.client_id ? '#/clients/' + req.client_id + '/requirements/' + row.requirement_id : null,
+            name: (req.client && req.client.full_name) || 'عميل',
+            line: [row.project && row.project.name, row.unit_key, req.property_type].filter(Boolean).join(' · '),
+            at: row.updated_at
+        };
+    }), data.length === KPI_LIST_MAX));
+}
+
+// الطلبات المفتوحة التي أُضيفت في آخر 7 أيام (كما يعدّها v_my_work)
+async function openNewRequirements(title) {
+    const box = el('div', {}, loading());
+    openModal(title, box);
+    const since = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data, error } = await supabase
+        .from('client_requirements')
+        .select('id, client_id, property_type, purpose, city, budget_max, created_at, client:clients(full_name)')
+        .eq('status', 'open').gte('created_at', since)
+        .order('created_at', { ascending: false }).range(0, KPI_LIST_MAX - 1);
+    if (!box.isConnected) return;
+    if (error) return void replace(box, errorBox(error, 'تعذّر تحميل الطلبات'));
+    if (!data || !data.length) return void replace(box, empty('check', 'لا طلبات جديدة', 'تظهر هنا الطلبات المفتوحة التي أُضيفت في آخر 7 أيام.'));
+    replace(box, kpiList(data.map((row) => ({
+        href: '#/clients/' + row.client_id + '/requirements/' + row.id,
+        name: (row.client && row.client.full_name) || 'عميل',
+        line: [row.property_type, label(PURPOSE, row.purpose), row.city, row.budget_max ? 'حتى ' + money(row.budget_max) + ' ريال' : null].filter(Boolean).join(' · '),
+        at: row.created_at
+    })), data.length === KPI_LIST_MAX));
+}
+
+function kpiList(rows, more) {
+    return [
+        el('ul', { class: 'w4-kpi-list' }, rows.map((r) => el('li', {}, el(r.href ? 'a' : 'div', { class: 'w4-kpi-row', href: r.href || null }, [
+            el('strong', { text: r.name }),
+            r.line ? el('span', { class: 'crm-subtle', text: r.line }) : null,
+            el('span', { class: 'crm-subtle', text: fmtDateTime(r.at) })
+        ])))),
+        more ? el('p', { class: 'crm-subtle', text: 'تظهر أحدث ' + KPI_LIST_MAX + ' فقط. الباقي في ملفات العملاء.' }) : null
+    ];
+}
 
 const LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
 const FMT_TODAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -140,6 +199,7 @@ export async function renderWork(root) {
         for (const item of KPIS) {
             const n = value(item.key);
             const target = targets[item.key] || null;
+            const list = n > 0 ? KPI_LISTS[item.key] : null;
             const late = item.key === 'follow_ups_overdue' && n > 0;
             const body = [el('span', { class: 'w4-kpi-label', text: item.label }), el('span', { class: 'w4-kpi-num', text: number(n) })];
             const cls = 'w4-kpi' + (late ? ' w4-kpi-late' : '');
@@ -151,6 +211,7 @@ export async function renderWork(root) {
                         target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     }
                 }, body)
+                : list ? el('button', { type: 'button', class: cls + ' w4-kpi-link', onclick: () => list(item.label) }, body)
                 : el('div', { class: cls }, body));
         }
     }

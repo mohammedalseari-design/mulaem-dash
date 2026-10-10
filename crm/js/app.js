@@ -299,6 +299,17 @@ function labelTables(scope) {
     }
 }
 
+// صف يُفتح بالنقر (tr.clickable: العملاء، والاعتماد، وطلباتي) يصل إليه Tab ويُفتح بـ Enter كالرابط
+function keyboardRows(scope) {
+    for (const row of scope.querySelectorAll('tr.clickable:not([tabindex])')) {
+        row.tabIndex = 0;
+        row.setAttribute('role', 'link');
+        row.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && event.target === row) { event.preventDefault(); row.click(); }
+        });
+    }
+}
+
 function watchTables() {
     const view = document.getElementById('view');
     if (!view) return;
@@ -306,7 +317,7 @@ function watchTables() {
     new MutationObserver(() => {
         if (queued) return;
         queued = true;
-        requestAnimationFrame(() => { queued = false; labelTables(view); });
+        requestAnimationFrame(() => { queued = false; labelTables(view); keyboardRows(view); });
     }).observe(view, { childList: true, subtree: true });
 }
 

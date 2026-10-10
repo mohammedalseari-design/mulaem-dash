@@ -163,7 +163,7 @@ export function openModal(title, body, options = {}) {
     const holder = document.getElementById('modalContent');
     holder.className = 'modal-content' + (options.narrow ? ' modal-narrow' : '');
     clear(holder);
-    holder.appendChild(el('span', { class: 'modal-close', title: 'إغلاق', text: '×', onclick: closeModal }));
+    holder.appendChild(el('button', { type: 'button', class: 'modal-close', title: 'إغلاق', 'aria-label': 'إغلاق', text: '×', onclick: closeModal }));
     holder.appendChild(el('h2', { class: 'crm-modal-title', text: title }));
     append(holder, body);
     onModalClose = options.onClose || null;

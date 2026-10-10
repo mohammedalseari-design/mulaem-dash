@@ -355,3 +355,7 @@ body.session-checking #loginScreen { visibility: hidden; }
 @media print {
     .p4-tabbar, .p4-quick, .p4-toolbar, .p4 .filter-section, .p4 .map-section, .p4-fold, .p4-admin-note { display: none !important; }
 }
+
+/* اسم المشروع زرٌّ يفتح التفاصيل (لوحة المفاتيح تصل إليه)، بشكل العنوان نفسه */
+.p4 .p4-title-btn { all: unset; cursor: pointer; color: inherit; font: inherit; }
+.p4 .p4-title-btn:focus-visible, .p4 .kanban-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }

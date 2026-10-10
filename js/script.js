@@ -2929,7 +2929,7 @@ function renderGridView(filtered) {
             ${imgHtml}
             <div class="project-info">
                 <div class="project-card-header">
-                    <h3 onclick="viewProject(${project.id})" style="cursor:pointer;">${esc(project.name)}</h3>
+                    <h3><button type="button" class="p4-title-btn" onclick="viewProject(${project.id})">${esc(project.name)}</button></h3>
                     <div class="project-badges">
                         ${getCategoryBadgeHtml(project)}
                         ${getAvailabilityBadgeHtml(project.availability)}
@@ -3125,6 +3125,10 @@ function renderKanbanBoard(filteredProjects) {
                 const card = document.createElement('div');
                 card.className = 'kanban-card';
                 card.onclick = () => viewProject(c.id);
+                // تصل إليه لوحة المفاتيح وتفتحه Enter كالنقر
+                card.tabIndex = 0;
+                card.setAttribute('role', 'button');
+                card.onkeydown = (event) => { if (event.key === 'Enter' && event.target === card) { event.preventDefault(); viewProject(c.id); } };
 
                 // بعد الصفقات إن عُرفت (النماذج، والعقار كاملاً برقم 0)؛ «نفد» يُعرض كمباع
                 const unit = unitStockOf(c.id, c.ord || 0);

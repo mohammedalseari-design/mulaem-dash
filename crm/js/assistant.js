@@ -477,9 +477,9 @@ function progressSteps(request) {
     for (let i = 0; i < steps.length; i++) {
         const done = current >= 0 && i < current;
         const active = i === current;
+        // المنجز والقادم بلون خافت مقروء (لا شفافية: كانت تُنزل التباين عن الحد المقروء)
         box.appendChild(el('span', {
-            class: 'chip' + (active ? ' on' : ''),
-            style: done ? 'opacity:.55' : (active ? '' : 'opacity:.35'),
+            class: 'chip' + (active ? ' on' : done ? ' step-done' : ' step-next'),
             text: (done ? '✓ ' : '') + steps[i][1]
         }));
     }

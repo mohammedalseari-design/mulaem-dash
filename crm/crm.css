@@ -193,7 +193,7 @@ body.crm-dark .crm-import-file { background: #202a35; border-color: rgba(255,255
 .crm-approval-project-list { display: grid; gap: 12px; }
 .crm-approval-project { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid rgba(49, 67, 83, .16); border-radius: 8px; background: rgba(255,255,255,.52); }
 .crm-approval-project-image { width: 92px; height: 76px; object-fit: cover; border-radius: 6px; background: #e8edf0; }
-.crm-approval-project-placeholder { display: grid; place-items: center; color: #70808d; font-size: .78rem; }
+.crm-approval-project-placeholder { display: grid; place-items: center; color: #4b5a66; font-size: .78rem; }
 .crm-approval-project-info { min-width: 0; display: grid; gap: 4px; }
 .crm-approval-project-info a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crm-approval-project-actions { display: flex; gap: 8px; }

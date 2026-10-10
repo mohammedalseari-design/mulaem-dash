@@ -18,7 +18,7 @@
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
   afterTimeout, type AttemptOutcome, chat, ChatError, type ChatMessage, type ChatPart, type ChatResult, CODE_CLASS, classifyFailure,
-  DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, defaultTiers, type Effort, firstStep, isFailure, nextStep,
+  DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, deepStart, defaultTiers, type Effort, firstStep, isFailure, nextStep,
   parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
 } from "../_shared/effort-router/mod.ts";
 import { fetchUrlSource } from "./fetch.ts";
@@ -176,6 +176,10 @@ Deno.serve(async (req) => {
 
 /* ===================== تنفيذ طلب ===================== */
 
+// «تفكير عميق» يحسب من سقف التصعيد اليومي المشترك. إن نفد اليوم يُقرأ الطلب بالمسار العادي بدل أن يفشل،
+// وتبقى هذه الملاحظة على الطلب الجاهز (error_ar يظهر للموظف تنبيهاً هادئاً على طلب غير فاشل)
+const DEEP_FALLBACK_AR = "طُلب «تفكير عميق» لكن حدّه اليومي للفريق نفد، فقرأ المساعد الطلب بالطريقة العادية. راجع المسودة جيداً.";
+
 class Stop extends Error {
   constructor(message: string, readonly retry = false) {
     super(message);
@@ -259,8 +263,12 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     const available = Object.keys(tiers) as TierId[];
     const effort = scoreEffort({ kind: request.kind, sources: loaded.srcs });
     const resumed = resumeLadder(request.ladder, { available, hasFiles: hasFiles(loaded) });
+    // «تفكير عميق» يُصعَّد إن بقي في سقف اليوم متسع، وإلا يبدأ بالمسار العادي (deepStart)
+    const wantsDeep = request.effort_hint === "deep";
+    const start = deepStart(wantsDeep, Boolean(resumed), wantsDeep && !resumed && await canEscalate(db));
+    const deepNote = start.fellBack ? DEEP_FALLBACK_AR : null;
     let step: Step | null = resumed?.step ?? firstStep({
-      deep: request.effort_hint === "deep",
+      deep: start.deep,
       hasFiles: hasFiles(loaded),
       reasoning: reasoningFor(effort, REASONING_THRESHOLD),
       available,
@@ -336,7 +344,7 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       if (!failed && Array.isArray(ev.drafts)) {
         const status = await draftStatusFor(db, request.requested_by);
         for (const d of ev.drafts) inserted.push(await saveDraft(db, id, request.requested_by, d, status));
-        const done = await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null });
+        const done = await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: deepNote });
         // أُلغي الطلب أثناء التنفيذ: لا تبقى مسودات لطلب ملغى
         if (!done) {
           if (inserted.length) await db.from("agent_drafts").delete().in("id", inserted);

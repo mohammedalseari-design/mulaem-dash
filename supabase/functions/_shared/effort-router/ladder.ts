@@ -38,6 +38,13 @@ function heavy(wanted: "reason" | "general", available: TierId[] | undefined): T
   return has(available, other) ? other : null;
 }
 
+// «تفكير عميق» لطلب جديد (غير مستأنف) يُصعَّد فقط إن بقي في سقف التصعيد اليومي المشترك متسع؛ وإلا يبدأ
+// بالمسار العادي ولا يفشل، وfellBack تُخبر الموظف بذلك على الطلب. الطلب المستأنف تقرّره خطوته المحفوظة.
+export function deepStart(wanted: boolean, resumed: boolean, roomToEscalate: boolean): { deep: boolean; fellBack: boolean } {
+  const asked = wanted && !resumed;
+  return { deep: asked && roomToEscalate, fellBack: asked && !roomToEscalate };
+}
+
 export function firstStep(input: FirstStepInput): Step | null {
   if (input.hasFiles) {
     // الملفات لا تُخفى منها الأرقام، فلا تذهب إلا للطبقة العامة

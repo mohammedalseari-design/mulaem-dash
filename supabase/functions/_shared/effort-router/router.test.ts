@@ -2,7 +2,7 @@
 // التشغيل: deno test supabase/functions/_shared/effort-router/
 import { assert, assertEquals, assertFalse, assertRejects } from "jsr:@std/assert@1";
 import {
-  afterTimeout, applyPolicy, buildBody, chat, ChatError, classifyFailure, defaultTiers, firstStep, isFailure, nextStep,
+  afterTimeout, applyPolicy, buildBody, chat, ChatError, classifyFailure, deepStart, defaultTiers, firstStep, isFailure, nextStep,
   outputBudget, parseJson, rawPhones, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step,
   type Tier,
 } from "./mod.ts";
@@ -74,6 +74,19 @@ Deno.test("ladder: deep goes to reason, files go to general, and a failed heavy 
   // PDF لا يذهب إلى الاستدلالية حتى مع «تفكير عميق»، لكنه يُحسب تصعيداً
   const both = firstStep({ deep: true, hasFiles: true, reasoning: false })!;
   assertEquals([both.tier, both.escalation], ["general", true]);
+});
+
+// تقرير 2026-10-04: «تفكير عميق» كان يُفشل الطلب حين ينفد سقف التصعيد اليومي المشترك
+Deno.test("ladder: «تفكير عميق» with the daily escalation cap used starts the normal way and says so", () => {
+  assertEquals(deepStart(true, false, true), { deep: true, fellBack: false });
+  assertEquals(deepStart(true, false, false), { deep: false, fellBack: true });
+  // مستأنف: خطوته المحفوظة تقرّر، ولا ملاحظة
+  assertEquals(deepStart(true, true, false), { deep: false, fellBack: false });
+  assertEquals(deepStart(false, false, false), { deep: false, fellBack: false });
+  const text = firstStep({ deep: deepStart(true, false, false).deep, hasFiles: false, reasoning: false })!;
+  assertEquals([text.tier, text.escalation], ["fast", false]);
+  const pdf = firstStep({ deep: deepStart(true, false, false).deep, hasFiles: true, reasoning: false })!;
+  assertEquals([pdf.tier, pdf.escalation], ["general", false]);
 });
 
 // جوهرة الصفا: ثمانية نماذج (~4.5 ألف رمز) لا تُكتب على السريعة في 110 ثوانٍ، فانتهت ثلاث مرات وفشل الطلب

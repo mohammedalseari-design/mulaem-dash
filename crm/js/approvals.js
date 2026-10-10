@@ -512,6 +512,8 @@ export async function renderApproval(root, requestId) {
                 el('div', { class: 'kv' }, [el('span', { text: 'الوقت' }),
                     el('span', { text: fmtDateTime(request.created_at) })])
             ]),
+            // ملاحظة على طلب جاهز (مثل: «تفكير عميق» قُرئ بالطريقة العادية لأن حدّه اليومي نفد)
+            request.status === 'ready' && request.error_ar ? el('div', { class: 'crm-warn-box', text: request.error_ar }) : null,
             el('h3', { text: 'التعليمات' }),
             el('div', { class: 'agent-text', text: request.instruction })
         ]),

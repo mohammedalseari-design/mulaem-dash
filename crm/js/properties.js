@@ -54,7 +54,7 @@ export async function renderProperties(root) {
         { value: '', label: 'ترتيب افتراضي' },
         { value: 'desc', label: 'أعلى عمولة أولاً' },
         { value: 'asc', label: 'أقل عمولة أولاً' }
-    ], '');
+    ], '', { 'aria-label': 'ترتيب العمولة' });
     const availableBox = el('input', { type: 'checkbox', checked: true });
     const availableChip = el('label', { class: 'chip on' }, [availableBox, 'المتاح فقط']);
 
@@ -201,7 +201,7 @@ function vocabFilter(values, error, allLabel, freePlaceholder) {
         };
     }
     return {
-        node: select([{ value: '', label: allLabel }].concat(values.map((v) => ({ value: v, label: v }))), ''),
+        node: select([{ value: '', label: allLabel }].concat(values.map((v) => ({ value: v, label: v }))), '', { 'aria-label': freePlaceholder }),
         filter: (query, column, value) => query.eq(column, value)
     };
 }

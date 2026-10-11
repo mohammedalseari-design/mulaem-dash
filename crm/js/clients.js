@@ -25,7 +25,7 @@ export async function renderClients(root) {
         type: 'search', class: 'crm-search', placeholder: 'ابحث بالاسم أو رقم الجوال…', autocomplete: 'off',
         value: view.search
     });
-    const statusBox = select(optionList(CLIENT_STATUS, 'كل الحالات'), view.status);
+    const statusBox = select(optionList(CLIENT_STATUS, 'كل الحالات'), view.status, { 'aria-label': 'حالة العميل' });
 
     let debounce = null;
     searchBox.addEventListener('input', () => {

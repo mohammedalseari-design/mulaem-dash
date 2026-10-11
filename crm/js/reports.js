@@ -8,10 +8,10 @@ export async function renderReports(root) {
     const brokersBody = el('div');
     const priorityBody = el('div');
     const gapBody = el('div');
-    const broker = el('select', { class: 'crm-filter-select' }, [
+    const broker = el('select', { class: 'crm-filter-select', 'aria-label': 'الوسيط' }, [
         el('option', { value: '', text: 'كل الوسطاء' })
     ]);
-    const period = el('select', { class: 'crm-filter-select' }, [
+    const period = el('select', { class: 'crm-filter-select', 'aria-label': 'الفترة' }, [
         el('option', { value: '3', text: 'آخر 3 أشهر' }),
         el('option', { value: '6', text: 'آخر 6 أشهر' }),
         el('option', { value: '12', text: 'آخر 12 شهرًا', selected: true })

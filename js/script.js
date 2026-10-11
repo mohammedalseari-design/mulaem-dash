@@ -372,7 +372,7 @@ function initMap() {
         saveFormDraft();
 
         if (selectionMarker) map.removeLayer(selectionMarker);
-        selectionMarker = L.marker([lat, lng], { draggable: true }).addTo(map);
+        selectionMarker = L.marker([lat, lng], { draggable: true, title: 'موقع المشروع' }).addTo(map);
         selectionMarker.bindPopup('موقع المشروع الجديد').openPopup();
 
         selectionMarker.on('dragend', function (event) {
@@ -1005,7 +1005,7 @@ function addMarker(project) {
             iconAnchor: [11, 20],
             popupAnchor:[0, -22]
         });
-        const marker = L.marker([project.latitude, project.longitude], { icon: pinIcon });
+        const marker = L.marker([project.latitude, project.longitude], { icon: pinIcon, title: project.name || 'مشروع' });
         marker.projectId = project.id;
         
         let popupContent = `
@@ -1468,7 +1468,7 @@ document.getElementById('getLocationBtn').addEventListener('click', function () 
                 map.setView([latitude, longitude], 15);
                 
                 if (selectionMarker) map.removeLayer(selectionMarker);
-                selectionMarker = L.marker([latitude, longitude], { draggable: true }).addTo(map);
+                selectionMarker = L.marker([latitude, longitude], { draggable: true, title: 'موقع المشروع' }).addTo(map);
                 selectionMarker.bindPopup('موقعك الحالي').openPopup();
 
                 selectionMarker.on('dragend', function (event) {
@@ -1520,7 +1520,7 @@ function syncMapWithCoordinates() {
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
 
     if (selectionMarker) map.removeLayer(selectionMarker);
-    selectionMarker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    selectionMarker = L.marker([lat, lng], { draggable: true, title: 'موقع المشروع' }).addTo(map);
     selectionMarker.bindPopup('الموقع المحدد').openPopup();
 
     selectionMarker.on('dragend', function (event) {

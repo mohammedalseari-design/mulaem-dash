@@ -36,7 +36,7 @@ export async function renderApprovals(root) {
     const view = { page: 0, status: 'submitted' };
     const body = el('div');
 
-    const statusBox = select(optionList(QUEUE_FILTERS, 'كل الحالات'), 'submitted');
+    const statusBox = select(optionList(QUEUE_FILTERS, 'كل الحالات'), 'submitted', { 'aria-label': 'حالة الطلب' });
     statusBox.addEventListener('change', () => {
         view.status = statusBox.value;
         view.page = 0;

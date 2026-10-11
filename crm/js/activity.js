@@ -16,7 +16,7 @@ export async function renderActivity(root) {
     const view = { page: 0, user: '', search: '' };
     const body = el('div');
     const search = el('input', { type: 'search', class: 'crm-search', placeholder: 'ابحث في النشاط أو تفاصيله…', autocomplete: 'off' });
-    const userBox = select([{ value: '', label: 'كل الموظفين' }], '');
+    const userBox = select([{ value: '', label: 'كل الموظفين' }], '', { 'aria-label': 'الموظف' });
 
     replace(root, [
         pageHead('سجل النشاطات', 'من فعل ماذا ومتى: الدخول والخروج وإضافة المشاريع وتعديلها وحذفها.'),

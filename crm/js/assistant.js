@@ -38,7 +38,8 @@ export async function renderAssistant(root) {
     for (const tile of TILES) {
         if (tile.adminOnly && !isAdmin()) continue;
         // مركز الاتصال ينشئ طلبات العملاء وحدها — والقاعدة ترفض ما عداها على كل حال
-        if (myRole() === 'callcenter' && tile.kind !== 'client') continue;
+        // مركز الاتصال: العملاء والعروض (033)، لا التحديث ولا الاستيراد
+        if (myRole() === 'callcenter' && tile.kind !== 'client' && tile.kind !== 'project') continue;
         const soon = Boolean(tile.soon);
         tiles.appendChild(el('button', {
             type: 'button',

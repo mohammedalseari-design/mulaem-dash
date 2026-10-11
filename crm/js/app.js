@@ -60,7 +60,7 @@ const NAV = [
     { hash: '#/calendar', label: 'المواعيد' },
     // المساعد الذكي في القائمة لمن يضيف المشاريع (المدير والميداني — سياسة projects_insert)، وطلبات
     // الاعتماد للمدير وحده. أُعيدا بقرار المالك 2026-09-27 مع إرسال عروض واتساب إلى المساعد.
-    { hash: '#/assistant', label: 'المساعد الذكي', deny: 'callcenter' },
+    { hash: '#/assistant', label: 'المساعد الذكي' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
     { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
     { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },

@@ -226,7 +226,6 @@ export async function renderWork(root) {
 /* ===================== الإجراءات السريعة ===================== */
 
 function quickActions(onSaved) {
-    const callcenter = myRole() === 'callcenter';
     return [
         el('button', {
             type: 'button', class: 'btn btn-primary w4-qbtn',
@@ -236,7 +235,7 @@ function quickActions(onSaved) {
             })
         }, [icon('userPlus'), el('span', { text: 'عميل جديد' })]),
         el('a', { class: 'btn btn-outline w4-qbtn', href: '#/clients' }, [icon('users'), el('span', { text: 'بحث عن عميل' })]),
-        callcenter ? null : el('a', { class: 'btn btn-outline w4-qbtn', href: '#/assistant' }, [icon('sparkle'), el('span', { text: 'إضافة عرض' })]),
+        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/assistant' }, [icon('sparkle'), el('span', { text: 'إضافة عرض' })]),
         el('a', { class: 'btn btn-outline w4-qbtn', href: '#/calendar' }, [icon('calendar'), el('span', { text: 'كل المواعيد' })])
     ];
 }

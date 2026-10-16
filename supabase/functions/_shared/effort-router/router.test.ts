@@ -90,12 +90,13 @@ Deno.test("ladder: «تفكير عميق» with the daily escalation cap used st
 });
 
 // جوهرة الصفا: ثمانية نماذج (~4.5 ألف رمز) لا تُكتب على السريعة في 110 ثوانٍ، فانتهت ثلاث مرات وفشل الطلب
-Deno.test("ladder: a Flash timeout resumes on the general tier without reasoning; a heavy timeout keeps its step", () => {
+// والعامة بالتفكير: Opus 5.5 يرفض إطفاءه بـ 400 (طلب 403ddb19، 2026-10-15)
+Deno.test("ladder: a Flash timeout resumes on the general tier with reasoning; a heavy timeout keeps its step", () => {
   const s1: Step = { attempt: 1, tier: "fast", reasoning: false, repair: false, escalation: false };
-  assertEquals(afterTimeout(s1), { attempt: 2, tier: "general", reasoning: false, repair: false, escalation: true });
+  assertEquals(afterTimeout(s1), { attempt: 2, tier: "general", reasoning: true, repair: false, escalation: true });
   // محاولة إصلاح تبقى إصلاحاً، والثالثة لا تتجاوز السقف
   const s2: Step = { attempt: 2, tier: "fast", reasoning: true, repair: true, escalation: false };
-  assertEquals(afterTimeout(s2), { attempt: 3, tier: "general", reasoning: false, repair: true, escalation: true });
+  assertEquals(afterTimeout(s2), { attempt: 3, tier: "general", reasoning: true, repair: true, escalation: true });
   assertEquals(afterTimeout({ ...s2, attempt: 3 })!.attempt, 3);
   // بلا العامة: الاستدلالية؛ بلا ثقيلة: لا تصعيد
   assertEquals(afterTimeout(s1, ["fast", "reason"])!.tier, "reason");

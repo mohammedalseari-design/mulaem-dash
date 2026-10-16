@@ -73,14 +73,16 @@ export function nextStep(prev: Step, failure: FailureClass, available?: TierId[]
 }
 
 // انتهت مهلة نداء على السريعة: الناتج أطول مما تكتبه في المهلة (مشروع بنماذج كثيرة، أو مزوّد بطيء الآن)،
-// فإعادته عليها تنتهي مثلها. الخطوة التالية العامة بلا تفكير (أسرع كتابةً)، تُحفظ على الطلب ويُستأنف منها.
+// فإعادته عليها تنتهي مثلها. الخطوة التالية العامة، تُحفظ على الطلب ويُستأنف منها.
+// والتفكير يعمل فيها: Opus 5.5 يرفض إطفاءه (400 «Reasoning is mandatory for this endpoint and cannot be
+// disabled» — طلب 403ddb19 في 2026-10-15)، فكانت كل مهلة على السريعة تُفشل الطلب.
 // طبقة ثقيلة انتهت مهلتها: null، فيُعاد الطلب إلى الخطوة نفسها كما كان.
 export function afterTimeout(step: Step, available?: TierId[]): Step | null {
   if (step.tier !== "fast") return null;
   const tier = heavy("general", available);
   if (!tier) return null;
   // محاولة إصلاح انتهت مهلتها تبقى إصلاحاً: ملاحظات المدقق تذهب مع الطبقة العامة
-  return { attempt: Math.min(step.attempt + 1, MAX_MODEL_ATTEMPTS), tier, reasoning: false, repair: step.repair, escalation: true };
+  return { attempt: Math.min(step.attempt + 1, MAX_MODEL_ATTEMPTS), tier, reasoning: true, repair: step.repair, escalation: true };
 }
 
 /* ===================== الاستئناف ===================== */

@@ -3,7 +3,7 @@
 import { supabase } from './supabase.js';
 import { state, loadSession, signIn, signOut, isAdmin, myRole, ROLE_AR, displayName } from './auth.js';
 import { el, clear, append, notify, fail, errorText, initModal, closeModal, icon, wireFileDrop } from './ui.js';
-import { renderClients } from './clients.js';
+import { renderClients, presetClientSearch } from './clients.js';
 import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
@@ -21,6 +21,8 @@ import { renderImports } from './imports.js';
 import { renderWhatsApp } from './whatsapp.js';
 import { renderUsers } from './users.js';
 import { renderActivity } from './activity.js';
+import { renderAdmin } from './admin.js';
+import { renderHelp } from './help.js';
 
 /* ===================== المسارات ===================== */
 
@@ -32,59 +34,58 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
     { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
-    { pattern: /^#\/calendar\/?$/, view: renderCalendar, nav: '#/calendar' },
+    // المواعيد: صفحة كاملة يُفتح من «كل المواعيد» في «عملي اليوم»، فتُضاء «عملي اليوم» في القائمة
+    { pattern: /^#\/calendar\/?$/, view: renderCalendar, nav: '#/work' },
     { pattern: /^#\/assistant\/?$/, view: renderAssistant, nav: '#/assistant' },
     { pattern: /^#\/assistant\/([^/]+)$/, view: renderAgentRequest, nav: '#/assistant' },
-    { pattern: /^#\/approvals\/?$/, view: renderApprovals, nav: '#/approvals', admin: true },
-    { pattern: /^#\/approvals\/([^/]+)$/, view: renderApproval, nav: '#/approvals', admin: true },
     { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
-    { pattern: /^#\/dashboard\/?$/, view: renderDashboard, nav: '#/dashboard', admin: true },
-    { pattern: /^#\/reports\/?$/, view: renderReports, nav: '#/reports', admin: true },
-    { pattern: /^#\/imports\/?$/, view: renderImports, nav: '#/imports', admin: true },
-    { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/whatsapp', admin: true },
-    { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/inventory', admin: true },
-    { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/settings', admin: true },
-    { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/users', admin: true },
-    { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/activity', admin: true }
+    { pattern: /^#\/help\/?$/, view: renderHelp, nav: '#/help' },
+    // أدوات المدير: بابها الواحد «الإدارة» (admin.js)، فهي التي تُضاء في القائمة
+    { pattern: /^#\/admin\/?$/, view: renderAdmin, nav: '#/admin', admin: true },
+    { pattern: /^#\/approvals\/?$/, view: renderApprovals, nav: '#/admin', admin: true },
+    { pattern: /^#\/approvals\/([^/]+)$/, view: renderApproval, nav: '#/admin', admin: true },
+    { pattern: /^#\/dashboard\/?$/, view: renderDashboard, nav: '#/admin', admin: true },
+    { pattern: /^#\/reports\/?$/, view: renderReports, nav: '#/admin', admin: true },
+    { pattern: /^#\/imports\/?$/, view: renderImports, nav: '#/admin', admin: true },
+    { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/admin', admin: true },
+    { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/admin', admin: true },
+    { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/admin', admin: true },
+    { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/admin', admin: true },
+    { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/admin', admin: true }
 ];
 
-// admin: بند للمدير وحده. deny: دور محروم من الباب (مركز الاتصال لا صفقات له).
-// في الحالتين يُخفى البند من القائمة ويُرفض المسار إن كُتب بالعنوان.
-// external: رابط يغادر الصفحة (اللوحة القديمة) — لا يمر على موجّه الهاش ولا يُضاء أبداً.
+// القائمة (التصميم الخامس «أسهل»، 2026-10-22): خمسة أبواب للموظف بكلمات تقول ما يفعله، و«الإدارة» باب واحد
+// للمدير تجمع أدواته التسع بطاقاتٍ تشرح نفسها (admin.js)، و«كيف أبدأ؟» في آخر القائمة لمن يفتح النظام أول مرة.
+// admin: بند للمدير وحده. deny: دور محروم من الباب (مركز الاتصال لا صفقات له). في الحالتين يُخفى البند ويُرفض المسار.
+// foot: آخر القائمة بفاصل. كل الصفحات الأخرى باقية بمساراتها: المواعيد من «كل المواعيد» في «عملي اليوم»،
+// والمشاريع والخريطة من زر في «العقارات»، وأدوات المدير من «الإدارة».
 const NAV = [
-    { href: '../projects.html', label: 'المشاريع والخريطة', external: true },
     { hash: '#/work', label: 'عملي اليوم' },
     { hash: '#/clients', label: 'العملاء' },
     { hash: '#/properties', label: 'العقارات' },
-    { hash: '#/calendar', label: 'المواعيد' },
-    // المساعد الذكي في القائمة لمن يضيف المشاريع (المدير والميداني — سياسة projects_insert)، وطلبات
-    // الاعتماد للمدير وحده. أُعيدا بقرار المالك 2026-09-27 مع إرسال عروض واتساب إلى المساعد.
-    { hash: '#/assistant', label: 'المساعد الذكي' },
     { hash: '#/deals', label: 'الصفقات', deny: 'callcenter' },
-    { hash: '#/approvals', label: 'طلبات الاعتماد', admin: true },
-    { hash: '#/whatsapp', label: 'عروض واتساب', admin: true },
-    // more: صفحات المدير الأقل استعمالاً، تحت عنوان «الإدارة» في القائمة الجانبية
-    { hash: '#/dashboard', label: 'لوحة الإدارة', admin: true, more: true },
-    { hash: '#/reports', label: 'التقارير', admin: true, more: true },
-    { hash: '#/imports', label: 'استيراد المشاريع', admin: true, more: true },
-    { hash: '#/inventory', label: 'جودة المخزون', admin: true, more: true },
-    { hash: '#/settings', label: 'الإعدادات', admin: true, more: true },
-    // نُقلا من لوحة الصفحة القديمة («باب واحد للنظام»، 2026-10-08)
-    { hash: '#/users', label: 'المستخدمون', admin: true, more: true },
-    { hash: '#/activity', label: 'سجل النشاطات', admin: true, more: true }
+    // المساعد الذكي باسم ما يفعله للموظف (المدير والميداني ومركز الاتصال منذ 033)
+    { hash: '#/assistant', label: 'إضافة عرض' },
+    { hash: '#/admin', label: 'الإدارة', admin: true },
+    { hash: '#/help', label: 'كيف أبدأ؟', foot: true }
+];
+// بنود شريط الجوال التي ليست في القائمة (طلبات الاعتماد: الأقرب للمدير بعدّادها)
+const TAB_ONLY = [
+    { label: 'طلبات الاعتماد', hash: '#/approvals', admin: true }
 ];
 
 // شريط الجوال السفلي: أهم أربع صفحات لكل دور، و«المزيد» يفتح القائمة كلها.
 // الاسم المختصر يتسع تحت الأيقونة؛ الاسم الكامل في «المزيد» وفي شريط الكمبيوتر.
 const TABS = {
-    admin: ['#/work', '#/approvals', '#/whatsapp', '#/clients'],
+    admin: ['#/work', '#/clients', '#/approvals', '#/admin'],
     field: ['#/work', '#/clients', '#/properties', '#/assistant'],
-    callcenter: ['#/work', '#/clients', '#/calendar', '#/properties']
+    callcenter: ['#/work', '#/clients', '#/properties', '#/assistant']
 };
 const TAB_LABEL = {
     '#/work': 'اليوم', '#/approvals': 'الاعتماد', '#/whatsapp': 'واتساب', '#/clients': 'العملاء',
-    '#/properties': 'العقارات', '#/assistant': 'المساعد', '#/calendar': 'المواعيد', '#/deals': 'الصفقات'
+    '#/properties': 'العقارات', '#/assistant': 'إضافة عرض', '#/calendar': 'المواعيد', '#/deals': 'الصفقات',
+    '#/admin': 'الإدارة'
 };
 
 // أيقونة كل بند (الأسماء في ICON_PATHS في ui.js)
@@ -92,7 +93,8 @@ const NAV_ICON = {
     '../projects.html': 'map', '#/work': 'today', '#/clients': 'users', '#/properties': 'building',
     '#/calendar': 'calendar', '#/assistant': 'sparkle', '#/deals': 'briefcase', '#/approvals': 'clipboard',
     '#/whatsapp': 'chat', '#/dashboard': 'grid', '#/reports': 'chart', '#/imports': 'upload',
-    '#/inventory': 'layers', '#/settings': 'sliders', '#/users': 'userPlus', '#/activity': 'clock'
+    '#/inventory': 'layers', '#/settings': 'sliders', '#/users': 'userPlus', '#/activity': 'clock',
+    '#/admin': 'settings', '#/help': 'help'
 };
 
 /* ===================== الموجّه ===================== */
@@ -165,7 +167,8 @@ function navLink(item, attrs = {}) {
     const link = el('a', Object.assign({ href: item.hash, dataset: { hash: item.hash } }, attrs), [
         icon(NAV_ICON[item.hash], 'nav-icon'),
         el('span', { text: item.label }),
-        item.hash === '#/approvals' ? countBadge() : null
+        // عدّاد ما ينتظر الاعتماد على «الإدارة» في القائمة وعلى «الاعتماد» في شريط الجوال
+        item.hash === '#/approvals' || item.hash === '#/admin' ? countBadge() : null
     ]);
     return link;
 }
@@ -181,21 +184,33 @@ function renderNav() {
     const nav = document.getElementById('crmNav');
     clear(nav);
     const items = visibleNav();
-    const extra = items.filter((item) => item.more);
-    for (const item of items) if (!item.more) nav.appendChild(navLink(item));
-    // صفحات المدير الأقل استعمالاً تحت عنوان صغير، لا في قائمة مخفية
-    if (extra.length) {
-        nav.appendChild(el('div', { class: 'nav-group', text: 'الإدارة' }));
-        for (const item of extra) nav.appendChild(navLink(item));
-    }
+    for (const item of items) nav.appendChild(navLink(item, item.foot ? { class: 'nav-foot' } : {}));
     renderTabbar(items);
+    wireSideSearch();
+}
+
+// بحث سريع عن عميل من القائمة الجانبية (الكمبيوتر): Enter يفتح «العملاء» على نتيجة البحث نفسها
+function wireSideSearch() {
+    const form = document.getElementById('sideSearch');
+    if (!form || form.dataset.wired) return;
+    form.dataset.wired = '1';
+    form.insertBefore(icon('users', 'side-search-ico'), form.firstChild);
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const box = form.querySelector('input');
+        presetClientSearch(box.value);
+        box.value = '';
+        box.blur();
+        if (/^#\/clients\/?$/.test(location.hash)) route();
+        else location.hash = '#/clients';
+    });
 }
 
 // الجوال: شريط سفلي ثابت بأهم أربع صفحات للدور، و«المزيد» يفتح كل الصفحات فوقه
 function renderTabbar(items) {
     for (const old of document.querySelectorAll('.tabbar, .nav-sheet')) old.remove();
     const tabs = (TABS[myRole()] || TABS.field)
-        .map((hash) => items.find((item) => item.hash === hash))
+        .map((hash) => items.find((item) => item.hash === hash) || TAB_ONLY.find((item) => item.hash === hash && (!item.admin || isAdmin())))
         .filter(Boolean);
     if (!tabs.length) return;
 
@@ -204,8 +219,19 @@ function renderTabbar(items) {
     }, [
         // اسم الحساب ودوره: الترويسة تخفيه على أضيق الجوالات
         el('div', { class: 'nav-sheet-who', text: displayName(state.profile) + ' · ' + (ROLE_AR[myRole()] || myRole()) }),
-        ...items.map((item) => navLink(item))
+        ...items.map((item) => navLink(item)),
+        // الشريط العلوي مخفي على الجوال (easy.css: body.easy-phone)، فالوضع الليلي والخروج هنا. الزران الأصليان
+        // في الترويسة يبقيان أصحاب المنطق (app.css/ app.js) ويُضغطان من هنا.
+        el('div', { class: 'nav-sheet-foot' }, [
+            el('button', {
+                type: 'button', class: 'btn btn-outline', onclick: () => document.getElementById('themeToggle').click()
+            }, [icon('sun'), el('span', { text: 'الوضع الليلي' })]),
+            el('button', {
+                type: 'button', class: 'btn btn-outline', onclick: () => document.getElementById('logoutBtn').click()
+            }, [icon('logout'), el('span', { text: 'تسجيل الخروج' })])
+        ])
     ]));
+    document.body.classList.add('easy-phone');
     sheet.addEventListener('click', (event) => {
         if (event.target === sheet || event.target.closest('a')) toggleSheet(false);
     });
@@ -238,8 +264,10 @@ function toggleSheet(open) {
 }
 
 function setActiveNav(hash) {
+    // الصفحة الحالية أيضاً (طلبات الاعتماد في شريط الجوال تُضاء مع «الإدارة» في القائمة)
+    const current = (location.hash || DEFAULT_ROUTE).split('/').slice(0, 2).join('/');
     for (const link of document.querySelectorAll('#crmNav a, .tabbar a, .nav-sheet a')) {
-        link.classList.toggle('active', link.dataset.hash === hash);
+        link.classList.toggle('active', link.dataset.hash === hash || link.dataset.hash === current);
     }
     // «المزيد» في شريط الجوال يُضاء حين تكون الصفحة الحالية خارج البنود الأربعة
     const moreTab = document.querySelector('.tabbar .tab-more');

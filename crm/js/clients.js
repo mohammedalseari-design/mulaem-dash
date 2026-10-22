@@ -14,6 +14,13 @@ import { openClientForm } from './client-form.js';
 // كما تُركت بدل أولها. لا تخزين في المتصفح؛ إعادة التحميل تبدأ من جديد.
 const remembered = { page: 0, search: '', status: '', scroll: 0 };
 
+// بحث من القائمة الجانبية (app.js): يُطبَّق عند فتح الصفحة التالية بدل أن يكتبه الموظف مرتين
+export function presetClientSearch(term) {
+    remembered.search = String(term || '').trim();
+    remembered.page = 0;
+    remembered.scroll = 0;
+}
+
 export async function renderClients(root) {
     const view = remembered;
     const restoreScroll = view.scroll;
@@ -121,5 +128,6 @@ function table(rows, names) {
         body.appendChild(tr);
     }
 
-    return el('table', { class: 'users-table crm-table' }, [head, body]);
+    // t-card t-clients: على الجوال بطاقة حقيقية (easy.css): الاسم والحالة، ثم الجوال، ثم النوع والوسيط والتحديث
+    return el('table', { class: 'users-table crm-table t-card t-clients' }, [head, body]);
 }

@@ -17,6 +17,11 @@
     <link rel="stylesheet" href="../css/theme.css">
     <!-- تصميم نظام العمل: قائمة جانبية فاتحة، وألوان هادئة، وصفحة «عملي اليوم» (crm/app.css) -->
     <link rel="stylesheet" href="app.css">
+    <!-- التصميم الخامس «أسهل» (2026-10-22): بطاقات الجوال، وبحث العميل في القائمة الجانبية. يُحمَّل آخر الكل -->
+    <link rel="stylesheet" href="easy.css">
+    <!-- التصميم الخامس: خط Readex Pro وحده، ورق دافئ، شريط علوي -->
+    <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="v5.css">
 </head>
 
 <body>
@@ -59,6 +64,11 @@
                         <span>إدارة العملاء</span>
                     </div>
                 </div>
+
+                <!-- بحث سريع عن عميل بالاسم أو الجوال من أي صفحة (app.js يصله بصفحة العملاء). الجوال له بحث صفحة العملاء -->
+                <form class="side-search" id="sideSearch" role="search">
+                    <input type="search" id="sideSearchBox" placeholder="ابحث عن عميل…" aria-label="بحث عن عميل بالاسم أو الجوال" autocomplete="off">
+                </form>
 
                 <nav class="crm-nav" id="crmNav" aria-label="القائمة الرئيسية"></nav>
 

@@ -1,0 +1,280 @@
+/* ملائم — التصميم الخامس «أسهل» (2026-10-22). يُحمَّل آخر ملف أنماط في crm/index.html بعد app.css.
+   طلب المالك: تجربة أسهل وأبسط بلا حذف أي خاصية. لا لون جديد ولا خط جديد: الألوان والخط من app.css.
+   - الكمبيوتر: بحث عن عميل دائم في أعلى القائمة الجانبية (Enter يفتح «العملاء» على النتيجة).
+   - الجوال: لا شريط علوي (الخروج والوضع الليلي في «المزيد»)، وأرقام «عملي اليوم» شريط واحد يُسحب،
+     وكل قائمة (العملاء، العقارات، المواعيد) بطاقات حقيقية: الاسم والسعر والحالة أولاً والأزرار تحت،
+     بدل سطور «التسمية: القيمة»، وملف العميل يبدأ بثلاثة حقول وتبويبات العمل بلا تمرير. */
+
+/* ===================== بحث العميل في القائمة الجانبية ===================== */
+
+.side-search { position: relative; padding: 10px 12px 0; }
+.side-search input {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 12px;
+    padding-inline-start: 38px;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.92rem;
+}
+.side-search input::placeholder { color: var(--muted); }
+.side-search input:focus {
+    outline: 0;
+    border-color: var(--brand);
+    background: var(--surface);
+    box-shadow: 0 0 0 3px rgba(31, 92, 98, 0.18);
+}
+.side-search-ico {
+    position: absolute;
+    inset-inline-start: 24px;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin-top: -4px;
+    color: var(--muted);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+/* ===================== ملف العميل: طيّة «كل البيانات» ===================== */
+
+.client-more > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 0 2px;
+    color: var(--brand-ink);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.client-more > summary::-webkit-details-marker { display: none; }
+.client-more > summary::before { content: '+ '; }
+.client-more[open] > summary::before { content: '− '; }
+.client-more[open] > .kv-grid { margin-top: 12px; }
+/* الكمبيوتر: الطيّة مفتوحة دائماً (client.js) وعنوانها مخفي، فتبقى البطاقة كما كانت */
+@media (min-width: 701px) {
+    .client-more > summary { display: none; }
+    .client-more > .kv-grid { margin-top: 16px; }
+}
+
+/* ===================== الجوال ===================== */
+
+@media (max-width: 700px) {
+    /* الشريط العلوي يختفي: اسم الصفحة يكفي، والخروج والوضع الليلي في «المزيد» (app.js: nav-sheet-foot) */
+    body.easy-phone .side { display: none; }
+    .nav-sheet-foot {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+    }
+    .nav-sheet-foot .btn { min-height: 44px; justify-content: center; gap: 8px; }
+    .nav-sheet-foot .ico { width: 18px; height: 18px; }
+    /* أيقونات «المزيد»: خطية بحجم ثابت (القاعدة الأصلية في app.css تخص القائمة الجانبية وحدها) */
+    .nav-sheet-panel .nav-icon {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    /* ملف العميل: الحقول الفارغة لا تُعرض، والبيانات الإضافية مطوية */
+    .client-info .kv.kv-empty { display: none; }
+
+    /* «عملي اليوم»: الأرقام الخمسة شريط واحد يُسحب جانبياً (كان ثلاثة ظاهرة واثنان مخفيان) */
+    .w4 .w4-kpis {
+        display: flex;
+        gap: 8px;
+        margin-inline: -12px;
+        padding-inline: 12px;
+        padding-bottom: 2px;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .w4 .w4-kpis::-webkit-scrollbar { display: none; }
+    .w4 .w4-kpis .w4-kpi {
+        display: inline-flex;
+        flex: 0 0 auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        min-height: 42px;
+        padding: 6px 12px;
+        border-radius: 999px;
+    }
+    .w4 .w4-kpis .w4-kpi:nth-child(n + 4) { display: inline-flex; }
+    .w4 .w4-kpis .w4-kpi-label { font-size: 0.82rem; line-height: 1.2; }
+    .w4 .w4-kpis .w4-kpi-num { font-size: 1.1rem; line-height: 1; }
+
+    /* ---------- بطاقات القوائم (t-card): صف مرن يلتف، وكل خانة تأخذ مكانها بـ order ---------- */
+    #view table.crm-table.t-card > tbody > tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 10px;
+        padding: 12px 14px;
+    }
+    #view table.crm-table.t-card > tbody > tr > td {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 0;
+    }
+    #view table.crm-table.t-card > tbody > tr > td[data-label]::before { display: none; }
+    #view table.crm-table.t-card > tbody > tr > td.cell-actions,
+    #view table.crm-table.t-card > tbody > tr > td:not([data-label]):has(.btn) { flex-basis: 100%; }
+    /* سطر المعلومات الصغير: فاصل نقطة بين خاناته */
+    #view table.crm-table.t-card > tbody > tr > td.t-meta { color: var(--muted); font-size: 0.86rem; }
+    #view table.crm-table.t-card > tbody > tr > td.t-meta::after { content: '·'; color: var(--line-2); }
+    #view table.crm-table.t-card > tbody > tr > td.t-meta-last::after { content: none; }
+
+    /* العملاء: الاسم | الحالة — الجوال واتصال وواتساب — النوع · الوسيط · آخر تحديث */
+    #view table.t-clients > tbody > tr > td:nth-child(1) { order: 1; flex: 1 1 0; font-size: 1.04rem; }
+    #view table.t-clients > tbody > tr > td:nth-child(5) { order: 2; }
+    #view table.t-clients > tbody > tr > td:nth-child(2) { order: 3; flex-basis: 100%; }
+    #view table.t-clients > tbody > tr > td:nth-child(3),
+    #view table.t-clients > tbody > tr > td:nth-child(4),
+    #view table.t-clients > tbody > tr > td:nth-child(6) { order: 4; color: var(--muted); font-size: 0.86rem; }
+    #view table.t-clients > tbody > tr > td:nth-child(3)::after,
+    #view table.t-clients > tbody > tr > td:nth-child(4)::after { content: '·'; color: var(--line-2); }
+
+    /* العقارات: الصورة والاسم — السعر | الحالة — النوع والحي · المواصفات — العمولة — الزران */
+    #view table.t-props > tbody > tr > td:nth-child(1) { order: 1; flex: 0 0 auto; }
+    #view table.t-props > tbody > tr > td:nth-child(1) img { width: 64px; height: 52px; object-fit: cover; border-radius: 8px; }
+    /* الاسم يأخذ بقية السطر الأول كله (بعد الصورة)، فينزل السعر إلى سطر ثانٍ بدل أن يُضغط الاسم حرفاً حرفاً */
+    #view table.t-props > tbody > tr > td:nth-child(2) { order: 2; flex: 1 1 calc(100% - 84px); }
+    #view table.t-props > tbody > tr > td:nth-child(2) .pr-name { display: grid; gap: 2px; min-width: 0; }
+    #view table.t-props > tbody > tr > td:nth-child(2) strong { font-size: 1.02rem; white-space: normal; }
+    #view table.t-props > tbody > tr > td:nth-child(5) { order: 3; flex: 1 1 auto; font-size: 1.12rem; font-weight: 700; }
+    #view table.t-props > tbody > tr > td:nth-child(7) { order: 4; }
+    #view table.t-props > tbody > tr > td:nth-child(7) .pr-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    #view table.t-props > tbody > tr > td:nth-child(3),
+    #view table.t-props > tbody > tr > td:nth-child(4) { order: 5; color: var(--muted); font-size: 0.86rem; }
+    #view table.t-props > tbody > tr > td:nth-child(3)::after { content: '·'; color: var(--line-2); }
+    #view table.t-props > tbody > tr > td:nth-child(3) .pr-place { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    /* العمولة: تُعرض بعنوانها (المدير يكتبها هنا)؛ وتختفي حين لا عمولة ولا حقل */
+    #view table.t-props > tbody > tr > td:nth-child(6) { order: 6; flex-basis: 100%; justify-content: space-between; }
+    #view table.t-props > tbody > tr > td:nth-child(6)[data-label]::before { display: inline; color: var(--muted); font-size: 0.86rem; font-weight: 600; }
+    #view table.t-props > tbody > tr > td:nth-child(6):has(> .pr-none) { display: none; }
+    #view table.t-props > tbody > tr > td:nth-child(8) { order: 7; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #view table.t-props > tbody > tr > td:nth-child(8) > :not(.btn) { display: contents; }
+    #view table.t-props > tbody > tr > td:nth-child(8) .btn { width: 100%; min-height: 44px; justify-content: center; margin: 0; }
+
+    /* المواعيد: الموعد | الحالة — العميل — الغرض — القناة · المكلّف — الجوال و«تم» */
+    #view table.t-cal > tbody > tr > td:nth-child(1) { order: 1; flex: 1 1 auto; font-weight: 700; }
+    #view table.t-cal > tbody > tr > td:nth-child(7) { order: 2; }
+    #view table.t-cal > tbody > tr > td:nth-child(2) { order: 3; flex-basis: 100%; font-size: 1.04rem; font-weight: 700; }
+    #view table.t-cal > tbody > tr > td:nth-child(5) { order: 4; flex-basis: 100%; }
+    #view table.t-cal > tbody > tr > td:nth-child(4),
+    #view table.t-cal > tbody > tr > td:nth-child(6) { order: 5; color: var(--muted); font-size: 0.86rem; }
+    #view table.t-cal > tbody > tr > td:nth-child(4)::after { content: '·'; color: var(--line-2); }
+    #view table.t-cal > tbody > tr > td:nth-child(3) { order: 6; flex-basis: 100%; }
+    /* «تم» بعرض البطاقة كما في «عملي اليوم» */
+    #view table.t-cal > tbody > tr > td:nth-child(8) { order: 7; flex-basis: 100%; }
+    #view table.t-cal > tbody > tr > td:nth-child(8) .btn { width: 100%; min-height: 44px; justify-content: center; margin: 0; }
+}
+
+/* ===================== القائمة: «كيف أبدأ؟» في آخرها بفاصل ===================== */
+
+.side .crm-nav a.nav-foot { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); border-radius: 0; color: var(--muted); font-size: 0.9rem; }
+.side .crm-nav a.nav-foot:hover { background: none; color: var(--ink); }
+.side .crm-nav a.nav-foot.active { background: none; color: var(--brand-ink); }
+.nav-sheet-panel a.nav-foot { grid-column: 1 / -1; }
+
+/* ===================== «الإدارة»: قائمة أدوات، كل سطر اسم وشرح بكلمة ===================== */
+
+.hub {
+    display: grid;
+    max-width: 760px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
+}
+.hub-card {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 18px;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    color: inherit;
+    text-decoration: none;
+}
+.hub-card:last-child { border-bottom: 0; }
+.hub-card:hover { background: var(--hover); }
+.hub-card:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.hub-ico {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+}
+.hub-ico .ico, .hub-arrow, .help-body h2 .ico {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.hub-text { display: grid; gap: 2px; min-width: 0; }
+.hub-text strong { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 600; }
+.hub-text .nav-count { position: static; }
+.hub-desc { color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
+.hub-arrow { width: 18px; height: 18px; color: var(--muted); }
+
+/* ===================== «كيف أبدأ؟»: خمس خطوات على خط واحد ===================== */
+
+.help-steps { list-style: none; margin: 0; padding: 0; max-width: 720px; }
+.help-step {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 16px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+}
+.help-step:first-child { padding-top: 4px; }
+.help-num {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: var(--on-brand);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.help-body { display: grid; justify-items: start; }
+.help-body .btn, .help-admin .btn { text-decoration: none; }
+.help-body h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
+.help-body h2 .ico { color: var(--brand-ink); }
+.help-body p { margin: 0 0 10px; color: var(--ink-2); line-height: 1.75; }
+.help-admin { max-width: 720px; margin-top: 18px; }
+.help-admin h2 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
+.help-admin p { margin: 0 0 10px; color: var(--ink-2); line-height: 1.75; }
+
+@media (max-width: 700px) {
+    .hub-card { padding: 12px 14px; gap: 12px; }
+    .help-step { gap: 12px; }
+}

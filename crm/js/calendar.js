@@ -98,5 +98,6 @@ function table(rows, names, reload) {
             }) : null)
         ]));
     }
-    return el('table', { class: 'users-table crm-table' }, [head, body]);
+    // t-card t-cal: على الجوال بطاقة (easy.css): الموعد والحالة، ثم العميل والغرض، ثم الاتصال و«تم»
+    return el('table', { class: 'users-table crm-table t-card t-cal' }, [head, body]);
 }

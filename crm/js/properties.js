@@ -258,7 +258,8 @@ function table(rows) {
         ]));
     }
 
-    return el('table', { class: 'users-table crm-table pr-table' }, [head, body]);
+    // t-card t-props: على الجوال بطاقة (easy.css): الصورة والاسم، ثم السعر والحالة، ثم الموقع والمواصفات، ثم الأزرار
+    return el('table', { class: 'users-table crm-table pr-table t-card t-props' }, [head, body]);
 }
 
 const present = (value) => value !== null && value !== undefined && value !== '';
@@ -270,7 +271,8 @@ const present = (value) => value !== null && value !== undefined && value !== ''
 // الصف الاصطناعي "كامل العقار" (unit_ord = 0) ليس وحدة فلا حقل له، وغير المدير يرى القيمة فقط.
 function commissionCell(row) {
     const empty = row.unit_commission === null || row.unit_commission === undefined;
-    if (!isAdmin() || !(row.unit_ord > 0)) return el('span', { text: empty ? '—' : money(row.unit_commission) });
+    // pr-none: لا عمولة ولا حقل، فتُخفى الخانة على الجوال (easy.css) بدل سطر «العمولة —»
+    if (!isAdmin() || !(row.unit_ord > 0)) return el('span', { class: empty ? 'pr-none' : null, text: empty ? '—' : money(row.unit_commission) });
 
     const box = moneyInput({
         class: 'crm-money crm-filter-num',

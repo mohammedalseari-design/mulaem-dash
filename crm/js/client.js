@@ -90,12 +90,28 @@ export async function renderClient(root, clientId) {
 function renderHeader(host, context) {
     const client = context.client;
 
-    const kv = (title, value) => el('div', { class: 'kv' }, [
+    // kv-empty: حقل بلا قيمة؛ على الجوال يُخفى (easy.css) فلا تطول البطاقة بشرطات
+    const kv = (title, value) => el('div', { class: value === null || value === undefined || value === '' ? 'kv kv-empty' : 'kv' }, [
         el('span', { text: title }),
         el('span', {}, value instanceof Node ? value : document.createTextNode(dash(value)))
     ]);
 
     const phone = client.phone || null;
+
+    // الجوال: الجوال والمدينة والوسيط ظاهرة، وبقية البيانات تحت «كل البيانات» حتى تظهر التبويبات (العمل) بلا تمرير.
+    // على الكمبيوتر الطيّة مفتوحة دائماً وعنوانها مخفي، فلا يتغير شيء.
+    const more = el('details', { class: 'client-more' }, [
+        el('summary', { text: 'كل البيانات' }),
+        el('div', { class: 'kv-grid' }, [
+            kv('جوال إضافي', client.phone_alt),
+            kv('البريد الإلكتروني', client.email),
+            kv('المصدر', client.source),
+            kv('أُضيف بواسطة', staffName(context.names, client.created_by)),
+            kv('تاريخ الإضافة', fmtDateTime(client.created_at)),
+            kv('آخر تحديث', fmtDateTime(client.updated_at))
+        ])
+    ]);
+    if (!window.matchMedia('(max-width: 700px)').matches) more.open = true;
 
     replace(host, [
         el('header', { class: 'w4-head pg-head' }, [
@@ -116,16 +132,11 @@ function renderHeader(host, context) {
         ]),
         el('div', { class: 'crm-card client-info' }, [
         el('div', { class: 'kv-grid' }, [
-            kv('الجوال', phone ? el('span', { class: 'phone-num', text: phone }) : dash(null)),
-            kv('جوال إضافي', client.phone_alt),
-            kv('البريد الإلكتروني', client.email),
+            kv('الجوال', phone ? el('span', { class: 'phone-num', text: phone }) : null),
             kv('المدينة', client.city),
-            kv('المصدر', client.source),
-            kv('الوسيط المسؤول', staffName(context.names, client.owner_id)),
-            kv('أُضيف بواسطة', staffName(context.names, client.created_by)),
-            kv('تاريخ الإضافة', fmtDateTime(client.created_at)),
-            kv('آخر تحديث', fmtDateTime(client.updated_at))
+            kv('الوسيط المسؤول', staffName(context.names, client.owner_id))
         ]),
+        more,
         client.notes
             ? el('div', { class: 'kv', style: 'margin-top:16px' }, [
                 el('span', { text: 'ملاحظات' }),

@@ -375,16 +375,17 @@ export function waNumber(phone) {
 export function phoneLinks(phone) {
     if (!phone) return dash(null);
     const stop = (event) => event.stopPropagation();
+    // التصميم الخامس: الرقم نفسه رابط اتصال، واتصال/واتساب أيقونتان خفيفتان (اسمهما للقارئ)، لا حبّتان
+    const tel = 'tel:' + String(phone).replace(/[^0-9+]/g, '');
     return el('span', { class: 'phone-cell' }, [
-        el('span', { class: 'phone-num', text: phone }),
+        el('a', { class: 'phone-num', href: tel, text: phone, onclick: stop }),
         el('a', {
-            class: 'phone-act', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''),
-            text: 'اتصال', title: 'اتصال بـ ' + phone, onclick: stop
-        }),
+            class: 'phone-act', href: tel, title: 'اتصال بـ ' + phone, onclick: stop
+        }, [icon('phone'), el('span', { class: 'w4-sr', text: 'اتصال' })]),
         el('a', {
             class: 'phone-act phone-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener',
-            text: 'واتساب', title: 'محادثة واتساب مع ' + phone, onclick: stop
-        })
+            title: 'محادثة واتساب مع ' + phone, onclick: stop
+        }, [icon('chat'), el('span', { class: 'w4-sr', text: 'واتساب' })])
     ]);
 }
 

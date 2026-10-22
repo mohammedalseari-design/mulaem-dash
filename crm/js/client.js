@@ -4,7 +4,7 @@ import { supabase } from './supabase.js';
 import { myRole } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
-import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, waNumber, actionBtn } from './ui.js';
+import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, phoneLinks, actionBtn } from './ui.js';
 import { openClientForm } from './client-form.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
@@ -123,16 +123,14 @@ function renderHeader(host, context) {
                     client.city ? el('span', { class: 'w4-sub', text: client.city }) : null
                 ])
             ]),
+            // التصميم الخامس: زر واحد في الرأس. الاتصال وواتساب بجانب الرقم في البطاقة، والرجوع من القائمة
             el('div', { class: 'w4-quick' }, [
-                phone ? actionBtn('اتصال', 'phone', { href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), title: 'اتصال: ' + phone }) : null,
-                phone ? actionBtn('واتساب', 'chat', { href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener', title: 'واتساب: ' + phone }) : null,
-                actionBtn('تعديل البيانات', null, { onclick: () => openClientForm(client, () => context.reload()) }, true),
-                actionBtn('رجوع', null, { href: '#/clients' })
+                actionBtn('تعديل البيانات', null, { onclick: () => openClientForm(client, () => context.reload()) }, true)
             ])
         ]),
         el('div', { class: 'crm-card client-info' }, [
         el('div', { class: 'kv-grid' }, [
-            kv('الجوال', phone ? el('span', { class: 'phone-num', text: phone }) : null),
+            kv('الجوال', phone ? phoneLinks(phone) : null),
             kv('المدينة', client.city),
             kv('الوسيط المسؤول', staffName(context.names, client.owner_id))
         ]),

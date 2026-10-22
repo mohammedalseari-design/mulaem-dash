@@ -307,3 +307,90 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     .tabbar a.active, .tabbar button.active { background: none; color: var(--brand-ink); }
     .nav-sheet-panel { border-radius: 18px 18px 0 0; }
 }
+
+/* ===================== زر واحد في كل مكان ===================== */
+/* طلب المالك: «الأزرار كثيرة». القاعدة: رأس الصفحة زر رئيسي واحد وما عداه رابط، والصفوف معلومات؛
+   إجراءات الصف تظهر عند المرور بالماوس (أو التركيز بلوحة المفاتيح)، وعلى اللمس تبقى ظاهرة لكن خفيفة. */
+
+/* الرقم نفسه رابط اتصال، واتصال/واتساب أيقونتان خفيفتان بلا إطار */
+.phone-cell { display: inline-flex; align-items: center; gap: 4px; }
+a.phone-num { color: var(--ink); text-decoration: none; font-variant-numeric: tabular-nums; }
+a.phone-num:hover { color: var(--brand-ink); }
+.phone-act, .phone-act.phone-wa {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0;
+    line-height: 0;
+}
+.phone-act .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.phone-act:hover { background: var(--brand-soft); color: var(--brand-ink); }
+.phone-act.phone-wa:hover { background: var(--ok-soft); color: var(--ok); }
+
+/* رأس الصفحة: الزر الثانوي رابط بلا إطار */
+.w4-head .w4-quick .btn-outline { border-color: transparent; background: transparent; color: var(--brand-ink); }
+.w4-head .w4-quick .btn-outline:hover { background: var(--brand-soft); }
+.w4-panel-link { color: var(--brand-ink); text-decoration: none; font-weight: 500; }
+.w4-panel-link:hover { text-decoration: underline; }
+
+/* الكمبيوتر بماوس: إجراءات الصف مخفية حتى المرور عليه (إلا «تم» ودائرة الإنجاز) */
+@media (hover: hover) and (min-width: 701px) {
+    .crm-table tr .phone-act,
+    .crm-table tr td.cell-actions .btn,
+    .crm-table tr .btn-xs:not(.btn-success),
+    .w4-row .w4-icon { opacity: 0; transition: opacity 0.12s; }
+    .crm-table tr:hover .phone-act, .crm-table tr:focus-within .phone-act,
+    .crm-table tr:hover td.cell-actions .btn, .crm-table tr:focus-within td.cell-actions .btn,
+    .crm-table tr:hover .btn-xs, .crm-table tr:focus-within .btn-xs,
+    .w4-row:hover .w4-icon, .w4-row:focus-within .w4-icon { opacity: 1; }
+}
+
+/* قائمة الحساب في الشريط العلوي (app.js: wireUserMenu) */
+.user-menu { position: relative; }
+.user-menu > summary {
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.user-menu > summary::-webkit-details-marker { display: none; }
+.user-menu > summary:hover, .user-menu[open] > summary { background: var(--hover); }
+.user-menu-ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; color: var(--muted); }
+.user-menu .side-user-actions {
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-end: 0;
+    z-index: 50;
+    display: grid;
+    gap: 2px;
+    min-width: 190px;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 10px 30px rgba(23, 25, 28, 0.1);
+}
+.user-menu .theme-toggle, .user-menu .logout-btn {
+    width: 100%;
+    min-height: 38px;
+    justify-content: flex-start;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--ink-2);
+    font-size: 0.9rem;
+    text-align: start;
+}
+.user-menu .theme-toggle::after { content: 'الوضع الليلي'; margin-inline-start: 8px; }
+.user-menu .theme-toggle:hover, .user-menu .logout-btn:hover { background: var(--hover); color: var(--ink); }

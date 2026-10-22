@@ -187,6 +187,26 @@ function renderNav() {
     for (const item of items) nav.appendChild(navLink(item, item.foot ? { class: 'nav-foot' } : {}));
     renderTabbar(items);
     wireSideSearch();
+    wireUserMenu();
+}
+
+// الكمبيوتر: الوضع الليلي والخروج داخل قائمة تُفتح من اسم المستخدم، فلا يبقى في الشريط إلا ما يُستعمل كل يوم.
+// الزران نفسهما يُنقلان (منطقهما في init)، والجوال يصل إليهما من «المزيد».
+function wireUserMenu() {
+    const host = document.querySelector('.side-user');
+    if (!host || host.dataset.wired) return;
+    const badge = host.querySelector('.user-badge');
+    const actions = host.querySelector('.side-user-actions');
+    if (!badge || !actions) return;
+    host.dataset.wired = '1';
+    const menu = el('details', { class: 'user-menu' }, [
+        el('summary', { 'aria-label': 'قائمة الحساب' }, [badge, icon('dots', 'user-menu-ico')]),
+        actions
+    ]);
+    host.appendChild(menu);
+    document.addEventListener('click', (event) => {
+        if (menu.open && !menu.contains(event.target)) menu.open = false;
+    });
 }
 
 // بحث سريع عن عميل من القائمة الجانبية (الكمبيوتر): Enter يفتح «العملاء» على نتيجة البحث نفسها

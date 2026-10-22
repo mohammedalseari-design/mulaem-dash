@@ -125,7 +125,7 @@ export async function renderWork(root) {
         el('header', { class: 'w4-panel-head' }, [
             el('h2', { id: 'w4-today-title' }, [icon('today'), el('span', { text: 'مواعيد اليوم' })]),
             todayCount,
-            el('span', { class: 'w4-panel-hint', text: 'حسب الوقت' })
+            el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المواعيد' })
         ]),
         todayBody
     ]);
@@ -233,10 +233,9 @@ function quickActions(onSaved) {
                 if (saved && saved.id) location.hash = '#/clients/' + saved.id;
                 else onSaved();
             })
-        }, [icon('userPlus'), el('span', { text: 'عميل جديد' })]),
-        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/clients' }, [icon('users'), el('span', { text: 'بحث عن عميل' })]),
-        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/assistant' }, [icon('sparkle'), el('span', { text: 'إضافة عرض' })]),
-        el('a', { class: 'btn btn-outline w4-qbtn', href: '#/calendar' }, [icon('calendar'), el('span', { text: 'كل المواعيد' })])
+        }, [icon('userPlus'), el('span', { text: 'عميل جديد' })])
+        // التصميم الخامس: زر واحد في الرأس. البحث في الشريط العلوي، و«إضافة عرض» باب في القائمة،
+        // و«كل المواعيد» رابط في رأس لوحة مواعيد اليوم.
     ];
 }
 

@@ -361,6 +361,37 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .p4 .project-stock span:last-child { color: var(--ink-2); font-weight: 500; }
 .p4 .added-by-badge { font-size: 0.78rem; }
 
+/* عرض الوحدات: أعمدة بحسب الغرف بلا ألوان قديمة؛ رأس العمود اسم وعدد وإجمالي، والبطاقة اسم ومشروع وسطر مواصفات وسعر */
+.p4 .kanban-board { gap: 14px; margin: 0; }
+.p4 .kanban-column { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: none; max-height: calc(100vh - 140px); }
+.p4 .kanban-column:hover { box-shadow: none; border-color: var(--line); }
+.p4 .kanban-header, .p4 .kanban-header.rooms-4, .p4 .kanban-header.rooms-3, .p4 .kanban-header.rooms-2, .p4 .kanban-header.rooms-other {
+    padding: 12px 16px;
+    background: transparent;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    text-align: start;
+}
+.p4 .kanban-header-title { margin-bottom: 2px; font-size: 1rem; font-weight: 600; }
+.p4 .kanban-header-title .count-badge { background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); font-size: 0.78rem; font-weight: 500; }
+.p4 .kanban-header-price { color: var(--muted); font-size: 0.82rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.p4 .kanban-cards { padding: 12px; gap: 10px; }
+.p4 .kanban-card { border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: none; }
+.p4 .kanban-card:hover { border-color: var(--brand); box-shadow: none; }
+.p4 .kanban-card-bar { display: none; }
+.p4 .kanban-card-body { padding: 12px 14px; }
+.p4 .kanban-card-title { font-size: 1rem; font-weight: 600; }
+.p4 .kanban-card-project { margin-bottom: 6px; padding-bottom: 0; border-bottom: 0; color: var(--muted); font-weight: 500; font-size: 0.86rem; }
+.p4 .kanban-card-detail { color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+.p4 .kanban-card-detail strong { color: var(--ink-2) !important; font-weight: 500; }
+.p4 .kanban-card-footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.p4 .kanban-card-price { color: var(--ink); font-size: 1.02rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.p4 .kanban-card-status { border-radius: 999px; padding: 2px 10px; font-size: 0.78rem; font-weight: 500; }
+.p4 .kanban-card-status.available { background: var(--ok-soft); color: var(--ok); }
+.p4 .kanban-card-status.reserved { background: var(--amber-soft); color: var(--amber); }
+.p4 .kanban-card-status.sold { background: var(--danger-soft); color: var(--danger); }
+.p4 .view-toggle-bar .btn.active { background: var(--brand-soft); border-color: var(--brand-soft); color: var(--brand-ink); }
+
 /* أزرار البطاقة: تظهر عند المرور عليها بالماوس؛ على اللمس ظاهرة دائماً */
 .p4 .project-actions { border-top: 0; padding-top: 4px; margin-top: 2px; }
 .p4 .project-actions .btn { min-height: 32px; font-size: 0.82rem; }

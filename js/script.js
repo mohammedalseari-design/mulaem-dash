@@ -3112,7 +3112,7 @@ function renderKanbanBoard(filteredProjects) {
             </div>
             ${currentUser && currentUser.role === 'admin' ? `
             <div class="kanban-header-price">
-                SAR ${formatNumber(g.totalPrice)}
+                ${formatNumber(g.totalPrice)} ر.س
             </div>
             ` : ''}
         `;

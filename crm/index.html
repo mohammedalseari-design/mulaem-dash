@@ -95,7 +95,7 @@
                 // صفحة مفتوحة من ملف على الجهاز (file://): المتصفح يمنع تحميل وحدات
                 // JavaScript منها فيتوقف الإقلاع دائماً. رسالة صريحة برابط الموقع بدل config.js.
                 if (location.protocol === 'file:') {
-                    var site = 'https://mohammedalseari-design.github.io/mulaem-dash/crm/';
+                    var site = 'https://dash.mulaem.sa/crm/';
                     boot.textContent = 'هذه نسخة محفوظة على الجهاز، والمتصفح لا يشغّل النظام منها. افتح النظام من رابط الموقع: ';
                     var link = document.createElement('a');
                     link.href = site + location.hash;

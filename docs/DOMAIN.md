@@ -1,8 +1,9 @@
 # ربط النطاق باللوحة الجديدة (GitHub Pages)
 
-الوضع الحالي: اللوحة والـ CRM يعملان على `https://mohammedalseari-design.github.io/mulaem-dash/` ولا يعتمدان على
-GoDaddy في شيء (الكود على GitHub، البيانات على Supabase، الصور في مخزن Supabase). الرابط القديم `dash.mulaem.sa`
-ما زال يشير إلى استضافة GoDaddy القديمة (PHP + MySQL).
+الوضع الحالي (2026-10-22): **تم الربط بالخيار أ.** اللوحة والـ CRM على `https://dash.mulaem.sa/`، وسجل `dash` في
+GoDaddy صار CNAME إلى `mohammedalseari-design.github.io` (حُذف سجل A القديم 184.168.106.237)، وملف `CNAME` في جذر
+المستودع. الرابط القديم على github.io يحوّل تلقائياً. النظام لا يعتمد على استضافة GoDaddy في شيء (الكود على GitHub،
+البيانات على Supabase، الصور في مخزن Supabase). الخطوات أدناه للمرجع.
 
 ## القرار المطلوب أولاً
 

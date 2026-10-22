@@ -13,7 +13,7 @@
     --hover: #f3f0ea;
     --ink: #17191c;
     --ink-2: #3b3f45;
-    --muted: #6d7279;
+    --muted: #61676e;
     --line: #e7e3db;
     --line-2: #d4cfc5;
 
@@ -172,6 +172,25 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     main#view { max-width: 1200px; margin: 0 auto; padding: 28px 28px 56px; }
 }
 
+/* الأحجام المتوسطة (لوحي وجوال بالعرض): الشريط لا يتجاوز الشاشة — البحث يُخفى، والقائمة تُسحب جانبياً إن ضاقت */
+@media (min-width: 701px) and (max-width: 1100px) {
+    .side { gap: 12px; padding: 0 16px; }
+    .side .crm-nav { flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+    .side .crm-nav::-webkit-scrollbar { display: none; }
+    .side .crm-nav a { flex: 0 0 auto; padding: 0 9px; font-size: 0.9rem; }
+    .side-search { display: none; }
+    .side-user .user-badge { display: none; }
+}
+@media (min-width: 701px) and (max-width: 860px) {
+    .side-name { display: none; }
+}
+
+/* أضيق الجوالات (320): الشريط السفلي لا يتجاوز الشاشة */
+@media (max-width: 360px) {
+    .tabbar a, .tabbar button { min-width: 0; padding-inline: 2px; }
+    .tabbar a span, .tabbar button span { font-size: 0.66rem; white-space: nowrap; }
+}
+
 /* ===================== رأس الصفحة والبطاقات ===================== */
 
 .w4-title h1 { font-size: 1.7rem; font-weight: 600; }
@@ -286,7 +305,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
         border: 1.5px solid var(--line-2);
         border-radius: 50%;
         background: var(--surface);
-        color: var(--muted);
+        color: var(--ink-2);
         box-shadow: none;
     }
     .w4-done span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -306,6 +325,50 @@ h1, h2, h3 { letter-spacing: -0.01em; }
     .tabbar { background: var(--surface); border-top: 1px solid var(--line); box-shadow: none; }
     .tabbar a.active, .tabbar button.active { background: none; color: var(--brand-ink); }
     .nav-sheet-panel { border-radius: 18px 18px 0 0; }
+}
+
+/* ===================== صفحة المشاريع والخريطة (projects.html) ===================== */
+
+/* الرأس: «إضافة مشروع» وحده زر؛ «إضافة من نص أو ملف» و«تصدير» رابطان */
+.p4-quick .btn-outline { border-color: transparent; background: transparent; color: var(--brand-ink); }
+.p4-quick .btn-outline:hover { background: var(--brand-soft); }
+
+/* الأرقام الثلاثة: شريط واحد مقسوم بخطوط رفيعة */
+@media (min-width: 701px) {
+    .p4 .stats-bar { gap: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+    .p4 .stat-card { border: 0; border-inline-end: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 14px 18px; }
+    .p4 .stat-card:last-child { border-inline-end: 0; }
+    .p4 .stat-card h3 { font-size: 1.5rem; font-weight: 600; }
+}
+
+/* البطاقة: صورة أقصر، الاسم، الحالة، السعر بارزاً، ثم النوع والمساحة والوحدات سطراً واحداً */
+.p4 .project-card { box-shadow: none; }
+.p4 .project-card:hover { border-color: var(--line-2); }
+.p4 .project-image, .p4 .project-img-placeholder { height: 128px; }
+.p4 .project-info { gap: 5px; padding: 12px 14px 12px; }
+.p4 .project-card-header h3 { font-size: 1rem; font-weight: 600; }
+.p4 .project-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.p4 .project-badges > * { display: inline-flex; align-items: center; gap: 4px; font-size: 0.74rem; font-weight: 500; }
+.p4 .project-price { justify-content: flex-start; margin-top: 2px; }
+.p4 .project-price span:first-child { display: none; }
+.p4 .project-price span:last-child { font-size: 1.08rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.p4 .project-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 0.86rem; }
+.p4 .project-meta .project-type { font-weight: 600; }
+.p4 .project-meta .project-type::after { content: '·'; margin-inline-start: 8px; color: var(--line-2); }
+.p4 .project-stock { justify-content: flex-start; gap: 6px; color: var(--muted); font-size: 0.86rem; }
+.p4 .project-stock span:first-child { font-weight: 500; }
+.p4 .project-stock span:first-child::after { content: ':'; }
+.p4 .project-stock span:last-child { color: var(--ink-2); font-weight: 500; }
+.p4 .added-by-badge { font-size: 0.78rem; }
+
+/* أزرار البطاقة: تظهر عند المرور عليها بالماوس؛ على اللمس ظاهرة دائماً */
+.p4 .project-actions { border-top: 0; padding-top: 4px; margin-top: 2px; }
+.p4 .project-actions .btn { min-height: 32px; font-size: 0.82rem; }
+.p4 .project-actions .btn-success { background: var(--surface); color: var(--brand-ink); border: 1px solid var(--line-2); }
+.p4 .project-actions .btn-success:hover { background: var(--brand-soft); border-color: var(--brand); }
+@media (hover: hover) and (min-width: 701px) {
+    .p4 .project-actions { visibility: hidden; opacity: 0; transition: opacity 0.12s; }
+    .p4 .project-card:hover .project-actions, .p4 .project-card:focus-within .project-actions { visibility: visible; opacity: 1; }
 }
 
 /* ===================== زر واحد في كل مكان ===================== */
@@ -342,14 +405,15 @@ a.phone-num:hover { color: var(--brand-ink); }
 
 /* الكمبيوتر بماوس: إجراءات الصف مخفية حتى المرور عليه (إلا «تم» ودائرة الإنجاز) */
 @media (hover: hover) and (min-width: 701px) {
+    /* visibility لا opacity وحدها: المخفي لا يُحسب نصاً باهتاً، ويبقى مكانه محجوزاً. التركيز على رابط الصف يُظهرها */
     .crm-table tr .phone-act,
     .crm-table tr td.cell-actions .btn,
     .crm-table tr .btn-xs:not(.btn-success),
-    .w4-row .w4-icon { opacity: 0; transition: opacity 0.12s; }
+    .w4-row .w4-icon { visibility: hidden; opacity: 0; transition: opacity 0.12s; }
     .crm-table tr:hover .phone-act, .crm-table tr:focus-within .phone-act,
     .crm-table tr:hover td.cell-actions .btn, .crm-table tr:focus-within td.cell-actions .btn,
     .crm-table tr:hover .btn-xs, .crm-table tr:focus-within .btn-xs,
-    .w4-row:hover .w4-icon, .w4-row:focus-within .w4-icon { opacity: 1; }
+    .w4-row:hover .w4-icon, .w4-row:focus-within .w4-icon { visibility: visible; opacity: 1; }
 }
 
 /* قائمة الحساب في الشريط العلوي (app.js: wireUserMenu) */

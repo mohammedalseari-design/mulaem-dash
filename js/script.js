@@ -2937,9 +2937,12 @@ function renderGridView(filtered) {
                     </div>
                 </div>
                 ${project.address ? `<div class="project-address"><span>${esc(project.address)}</span></div>` : ''}
-                <div class="project-detail"><span>النوع</span><span style="color:${typeColor}; font-weight:700;">${esc(project.type)}</span></div>
-                <div class="project-detail"><span>السعر</span><span>${esc(projectPriceText(project, 'ر.س'))}</span></div>
-                <div class="project-detail"><span>المساحة</span><span>${esc(projectAreaText(project))}</span></div>
+                <!-- التصميم الخامس: السعر سطر بارز، والنوع والمساحة سطر واحد بدل جدول «تسمية: قيمة» -->
+                <div class="project-detail project-price"><span>السعر</span><span>${esc(projectPriceText(project, 'ر.س'))}</span></div>
+                <div class="project-meta">
+                    <span class="project-type" style="color:${typeColor};">${esc(project.type)}</span>
+                    <span class="project-area">${esc(projectAreaText(project))}</span>
+                </div>
                 ${unitStockSlotHtml(project)}
                 <div class="added-by-badge">
                     <span>${esc(project.employee)}</span>

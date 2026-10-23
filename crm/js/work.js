@@ -7,20 +7,26 @@
 // (006_inventory_quality.sql)، فالقائمتان ترسلان بداية اليوم المحلي وبداية الغد
 // نصّاً ISO بإزاحة المتصفح، كي يطابق عدّاد البطاقة طول القائمة تماماً.
 //
-// التصميم (2026-10، crm/app.css): العنوان والإجراءات السريعة في سطر، ثم أرقام اليوم في صف، ثم لوحتان
-// جنباً إلى جنب — «متابعات متأخرة» و«مواعيد اليوم» — صفوفاً مضغوطة بأزرار اتصال وواتساب و«تم»، فيظهر
-// المهم بلا تمرير. على الجوال مفتاح يعرض إحدى اللوحتين كاملة. الاستعلامات والترقيم ونموذج «تم» كما كانت.
+// التصميم السادس «الوسيط» (2026-10-23): أرقام الوسيط في صف واحد، كل رقم يأخذك إلى ما وراءه:
+// المتأخرة، ومواعيد اليوم، والمعاينات القادمة (متابعات بقناة «زيارة» في الأيام السبعة القادمة)، والعملاء المحتملون
+// (عملاء لهم طلب شراء أو إيجار نشط)، والصفقات الجارية، والعمولات التي لم تُحصّل. مركز الاتصال لا يرى الرقمين
+// الأخيرين (لا صفقات له). تحتها أربع لوحات: «متابعات متأخرة» و«مواعيد اليوم» كما كانتا، ثم «المعاينات القادمة»
+// و«صفقات تحتاج متابعة» (لمركز الاتصال: «طلبات جديدة»). على الجوال مفتاح يعرض لوحة واحدة كاملة.
+// كل رقم وكل لوحة استعلام مستقل: تعذّر أحدها يظهر في مكانه ولا يخفي البقية.
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
-import { staffMap, staffName } from './data.js';
-import { CHANNEL, PURPOSE, label } from './labels.js';
+import { supabase, PAGE_SIZE, pageRange, fetchAll } from './supabase.js';
+import { staffMap, staffName, dealStages, stageMap, stageName } from './data.js';
+import { CHANNEL, DEAL_STAGE_TONE, REQUEST_PURPOSE, label } from './labels.js';
 import { myRole } from './auth.js';
 import {
-    el, replace, clear, loading, errorBox, pager, fmtDateTime,
-    localDayStart, number, waNumber, icon, openModal, money
+    el, replace, loading, errorBox, pager, fmtDateTime, fmtDate, dayText,
+    localDayStart, number, waNumber, icon, money, badge, errorText
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 import { openClientForm } from './client-form.js';
+import { openPalette } from './palette.js';
+import { presetCalendarScope } from './calendar.js';
+import { budgetText } from './requirements.js';
 
 // تُستعمل أيضاً في لوحة الإدارة (#/dashboard) فوق بطاقات القمع الشهري
 export const WORK_CARDS = [
@@ -31,127 +37,73 @@ export const WORK_CARDS = [
     { key: 'active_clients', label: 'عملاء نشطون' }
 ];
 
-// ترتيب الأرقام في هذه الصفحة وتسمياتها: ما يحتاج عملاً أولاً
-const KPIS = [
-    { key: 'follow_ups_overdue', label: 'متابعات متأخرة' },
-    { key: 'follow_ups_today', label: 'مواعيد اليوم' },
-    { key: 'viewings_today', label: 'معاينات اليوم' },
-    { key: 'new_requirements_7d', label: 'طلبات آخر 7 أيام' },
-    { key: 'active_clients', label: 'عملاء نشطون' }
-];
-
-// رقمان ليس لهما صفحة: البطاقة تفتح نافذة بما وراء الرقم، وكل سطر يفتح طلب العميل ومطابقاته
-const KPI_LISTS = { viewings_today: openViewingsToday, new_requirements_7d: openNewRequirements };
-const KPI_LIST_MAX = 30;
-
-// المعاينات: مطابقات صارت «معاينة» اليوم (كما يعدّها v_my_work في 006)
-async function openViewingsToday(title) {
-    const box = el('div', {}, loading());
-    openModal(title, box);
-    const { data, error } = await supabase
-        .from('property_matches')
-        .select('id, requirement_id, unit_key, updated_at, project:projects(name), requirement:client_requirements(client_id, property_type, client:clients(full_name))')
-        .eq('state', 'viewing').gte('updated_at', localDayStart(0)).lt('updated_at', localDayStart(1))
-        .order('updated_at', { ascending: false }).range(0, KPI_LIST_MAX - 1);
-    if (!box.isConnected) return;
-    if (error) return void replace(box, errorBox(error, 'تعذّر تحميل المعاينات'));
-    if (!data || !data.length) return void replace(box, empty('check', 'لا معاينات اليوم', 'تظهر هنا المطابقات التي صارت «معاينة» اليوم.'));
-    replace(box, kpiList(data.map((row) => {
-        const req = row.requirement || {};
-        return {
-            href: req.client_id ? '#/clients/' + req.client_id + '/requirements/' + row.requirement_id : null,
-            name: (req.client && req.client.full_name) || 'عميل',
-            line: [row.project && row.project.name, row.unit_key, req.property_type].filter(Boolean).join(' · '),
-            at: row.updated_at
-        };
-    }), data.length === KPI_LIST_MAX));
-}
-
-// الطلبات المفتوحة التي أُضيفت في آخر 7 أيام (كما يعدّها v_my_work)
-async function openNewRequirements(title) {
-    const box = el('div', {}, loading());
-    openModal(title, box);
-    const since = new Date(Date.now() - 7 * 86400000).toISOString();
-    const { data, error } = await supabase
-        .from('client_requirements')
-        .select('id, client_id, property_type, purpose, city, budget_max, created_at, client:clients(full_name)')
-        .eq('status', 'open').gte('created_at', since)
-        .order('created_at', { ascending: false }).range(0, KPI_LIST_MAX - 1);
-    if (!box.isConnected) return;
-    if (error) return void replace(box, errorBox(error, 'تعذّر تحميل الطلبات'));
-    if (!data || !data.length) return void replace(box, empty('check', 'لا طلبات جديدة', 'تظهر هنا الطلبات المفتوحة التي أُضيفت في آخر 7 أيام.'));
-    replace(box, kpiList(data.map((row) => ({
-        href: '#/clients/' + row.client_id + '/requirements/' + row.id,
-        name: (row.client && row.client.full_name) || 'عميل',
-        line: [row.property_type, label(PURPOSE, row.purpose), row.city, row.budget_max ? 'حتى ' + money(row.budget_max) + ' ريال' : null].filter(Boolean).join(' · '),
-        at: row.created_at
-    })), data.length === KPI_LIST_MAX));
-}
-
-function kpiList(rows, more) {
-    return [
-        el('ul', { class: 'w4-kpi-list' }, rows.map((r) => el('li', {}, el(r.href ? 'a' : 'div', { class: 'w4-kpi-row', href: r.href || null }, [
-            el('strong', { text: r.name }),
-            r.line ? el('span', { class: 'crm-subtle', text: r.line }) : null,
-            el('span', { class: 'crm-subtle', text: fmtDateTime(r.at) })
-        ])))),
-        more ? el('p', { class: 'crm-subtle', text: 'تظهر أحدث ' + KPI_LIST_MAX + ' فقط. الباقي في ملفات العملاء.' }) : null
-    ];
-}
+const OPEN_COMMISSION = ['due', 'invoiced', 'partial'];
+const VISIT_DAYS = 7;
+const SOON_DAYS = 14;
+const PANEL_ROWS = 6;
 
 const LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
 const FMT_TODAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const FMT_TIME = new Intl.DateTimeFormat(LOCALE, { hour: 'numeric', minute: '2-digit', hour12: true });
 
 export async function renderWork(root) {
+    const noDeals = myRole() === 'callcenter';
     const sub = el('p', { class: 'w4-sub', text: FMT_TODAY.format(new Date()) });
-    const kpis = el('div', { class: 'w4-kpis' }, loading());
-    const lateBody = el('div', { class: 'w4-panel-body' });
-    const todayBody = el('div', { class: 'w4-panel-body' });
-    const lateCount = el('span', { class: 'w4-count w4-count-late', hidden: true });
-    const todayCount = el('span', { class: 'w4-count', hidden: true });
-    const segLateCount = el('span', { class: 'w4-count w4-count-late', hidden: true });
-    const segTodayCount = el('span', { class: 'w4-count', hidden: true });
 
-    const latePanel = el('section', { class: 'w4-panel w4-panel-late', 'aria-labelledby': 'w4-late-title' }, [
-        el('header', { class: 'w4-panel-head' }, [
-            el('h2', { id: 'w4-late-title' }, [icon('alert'), el('span', { text: 'متابعات متأخرة' })]),
-            lateCount,
-            el('span', { class: 'w4-panel-hint', text: 'الأقدم أولاً' })
-        ]),
-        lateBody
-    ]);
-    const todayPanel = el('section', { class: 'w4-panel w4-panel-today', 'aria-labelledby': 'w4-today-title' }, [
-        el('header', { class: 'w4-panel-head' }, [
-            el('h2', { id: 'w4-today-title' }, [icon('today'), el('span', { text: 'مواعيد اليوم' })]),
-            todayCount,
-            el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المواعيد' })
-        ]),
-        todayBody
-    ]);
-    const board = el('div', { class: 'w4-board', dataset: { show: 'late' } }, [latePanel, todayPanel]);
+    // اللوحات الأربع: المفتاح على الجوال يعرض واحدة منها
+    const panels = {
+        late: panel('late', 'متابعات متأخرة', 'alert', el('span', { class: 'w4-panel-hint', text: 'الأقدم أولاً' })),
+        today: panel('today', 'مواعيد اليوم', 'today', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المواعيد' })),
+        visits: panel('visits', 'المعاينات القادمة', 'eye', el('a', {
+            class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المعاينات',
+            onclick: () => presetCalendarScope('visits')
+        })),
+        deals: noDeals
+            ? panel('deals', 'طلبات جديدة', 'file', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/requests', text: 'كل الطلبات' }))
+            : panel('deals', 'صفقات تحتاج متابعة', 'briefcase', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/deals', text: 'كل الصفقات' }))
+    };
+    const board = el('div', { class: 'w4-board w6-board', dataset: { show: 'late' } }, Object.values(panels).map((p) => p.node));
 
-    // الجوال: مفتاح يعرض لوحة واحدة كاملة. على الكمبيوتر اللوحتان ظاهرتان والمفتاح مخفي.
-    const segLate = el('button', { type: 'button', dataset: { show: 'late' }, 'aria-pressed': 'true', onclick: () => show('late') },
-        [el('span', { text: 'المتأخرة' }), segLateCount]);
-    const segToday = el('button', { type: 'button', dataset: { show: 'today' }, 'aria-pressed': 'false', onclick: () => show('today') },
-        [el('span', { text: 'مواعيد اليوم' }), segTodayCount]);
+    const segButtons = {};
+    const seg = el('div', { class: 'w4-seg w6-seg', role: 'group', 'aria-label': 'اختر القائمة' }, Object.keys(panels).map((key) => {
+        const short = { late: 'المتأخرة', today: 'اليوم', visits: 'المعاينات', deals: noDeals ? 'الطلبات' : 'الصفقات' }[key];
+        const button = el('button', {
+            type: 'button', dataset: { show: key }, 'aria-pressed': key === 'late' ? 'true' : 'false',
+            onclick: () => { userPicked = true; show(key); }
+        }, [el('span', { text: short }), panels[key].segCount]);
+        segButtons[key] = button;
+        return button;
+    }));
+    let userPicked = false;
     function show(which) {
         board.dataset.show = which;
-        segLate.setAttribute('aria-pressed', which === 'late' ? 'true' : 'false');
-        segToday.setAttribute('aria-pressed', which === 'today' ? 'true' : 'false');
+        for (const key of Object.keys(segButtons)) segButtons[key].setAttribute('aria-pressed', key === which ? 'true' : 'false');
     }
-    let userPicked = false;
-    segLate.addEventListener('click', () => { userPicked = true; });
-    segToday.addEventListener('click', () => { userPicked = true; });
+    function focusPanel(key) {
+        show(key);
+        panels[key].node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 
-    replace(root, el('div', { class: 'w4' }, [
+    const kpis = kpiStrip([
+        { key: 'overdue', label: 'متابعات متأخرة', go: () => focusPanel('late') },
+        { key: 'today', label: 'مواعيد اليوم', go: () => focusPanel('today') },
+        { key: 'visits', label: 'معاينات قادمة', go: () => focusPanel('visits') },
+        { key: 'leads', label: 'عملاء محتملون', href: '#/requests' },
+        noDeals ? null : { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
+        noDeals ? null : { key: 'commission', label: 'عمولات لم تُحصّل', href: '#/commissions' }
+    ].filter(Boolean));
+
+    replace(root, el('div', { class: 'w4 w6' }, [
         el('header', { class: 'w4-head' }, [
             el('div', { class: 'w4-title' }, [el('h1', { text: 'عملي اليوم' }), sub]),
             el('div', { class: 'w4-quick', 'aria-label': 'إجراءات سريعة' }, quickActions(() => reloadAll()))
         ]),
-        kpis,
-        el('div', { class: 'w4-seg', role: 'group', 'aria-label': 'اختر القائمة' }, [segLate, segToday]),
+        // الجوال بلا شريط علوي: البحث السريع هنا، أول ما تراه العين
+        el('button', { type: 'button', class: 'work-search', onclick: () => openPalette() }, [
+            icon('search'), el('span', { text: 'ابحث عن عميل أو جوال أو عقار…' })
+        ]),
+        kpis.node,
+        seg,
         board
     ]));
 
@@ -159,68 +111,262 @@ export async function renderWork(root) {
     try {
         names = await staffMap();
     } catch (error) {
-        replace(lateBody, errorBox(error, 'تعذّر تحميل أسماء الموظفين'));
+        replace(panels.late.body, errorBox(error, 'تعذّر تحميل أسماء الموظفين', () => renderWork(root)));
         return;
     }
     if (!root.isConnected) return;
 
-    const lateList = list(lateBody, 'overdue', (rows, page, total) => {
-        showCount([lateCount, segLateCount], total);
-        if (!rows.length) return empty('check', 'لا متابعات متأخرة', 'كل ما فات موعده أُنجز.');
+    const lateList = followUpList(panels.late, 'overdue', (rows) => {
+        if (!rows.length) return emptyPanel('check', 'لا متابعات متأخرة', 'كل ما فات موعده أُنجز.');
         return el('ol', { class: 'w4-list' }, rows.map((row) => lateRow(row, names, reloadAll)));
     });
-    const todayList = list(todayBody, 'today', (rows, page, total) => {
-        showCount([todayCount, segTodayCount], total);
-        if (!rows.length) return empty('today', 'لا مواعيد اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.');
+    const todayList = followUpList(panels.today, 'today', (rows) => {
+        if (!rows.length) return emptyPanel('today', 'لا مواعيد اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.');
         return el('ol', { class: 'w4-list' }, rows.map((row) => todayRow(row, names, reloadAll)));
     });
 
+    /* ---------- الأرقام ---------- */
+
     async function loadStats() {
-        replace(kpis, loading());
-        const { data, error } = await supabase.from('v_my_work').select('*').maybeSingle();
-        if (!kpis.isConnected) return;
-        if (error) return void replace(kpis, errorBox(error, 'تعذّر تحميل مؤشرات اليوم'));
-        const value = (key) => Number(data && data[key]) || 0;
+        kpis.loading();
+        const today = localDayStart(0).slice(0, 10);
+        const soon = localDayStart(SOON_DAYS).slice(0, 10);
+
+        const work = Promise.resolve(supabase.from('v_my_work').select('*').maybeSingle()).catch((error) => ({ error }));
+        const visits = Promise.resolve(supabase.from('follow_ups').select('id', { count: 'exact', head: true })
+            .eq('status', 'pending').eq('channel', 'visit').gte('due_at', localDayStart(0)).lt('due_at', localDayStart(VISIT_DAYS + 1))).catch((error) => ({ error }));
+        const viewingMatches = Promise.resolve(supabase.from('property_matches').select('id', { count: 'exact', head: true }).eq('state', 'viewing')).catch((error) => ({ error }));
+        const leads = fetchAll(() => supabase.from('client_requirements').select('id, client_id').in('status', ['open', 'matched']).order('id', { ascending: true }));
+
+        const [w, v, vm, l] = await Promise.all([work, visits, viewingMatches, leads]);
+        if (!kpis.node.isConnected) return;
+
+        const value = (key) => Number(w.data && w.data[key]) || 0;
         const overdue = value('follow_ups_overdue');
-        const today = value('follow_ups_today');
+        const todayCount = value('follow_ups_today');
 
         // سطر تحت العنوان: التاريخ وخلاصة اليوم
-        replace(sub, [
-            FMT_TODAY.format(new Date()) + ' · ',
-            overdue ? el('b', { class: 'w4-sub-late', text: arCount(overdue, 'متابعة متأخرة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة') }) : 'لا متأخرات',
-            ' · ',
-            el('b', { text: today ? arCount(today, 'موعد اليوم', 'موعدان اليوم', 'مواعيد اليوم', 'موعداً اليوم') : 'لا مواعيد اليوم' })
-        ]);
-        // على الجوال تفتح الصفحة على المتأخرة إن وُجدت، وإلا على مواعيد اليوم
-        if (!userPicked) show(overdue ? 'late' : 'today');
-
-        clear(kpis);
-        const targets = { follow_ups_overdue: latePanel, follow_ups_today: todayPanel };
-        for (const item of KPIS) {
-            const n = value(item.key);
-            const target = targets[item.key] || null;
-            const list = n > 0 ? KPI_LISTS[item.key] : null;
-            const late = item.key === 'follow_ups_overdue' && n > 0;
-            const body = [el('span', { class: 'w4-kpi-label', text: item.label }), el('span', { class: 'w4-kpi-num', text: number(n) })];
-            const cls = 'w4-kpi' + (late ? ' w4-kpi-late' : '');
-            kpis.appendChild(target
-                ? el('button', {
-                    type: 'button', class: cls + ' w4-kpi-link',
-                    onclick: () => {
-                        show(item.key === 'follow_ups_overdue' ? 'late' : 'today');
-                        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                }, body)
-                : list ? el('button', { type: 'button', class: cls + ' w4-kpi-link', onclick: () => list(item.label) }, body)
-                : el('div', { class: cls }, body));
+        if (!w.error) {
+            replace(sub, [
+                FMT_TODAY.format(new Date()) + ' · ',
+                overdue ? el('b', { class: 'w4-sub-late', text: arCount(overdue, 'متابعة متأخرة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة') }) : 'لا متأخرات',
+                ' · ',
+                el('b', { text: todayCount ? arCount(todayCount, 'موعد اليوم', 'موعدان اليوم', 'مواعيد اليوم', 'موعداً اليوم') : 'لا مواعيد اليوم' })
+            ]);
+            // على الجوال تفتح الصفحة على المتأخرة إن وُجدت، وإلا على مواعيد اليوم
+            if (!userPicked) show(overdue ? 'late' : 'today');
         }
+
+        kpis.set('overdue', w.error ? failed(w.error) : { value: number(overdue), tone: overdue ? 'late' : null, sub: overdue ? 'ابدأ بالأقدم' : 'لا شيء متأخر' });
+        kpis.set('today', w.error ? failed(w.error) : { value: number(todayCount), sub: todayCount ? 'مكالمات وزيارات اليوم' : 'يومك خالٍ من المواعيد' });
+        kpis.set('visits', v.error ? failed(v.error) : {
+            value: number(v.count || 0),
+            sub: vm.error || !vm.count ? 'خلال ' + VISIT_DAYS + ' أيام' : arCount(vm.count, 'عقار في مرحلة المعاينة', 'عقاران في مرحلة المعاينة', 'عقارات في مرحلة المعاينة', 'عقاراً في مرحلة المعاينة')
+        });
+        if (l.error) kpis.set('leads', failed(l.error));
+        else {
+            const clients = new Set((l.data || []).map((row) => row.client_id)).size;
+            const fresh = w.error ? 0 : value('new_requirements_7d');
+            kpis.set('leads', { value: number(clients), sub: fresh ? arCount(fresh, 'طلب جديد هذا الأسبوع', 'طلبان جديدان هذا الأسبوع', 'طلبات جديدة هذا الأسبوع', 'طلباً جديداً هذا الأسبوع') : 'لهم طلب شراء أو إيجار نشط' });
+        }
+
+        if (noDeals) return;
+        const [stages, commissions] = await Promise.all([
+            dealStages().catch((error) => ({ error })),
+            fetchAll(() => supabase.from('commissions').select('id, gross_amount, collected_amount').in('status', OPEN_COMMISSION).order('id', { ascending: true }))
+        ]);
+        if (!kpis.node.isConnected) return;
+
+        if (commissions.error) kpis.set('commission', failed(commissions.error));
+        else {
+            const rows = commissions.data || [];
+            const remaining = rows.reduce((sum, row) => sum + Math.max(0, Number(row.gross_amount || 0) - Number(row.collected_amount || 0)), 0);
+            kpis.set('commission', { value: money(remaining), unit: 'ر.س', tone: remaining > 0 ? 'due' : null,
+                sub: rows.length ? 'على ' + arCount(rows.length, 'عمولة واحدة', 'عمولتين', 'عمولات', 'عمولة') : 'لا شيء معلّق' });
+        }
+
+        if (stages.error) return void kpis.set('deals', failed(stages.error));
+        const openIds = stages.filter((s) => !s.is_terminal).map((s) => s.id);
+        const dealsBase = () => supabase.from('deals').select('id', { count: 'exact', head: true }).in('stage_id', openIds);
+        const [all, late, closing] = await Promise.all([
+            Promise.resolve(dealsBase()).catch((error) => ({ error })),
+            Promise.resolve(dealsBase().lt('expected_close_date', today)).catch((error) => ({ error })),
+            Promise.resolve(dealsBase().gte('expected_close_date', today).lte('expected_close_date', soon)).catch((error) => ({ error }))
+        ]);
+        if (!kpis.node.isConnected) return;
+        if (all.error) return void kpis.set('deals', failed(all.error));
+        kpis.set('deals', {
+            value: number(all.count || 0),
+            subTone: late.count ? 'late' : null,
+            sub: late.count ? arCount(late.count, 'تجاوزت موعد إغلاقها', 'تجاوزتا موعد إغلاقهما', 'تجاوزت موعد إغلاقها', 'تجاوزت موعد إغلاقها')
+                : closing.count ? arCount(closing.count, 'تُغلق خلال أسبوعين', 'تُغلقان خلال أسبوعين', 'تُغلق خلال أسبوعين', 'تُغلق خلال أسبوعين')
+                : 'من الاهتمام حتى الإغلاق'
+        });
+    }
+
+    /* ---------- اللوحتان الجديدتان ---------- */
+
+    async function loadVisits() {
+        replace(panels.visits.body, loading());
+        const { data, error, count } = await Promise.resolve(supabase
+            .from('follow_ups')
+            .select('id, due_at, channel, purpose, assigned_to, client_id, requirement_id, client:clients(full_name, phone)', { count: 'exact' })
+            .eq('status', 'pending').eq('channel', 'visit')
+            .gte('due_at', localDayStart(0)).lt('due_at', localDayStart(VISIT_DAYS + 1))
+            .order('due_at', { ascending: true })
+            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
+        if (!panels.visits.body.isConnected) return;
+        if (error) return void replace(panels.visits.body, errorBox(error, 'تعذّر تحميل المعاينات', loadVisits));
+        panels.visits.setCount(count || 0);
+        const rows = data || [];
+        if (!rows.length) {
+            return void replace(panels.visits.body, emptyPanel('eye', 'لا معاينات في الأيام السبعة القادمة',
+                'موعد المعاينة متابعة بقناة «زيارة» من ملف العميل.'));
+        }
+        replace(panels.visits.body, [
+            el('ol', { class: 'w4-list' }, rows.map((row) => visitRow(row, names, reloadAll))),
+            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'معاينة أخرى', 'معاينتان أخريان', 'معاينات أخرى', 'معاينة أخرى'), '#/calendar', () => presetCalendarScope('visits')) : null
+        ]);
+    }
+
+    async function loadDeals() {
+        replace(panels.deals.body, loading());
+        if (noDeals) return void loadNewRequests();
+        let stages;
+        try {
+            stages = await stageMap();
+        } catch (error) {
+            return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل مراحل الصفقات', loadDeals));
+        }
+        const openIds = [...stages.values()].filter((s) => !s.is_terminal).map((s) => s.id);
+        // الأقرب إغلاقاً أولاً (والمتأخرة قبلها لأنها أقدم تاريخاً)، ثم ما لا تاريخ له بحسب الأقدم تحديثاً
+        const { data, error, count } = await Promise.resolve(supabase
+            .from('deals')
+            .select('id, stage_id, amount, unit_key, project_id, expected_close_date, updated_at, client:clients(full_name), project:projects(name)', { count: 'exact' })
+            .in('stage_id', openIds)
+            .order('expected_close_date', { ascending: true, nullsFirst: false })
+            .order('updated_at', { ascending: true })
+            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
+        if (!panels.deals.body.isConnected) return;
+        if (error) return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل الصفقات', loadDeals));
+        panels.deals.setCount(count || 0);
+        const rows = data || [];
+        if (!rows.length) {
+            return void replace(panels.deals.body, emptyPanel('briefcase', 'لا صفقات مفتوحة',
+                'حين يهتم العميل بعقار افتح له صفقة من صفحة الطلب أو من «العقارات».'));
+        }
+        replace(panels.deals.body, [
+            el('ol', { class: 'w4-list' }, rows.map((row) => dealRow(row, stages))),
+            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'صفقة أخرى', 'صفقتان أخريان', 'صفقات أخرى', 'صفقة أخرى'), '#/deals') : null
+        ]);
+    }
+
+    // مركز الاتصال: أحدث الطلبات المفتوحة مكان الصفقات
+    async function loadNewRequests() {
+        const { data, error, count } = await Promise.resolve(supabase
+            .from('client_requirements')
+            .select('id, client_id, purpose, property_type, city, budget_min, budget_max, created_at, client:clients(full_name)', { count: 'exact' })
+            .eq('status', 'open')
+            .order('created_at', { ascending: false })
+            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
+        if (!panels.deals.body.isConnected) return;
+        if (error) return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل الطلبات', loadDeals));
+        panels.deals.setCount(count || 0);
+        const rows = data || [];
+        if (!rows.length) return void replace(panels.deals.body, emptyPanel('file', 'لا طلبات مفتوحة', 'الطلب يُضاف من ملف العميل ← «طلب جديد».'));
+        replace(panels.deals.body, [
+            el('ol', { class: 'w4-list' }, rows.map(requestRow)),
+            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'طلب آخر', 'طلبان آخران', 'طلبات أخرى', 'طلباً آخر'), '#/requests') : null
+        ]);
     }
 
     async function reloadAll() {
-        await Promise.all([loadStats(), lateList.reload(), todayList.reload()]);
+        await Promise.all([loadStats(), lateList.reload(), todayList.reload(), loadVisits(), loadDeals()]);
     }
 
     await reloadAll();
+}
+
+/* ===================== الأرقام ===================== */
+
+// شريط الأرقام: كل رقم زر (يفتح لوحته في الصفحة) أو رابط (يفتح صفحته). تُرسم الخانات فوراً وتمتلئ حين تصل أرقامها،
+// فلا يقفز التخطيط. set(key, { value, unit, sub, tone, subTone }).
+function kpiStrip(defs) {
+    const cells = new Map();
+    const node = el('div', { class: 'kpi-strip kpi-strip-' + defs.length, role: 'group', 'aria-label': 'أرقام اليوم' }, defs.map((def) => {
+        const num = el('span', { class: 'kpi-num' });
+        const subLine = el('span', { class: 'kpi-sub' });
+        const attrs = { class: 'kpi kpi-link', dataset: { kpi: def.key } };
+        const cell = def.href
+            ? el('a', Object.assign(attrs, { href: def.href }), [el('span', { class: 'kpi-label', text: def.label }), num, subLine])
+            : el('button', Object.assign(attrs, { type: 'button', onclick: def.go }), [el('span', { class: 'kpi-label', text: def.label }), num, subLine]);
+        cells.set(def.key, { cell, num, subLine, def });
+        return cell;
+    }));
+    return {
+        node,
+        loading() {
+            for (const { cell, num, subLine } of cells.values()) {
+                cell.classList.add('is-loading');
+                cell.setAttribute('aria-busy', 'true');
+                num.textContent = '…';
+                subLine.textContent = '';
+            }
+        },
+        set(key, data) {
+            const c = cells.get(key);
+            if (!c) return;
+            c.cell.classList.remove('is-loading', 'kpi-late', 'kpi-due', 'kpi-failed');
+            c.cell.removeAttribute('aria-busy');
+            if (data.tone) c.cell.classList.add('kpi-' + data.tone);
+            replace(c.num, [data.value, data.unit ? el('small', { class: 'kpi-unit', text: data.unit }) : null]);
+            c.subLine.textContent = data.sub || '';
+            c.subLine.className = 'kpi-sub' + (data.subTone ? ' kpi-sub-' + data.subTone : '');
+            c.cell.title = data.title || '';
+        }
+    };
+}
+
+function failed(error) {
+    return { value: '—', tone: 'failed', sub: 'تعذّر الحساب', title: errorText(error) };
+}
+
+/* ===================== اللوحات ===================== */
+
+function panel(key, title, iconName, extra) {
+    const count = el('span', { class: 'w4-count' + (key === 'late' ? ' w4-count-late' : ''), hidden: true });
+    const segCount = el('span', { class: 'w4-count' + (key === 'late' ? ' w4-count-late' : ''), hidden: true });
+    const body = el('div', { class: 'w4-panel-body' }, loading());
+    const id = 'w4-' + key + '-title';
+    const node = el('section', { class: 'w4-panel w4-panel-' + key, 'aria-labelledby': id }, [
+        el('header', { class: 'w4-panel-head' }, [
+            el('h2', { id: id }, [icon(iconName), el('span', { text: title })]),
+            count,
+            extra
+        ]),
+        body
+    ]);
+    return {
+        node, body, segCount,
+        setCount(n) {
+            for (const badgeNode of [count, segCount]) {
+                badgeNode.textContent = number(n);
+                badgeNode.hidden = !n;
+            }
+        }
+    };
+}
+
+function emptyPanel(ico, title, hint) {
+    return el('div', { class: 'w4-empty' }, [
+        el('span', { class: 'w4-empty-ico' }, icon(ico)),
+        el('strong', { text: title }),
+        el('span', { text: hint })
+    ]);
+}
+
+function morePanel(text, href, onclick) {
+    return el('a', { class: 'w4-more', href: href, onclick: onclick || null }, [el('span', { text: text }), icon('arrow')]);
 }
 
 /* ===================== الإجراءات السريعة ===================== */
@@ -234,16 +380,17 @@ function quickActions(onSaved) {
                 else onSaved();
             })
         }, [icon('userPlus'), el('span', { text: 'عميل جديد' })])
-        // التصميم الخامس: زر واحد في الرأس. البحث في الشريط العلوي، و«إضافة عرض» باب في القائمة،
-        // و«كل المواعيد» رابط في رأس لوحة مواعيد اليوم.
+        // التصميم الخامس: زر واحد في الرأس. البحث في الشريط العلوي (وعلى الجوال تحت العنوان)، و«إضافة عرض» باب في
+        // القائمة، و«كل المواعيد» رابط في رأس لوحة مواعيد اليوم.
     ];
 }
 
-/* ===================== القوائم ===================== */
+/* ===================== قوائم المتابعات ===================== */
 
 // قائمة متابعات معلّقة ضمن نطاق زمني، بترقيم مستقل. draw يرسم الصفوف بعد كل تحميل.
-function list(host, scope, draw) {
+function followUpList(target, scope, draw) {
     const view = { page: 0 };
+    const host = target.body;
 
     async function reload() {
         replace(host, loading());
@@ -267,11 +414,12 @@ function list(host, scope, draw) {
                 .order('due_at', { ascending: true });
         }
 
-        const { data, error, count } = await query;
+        const { data, error, count } = await Promise.resolve(query).catch((e) => ({ error: e }));
         if (!host.isConnected) return;
-        if (error) return void replace(host, errorBox(error, 'تعذّر تحميل المتابعات'));
+        if (error) return void replace(host, errorBox(error, 'تعذّر تحميل المتابعات', reload));
         const rows = data || [];
         const total = count || rows.length;
+        target.setCount(total);
         replace(host, [
             draw(rows, view.page, total),
             total > PAGE_SIZE ? pager(view.page, total, (p) => { view.page = p; reload(); }, PAGE_SIZE) : null
@@ -306,11 +454,65 @@ function todayRow(row, names, onChanged) {
             el('span', { text: soonText(due) })
         ]),
         el('div', { class: 'w4-main' }, [
-            el('div', { class: 'w4-top' }, [clientLink(row)]),
+            el('div', { class: 'w4-top' }, [clientLink(row), row.channel === 'visit' ? el('span', { class: 'w4-badge w4-badge-visit', text: 'معاينة' }) : null]),
             row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
             el('p', { class: 'w4-meta', text: label(CHANNEL, row.channel) + ' · ' + staffName(names, row.assigned_to) })
         ]),
         actions(row, client, onChanged)
+    ]);
+}
+
+// المعاينة: يومها ووقتها، ثم العميل والغرض، وأزرار الاتصال و«تم» كبقية المتابعات
+function visitRow(row, names, onChanged) {
+    const client = row.client || {};
+    const due = new Date(row.due_at);
+    return el('li', { class: 'w4-row w4-row-today w4-row-visit w4-task' }, [
+        el('div', { class: 'w4-time' }, [
+            el('strong', { text: dayText(row.due_at) }),
+            el('span', { text: FMT_TIME.format(due) })
+        ]),
+        el('div', { class: 'w4-main' }, [
+            el('div', { class: 'w4-top' }, [clientLink(row)]),
+            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
+            el('p', { class: 'w4-meta', text: staffName(names, row.assigned_to) })
+        ]),
+        actions(row, client, onChanged)
+    ]);
+}
+
+// الصفقة: العميل ومرحلتها، والعقار، وموعد الإغلاق المتوقع (بالأحمر إن فات) والقيمة. السطر كله رابط لصفحتها.
+function dealRow(row, stages) {
+    const today = localDayStart(0).slice(0, 10);
+    const late = row.expected_close_date && row.expected_close_date < today;
+    const project = row.project && row.project.name ? row.project.name : (row.project_id ? 'عقار رقم ' + row.project_id : 'بدون عقار');
+    const when = row.expected_close_date
+        ? (late ? 'تجاوزت موعد الإغلاق ' + fmtDate(row.expected_close_date) : 'الإغلاق المتوقع ' + fmtDate(row.expected_close_date))
+        : 'بلا موعد إغلاق متوقع';
+    return el('li', { class: 'w4-row w4-row-deal' }, [
+        el('a', { class: 'w4-main w4-row-link', href: '#/deals/' + row.id }, [
+            el('div', { class: 'w4-top' }, [
+                el('span', { class: 'w4-name', text: (row.client && row.client.full_name) || 'عميل' }),
+                badge(stageName(stages, row.stage_id), DEAL_STAGE_TONE[row.stage_id] || 'neutral')
+            ]),
+            el('p', { class: 'w4-purpose', text: project + (row.unit_key ? ' · ' + row.unit_key : '') }),
+            el('p', { class: 'w4-meta' }, [
+                el('span', { class: late ? 'is-late' : null, text: when }),
+                row.amount ? ' · ' + money(row.amount) + ' ر.س' : null
+            ])
+        ])
+    ]);
+}
+
+function requestRow(row) {
+    return el('li', { class: 'w4-row w4-row-deal' }, [
+        el('a', { class: 'w4-main w4-row-link', href: '#/clients/' + row.client_id + '/requirements/' + row.id }, [
+            el('div', { class: 'w4-top' }, [
+                el('span', { class: 'w4-name', text: (row.client && row.client.full_name) || 'عميل' }),
+                badge(label(REQUEST_PURPOSE, row.purpose), row.purpose === 'rent' ? 'blue' : 'neutral')
+            ]),
+            el('p', { class: 'w4-purpose', text: [row.property_type, row.city].filter(Boolean).join(' · ') || 'طلب عقار' }),
+            el('p', { class: 'w4-meta', text: budgetText(row) + ' · أُضيف ' + dayText(row.created_at) })
+        ])
     ]);
 }
 
@@ -360,19 +562,4 @@ function soonText(due) {
     if (minutes < 60) return 'بعد ' + arCount(minutes, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة');
     const hours = Math.round(minutes / 60);
     return 'بعد ' + arCount(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة');
-}
-
-function empty(ico, title, hint) {
-    return el('div', { class: 'w4-empty' }, [
-        el('span', { class: 'w4-empty-ico' }, icon(ico)),
-        el('strong', { text: title }),
-        el('span', { text: hint })
-    ]);
-}
-
-function showCount(nodes, total) {
-    for (const node of nodes) {
-        node.textContent = number(total);
-        node.hidden = !total;
-    }
 }

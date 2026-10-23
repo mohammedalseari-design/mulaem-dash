@@ -23,6 +23,10 @@ import { renderUsers } from './users.js';
 import { renderActivity } from './activity.js';
 import { renderAdmin } from './admin.js';
 import { renderHelp } from './help.js';
+import { renderRequests } from './requests.js';
+import { renderMatches } from './matches.js';
+import { renderCommissions } from './commissions.js';
+import { initPalette, openPalette } from './palette.js';
 
 /* ===================== المسارات ===================== */
 
@@ -33,6 +37,9 @@ const ROUTES = [
     { pattern: /^#\/clients\/([^/]+)\/requirements\/([^/]+)$/, view: renderRequirementMatches, nav: '#/clients' },
     { pattern: /^#\/clients\/([^/]+)$/, view: renderClient, nav: '#/clients' },
     { pattern: /^#\/clients\/?$/, view: renderClients, nav: '#/clients' },
+    // التصميم السادس «الوسيط»: الطلبات والمطابقات لكل العملاء قسمان في باب «العملاء»، والعمولات قسم في «الصفقات»
+    { pattern: /^#\/requests\/?$/, view: renderRequests, nav: '#/clients' },
+    { pattern: /^#\/matches\/?$/, view: renderMatches, nav: '#/clients' },
     { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
     // المواعيد: صفحة كاملة يُفتح من «كل المواعيد» في «عملي اليوم»، فتُضاء «عملي اليوم» في القائمة
     { pattern: /^#\/calendar\/?$/, view: renderCalendar, nav: '#/work' },
@@ -40,6 +47,7 @@ const ROUTES = [
     { pattern: /^#\/assistant\/([^/]+)$/, view: renderAgentRequest, nav: '#/assistant' },
     { pattern: /^#\/deals\/?$/, view: renderBoard, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/deals\/([^/]+)$/, view: renderDeal, nav: '#/deals', deny: 'callcenter' },
+    { pattern: /^#\/commissions\/?$/, view: renderCommissions, nav: '#/deals', deny: 'callcenter' },
     { pattern: /^#\/help\/?$/, view: renderHelp, nav: '#/help' },
     // أدوات المدير: بابها الواحد «الإدارة» (admin.js)، فهي التي تُضاء في القائمة
     { pattern: /^#\/admin\/?$/, view: renderAdmin, nav: '#/admin', admin: true },
@@ -87,6 +95,9 @@ const TAB_LABEL = {
     '#/properties': 'العقارات', '#/assistant': 'إضافة عرض', '#/calendar': 'المواعيد', '#/deals': 'الصفقات',
     '#/admin': 'الإدارة'
 };
+
+// أقسام داخل الأبواب: تُضاء معها في القائمة وفي شريط الجوال (الطلبات والمطابقات مع «العملاء»، والعمولات مع «الصفقات»)
+const SECTION_OF = { '#/requests': '#/clients', '#/matches': '#/clients', '#/commissions': '#/deals', '#/calendar': '#/work' };
 
 // أيقونة كل بند (الأسماء في ICON_PATHS في ui.js)
 const NAV_ICON = {
@@ -209,15 +220,31 @@ function wireUserMenu() {
     });
 }
 
-// بحث سريع عن عميل من القائمة الجانبية (الكمبيوتر): Enter يفتح «العملاء» على نتيجة البحث نفسها
+// حقل البحث في الشريط العلوي (الكمبيوتر) باب البحث السريع (palette.js): الضغط عليه أو الكتابة فيه أو Enter يفتح النافذة
+// بما كُتب، فتظهر العملاء والعقارات والصفحات معاً. مجرد المرور عليه بـ Tab لا يفتح شيئاً (لا نافذة تقفز في وجه مستخدم
+// لوحة المفاتيح). الإرسال (Enter إن لم يعمل ما سبق) يبقى كما كان: «العملاء» على النتيجة.
 function wireSideSearch() {
     const form = document.getElementById('sideSearch');
     if (!form || form.dataset.wired) return;
     form.dataset.wired = '1';
-    form.insertBefore(icon('users', 'side-search-ico'), form.firstChild);
+    form.insertBefore(icon('search', 'side-search-ico'), form.firstChild);
+    const box = form.querySelector('input');
+    const open = (text) => {
+        box.value = '';
+        box.blur();
+        openPalette(text);
+    };
+    box.addEventListener('click', () => open(box.value));
+    box.addEventListener('keydown', (event) => {
+        if (event.isComposing) return;
+        if (event.key === 'Enter') { event.preventDefault(); open(box.value); return; }
+        // حرف يُكتب: يبدأ البحث به في النافذة نفسها
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); open(box.value + event.key); }
+    });
+    // لصق أو كتابة بلوحة مفاتيح الجوال/IME: ما وصل الحقل يُنقل إلى النافذة
+    box.addEventListener('input', () => open(box.value));
     form.addEventListener('submit', (event) => {
         event.preventDefault();
-        const box = form.querySelector('input');
         presetClientSearch(box.value);
         box.value = '';
         box.blur();
@@ -239,6 +266,10 @@ function renderTabbar(items) {
     }, [
         // اسم الحساب ودوره: الترويسة تخفيه على أضيق الجوالات
         el('div', { class: 'nav-sheet-who', text: displayName(state.profile) + ' · ' + (ROLE_AR[myRole()] || myRole()) }),
+        // البحث السريع من أي صفحة على الجوال (الشريط العلوي مخفي هناك)
+        el('button', {
+            type: 'button', class: 'nav-sheet-search', onclick: () => { toggleSheet(false); openPalette(); }
+        }, [icon('search'), el('span', { text: 'ابحث عن عميل أو عقار…' })]),
         ...items.map((item) => navLink(item)),
         // الشريط العلوي مخفي على الجوال (easy.css: body.easy-phone)، فالوضع الليلي والخروج هنا. الزران الأصليان
         // في الترويسة يبقيان أصحاب المنطق (app.css/ app.js) ويُضغطان من هنا.
@@ -286,8 +317,12 @@ function toggleSheet(open) {
 function setActiveNav(hash) {
     // الصفحة الحالية أيضاً (طلبات الاعتماد في شريط الجوال تُضاء مع «الإدارة» في القائمة)
     const current = (location.hash || DEFAULT_ROUTE).split('/').slice(0, 2).join('/');
+    const door = SECTION_OF[current] || hash;
     for (const link of document.querySelectorAll('#crmNav a, .tabbar a, .nav-sheet a')) {
-        link.classList.toggle('active', link.dataset.hash === hash || link.dataset.hash === current);
+        const on = link.dataset.hash === hash || link.dataset.hash === current || link.dataset.hash === door;
+        link.classList.toggle('active', on);
+        if (on) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
     }
     // «المزيد» في شريط الجوال يُضاء حين تكون الصفحة الحالية خارج البنود الأربعة
     const moreTab = document.querySelector('.tabbar .tab-more');
@@ -462,9 +497,13 @@ function showApp() {
     ]);
 
     renderNav();
+    // البحث السريع لمن دخل فقط: Ctrl+K و«/» لا تعمل على شاشة الدخول
+    if (!paletteReady) { paletteReady = true; initPalette(); }
     appReady = true;
     route();
 }
+
+let paletteReady = false;
 
 function wireLogin() {
     const form = document.getElementById('loginForm');
@@ -540,6 +579,37 @@ function updateThemeButton(button) {
     button.title = dark ? 'الوضع النهاري' : 'الوضع الليلي';
 }
 
+/* ===================== الوصول والاتصال (التصميم السادس) ===================== */
+
+// «انتقل إلى المحتوى»: أول ما يصله Tab، يتخطى الشريط العلوي إلى الصفحة. زر لا رابط: الرابط #view يغيّر
+// الهاش فيظنه الموجّه مساراً مجهولاً.
+function wireSkipLink() {
+    const skip = document.getElementById('skipLink');
+    const main = document.getElementById('view');
+    if (!skip || !main) return;
+    main.setAttribute('tabindex', '-1');
+    skip.addEventListener('click', () => {
+        main.focus();
+        main.scrollIntoView({ block: 'start' });
+    });
+}
+
+// انقطاع الإنترنت: شريط هادئ يقول ذلك صراحة (لا شيء يُحفظ حتى يعود الاتصال)، ويختفي مع عودته
+function wireOffline() {
+    const bar = document.getElementById('offlineBar');
+    if (!bar) return;
+    const update = () => {
+        bar.hidden = navigator.onLine !== false;
+        document.body.classList.toggle('is-offline', !bar.hidden);
+    };
+    window.addEventListener('online', () => {
+        update();
+        notify('عاد الاتصال بالإنترنت.', 'success', 3500);
+    });
+    window.addEventListener('offline', update);
+    update();
+}
+
 /* ===================== الإقلاع ===================== */
 
 // إنهاء جلسة نصف صالحة (بلا صف profiles، أو لحساب موقوف) قبل عرض سبب المنع.
@@ -563,6 +633,8 @@ async function boot() {
     wireFileDrop();
     wireLogin();
     wireLogout();
+    wireSkipLink();
+    wireOffline();
     window.addEventListener('hashchange', route);
 
     // خروج من تبويب آخر يشارك نفس التخزين (mulaem-auth). أما خروج بدأناه نحن

@@ -13,26 +13,43 @@ import { inventoryVocabulary, sanitizeSearch } from './data.js';
 import { myRole, isAdmin } from './auth.js';
 import { openDealForm } from './deal-form.js';
 import { safeUrl } from './agent.js';
-import { UNIT_STATUS, UNIT_STATUS_TONE, label } from './labels.js';
+import { UNIT_STATUS, UNIT_STATUS_TONE, LISTING_PURPOSE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, input, select,
-    moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn, countText
+    moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn, countText,
+    filterChips, resultLine
 } from './ui.js';
+
+// بحث من البحث السريع (palette.js): يُطبَّق عند فتح الصفحة التالية مرة واحدة
+let presetSearch = '';
+export function presetPropertySearch(term) {
+    presetSearch = String(term || '').trim();
+}
+
+const PURPOSE_CHIPS = [
+    { value: '', label: 'الكل' },
+    { value: 'sale', label: LISTING_PURPOSE.sale },
+    { value: 'rent', label: LISTING_PURPOSE.rent }
+];
 
 export async function renderProperties(root) {
     const view = {
-        page: 0, search: '', district: '', unitType: '',
+        page: 0, search: presetSearch, district: '', unitType: '', purpose: '',
         rooms: '', priceMin: '', priceMax: '', commissionMin: '', commissionOrder: '', availableOnly: true
     };
+    presetSearch = '';
 
     const body = el('div', {}, loading());
     const toolbar = el('div', { class: 'crm-toolbar' });
+    // الحبّات تظهر قبل وصول مفردات الحي والنوع؛ الضغط قبلها يُحفظ ويُطبَّق مع أول تحميل
+    let ready = false;
+    const purposeChips = filterChips('غرض العرض', PURPOSE_CHIPS, '', (value) => { view.purpose = value; if (ready) reload(); });
 
     replace(root, [
-        pageHead('العقارات', 'كل الوحدات المعتمدة. إضافة المشروع وتعديله من صفحة المشاريع.', [
+        pageHead('العقارات', 'كل الوحدات المعتمدة للبيع والإيجار. إضافة المشروع وتعديله من صفحة المشاريع.', [
             actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' })
         ]),
-        el('div', { class: 'crm-card' }, [toolbar, body])
+        el('div', { class: 'crm-card' }, [toolbar, purposeChips.node, body])
     ]);
 
     // لا ترمي هذه الدالة أبداً؛ الفشل يصل في ‎*Error‎ فيتحوّل الحقل إلى نص حر
@@ -40,7 +57,8 @@ export async function renderProperties(root) {
     if (!root.isConnected) return;
 
     const searchBox = el('input', {
-        type: 'search', class: 'crm-search', placeholder: 'ابحث باسم العقار…', autocomplete: 'off'
+        type: 'search', class: 'crm-search', placeholder: 'ابحث باسم العقار…', autocomplete: 'off',
+        value: view.search, 'aria-label': 'بحث باسم العقار'
     });
     const districtField = vocabFilter(vocabulary.districts, vocabulary.districtsError, 'كل الأحياء', 'الحي');
     const typeField = vocabFilter(vocabulary.propertyTypes, vocabulary.propertyTypesError, 'كل الأنواع', 'نوع الوحدة');
@@ -99,6 +117,20 @@ export async function renderProperties(root) {
         load();
     }
 
+    // «مسح التصفية»: كل الحقول إلى أول حالها، و«المتاح فقط» يبقى مفعّلاً كما تُفتح الصفحة
+    function reset() {
+        Object.assign(view, { search: '', district: '', unitType: '', purpose: '', rooms: '', priceMin: '', priceMax: '',
+            commissionMin: '', commissionOrder: '', availableOnly: true });
+        for (const box of [searchBox, roomsBox, priceMinBox, priceMaxBox, commissionMinBox]) box.value = '';
+        districtField.node.value = '';
+        typeField.node.value = '';
+        commissionOrderBox.value = '';
+        availableBox.checked = true;
+        availableChip.classList.add('on');
+        purposeChips.set('');
+        reload();
+    }
+
     async function load() {
         replace(body, loading());
         const [from, to] = pageRange(view.page);
@@ -124,6 +156,7 @@ export async function renderProperties(root) {
             }
             const term = sanitizeSearch(view.search);
             if (term) query = query.ilike('project_name', '%' + term + '%');
+            if (view.purpose) query = query.eq('purpose', view.purpose);
             if (view.district) query = districtField.filter(query, 'district', view.district);
             if (view.unitType) query = typeField.filter(query, 'unit_type', view.unitType);
             const rooms = parseNumber(view.rooms);
@@ -153,7 +186,7 @@ export async function renderProperties(root) {
         }
         const { data, error, count } = result;
         if (!body.isConnected) return;
-        if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العقارات'));
+        if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العقارات', load));
 
         const rows = data || [];
         // بعض البيئات لا تزال تستخدم v_units بدون unit_commission؛ استكمل العمولة
@@ -174,22 +207,27 @@ export async function renderProperties(root) {
             }
         }
         if (rows.length === 0) {
-            return void replace(body, empty(filtered(view) ? 'لا وحدات مطابقة لهذا البحث' : 'لا توجد عقارات'));
+            return void replace(body, filtered(view)
+                ? empty('لا وحدات مطابقة لهذا البحث', 'وسّع نطاق السعر أو الحي، أو امسح التصفية.',
+                    el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'مسح التصفية', onclick: reset }))
+                : empty('لا توجد عقارات متاحة', 'العروض الجديدة تُضاف من «إضافة عرض» أو من صفحة المشاريع، وتظهر هنا بعد اعتمادها.'));
         }
 
         const total = count === null || count === undefined ? rows.length : count;
         replace(body, [
-            el('div', { class: 'crm-subtle', style: 'margin-bottom:12px', text: countText(total, ['وحدة واحدة', 'وحدتان', 'وحدات', 'وحدة']) }),
+            resultLine(countText(total, ['وحدة واحدة', 'وحدتان', 'وحدات', 'وحدة']), filtered(view) ? reset : null),
             el('div', { class: 'crm-table-wrap' }, table(rows)),
             pager(view.page, total, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
     }
 
+    ready = true;
     await load();
 }
 
 function filtered(view) {
-    return Boolean(view.search || view.district || view.unitType || view.rooms || view.priceMin || view.priceMax || view.commissionMin || view.commissionOrder);
+    return Boolean(view.search || view.district || view.unitType || view.purpose || view.rooms || view.priceMin || view.priceMax
+        || view.commissionMin || view.commissionOrder || !view.availableOnly);
 }
 
 // مفردة تعذّر جلبها لا تقفل المرشّح: يصير الحقل نصاً حراً و ‎ilike‎ بدل المطابقة التامة.

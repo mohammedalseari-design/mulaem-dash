@@ -1,41 +1,40 @@
 // #/calendar — المواعيد والمتابعات القادمة من follow_ups.
+//
+// التصميم السادس «الوسيط» (2026-10-23): نطاق «المعاينات» = المتابعات المعلّقة بقناة «زيارة» من اليوم فصاعداً، وهي
+// مواعيد معاينة العقار مع العميل. «عملي اليوم» يفتح الصفحة عليه مباشرة (presetCalendarScope).
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_TONE, label } from './labels.js';
 import {
-    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash, phoneLinks, pageHead
+    el, replace, loading, empty, errorBox, badge, pager, fmtDateTime, localDayStart, dash, phoneLinks, pageHead, filterChips
 } from './ui.js';
 import { openDoneForm } from './followup-form.js';
 
+const SCOPES = [
+    { value: 'upcoming', label: 'القادمة' },
+    { value: 'today', label: 'اليوم' },
+    { value: 'visits', label: 'المعاينات' },
+    { value: 'overdue', label: 'المتأخرة' },
+    { value: 'done', label: 'المنجزة' }
+];
+
+let presetScope = null;
+export function presetCalendarScope(scope) {
+    presetScope = SCOPES.some((s) => s.value === scope) ? scope : null;
+}
+
 export async function renderCalendar(root) {
-    const view = { page: 0, scope: 'upcoming' };
+    const view = { page: 0, scope: presetScope || 'upcoming' };
+    presetScope = null;
     const body = el('div');
-    const toolbar = el('div', { class: 'crm-toolbar' });
     const names = await staffMap().catch(() => new Map());
+    const chips = filterChips('نطاق المواعيد', SCOPES, view.scope, (value) => { view.scope = value; view.page = 0; load(); });
 
     replace(root, [
-        pageHead('المواعيد', 'كل المتابعات حسب موعدها: القادمة واليوم والمتأخرة والمنجزة.'),
-        el('div', { class: 'crm-card' }, [toolbar, body])
+        pageHead('المواعيد', 'كل المتابعات حسب موعدها: القادمة واليوم والمعاينات والمتأخرة والمنجزة.'),
+        el('div', { class: 'crm-card' }, [el('div', { class: 'crm-toolbar' }, chips.node), body])
     ]);
-
-    const scopes = [
-        ['upcoming', 'القادمة'],
-        ['today', 'اليوم'],
-        ['overdue', 'المتأخرة'],
-        ['done', 'المنجزة']
-    ];
-    for (const [value, text] of scopes) {
-        toolbar.appendChild(el('button', {
-            type: 'button', class: 'btn btn-outline btn-xs' + (value === view.scope ? ' active' : ''), text,
-            onclick: () => { view.scope = value; view.page = 0; refreshButtons(); load(); }
-        }));
-    }
-
-    function refreshButtons() {
-        const buttons = toolbar.querySelectorAll('button');
-        buttons.forEach((button, index) => button.classList.toggle('active', scopes[index][0] === view.scope));
-    }
 
     async function load() {
         replace(body, loading());
@@ -49,6 +48,8 @@ export async function renderCalendar(root) {
             query = query.eq('status', 'pending').gte('due_at', new Date().toISOString()).order('due_at', { ascending: true });
         } else if (view.scope === 'today') {
             query = query.eq('status', 'pending').gte('due_at', localDayStart(0)).lt('due_at', localDayStart(1)).order('due_at', { ascending: true });
+        } else if (view.scope === 'visits') {
+            query = query.eq('status', 'pending').eq('channel', 'visit').gte('due_at', localDayStart(0)).order('due_at', { ascending: true });
         } else if (view.scope === 'overdue') {
             query = query.eq('status', 'pending').lt('due_at', localDayStart(0)).order('due_at', { ascending: true });
         } else {
@@ -57,8 +58,8 @@ export async function renderCalendar(root) {
 
         const { data, error, count } = await query;
         if (!body.isConnected) return;
-        if (error) return void replace(body, errorBox(error, 'تعذّر تحميل المواعيد'));
-        if (!data || data.length === 0) return void replace(body, empty(emptyText(view.scope)));
+        if (error) return void replace(body, errorBox(error, 'تعذّر تحميل المواعيد', load));
+        if (!data || data.length === 0) return void replace(body, empty(emptyText(view.scope), emptyHint(view.scope)));
 
         replace(body, [
             el('div', { class: 'crm-table-wrap' }, table(data, names, load)),
@@ -71,9 +72,17 @@ export async function renderCalendar(root) {
 
 function emptyText(scope) {
     if (scope === 'today') return 'لا توجد مواعيد اليوم';
+    if (scope === 'visits') return 'لا معاينات قادمة';
     if (scope === 'overdue') return 'لا توجد متابعات متأخرة';
     if (scope === 'done') return 'لا توجد متابعات منجزة';
     return 'لا توجد مواعيد قادمة';
+}
+
+function emptyHint(scope) {
+    if (scope === 'visits') return 'موعد المعاينة متابعة بقناة «زيارة»: من ملف العميل ← «المتابعات» ← متابعة جديدة.';
+    if (scope === 'overdue') return 'كل ما فات موعده أُنجز.';
+    if (scope === 'done') return null;
+    return 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.';
 }
 
 function table(rows, names, reload) {
@@ -88,7 +97,7 @@ function table(rows, names, reload) {
             el('td', { text: fmtDateTime(row.due_at) }),
             el('td', {}, el('a', { href: '#/clients/' + row.client_id, text: row.client ? row.client.full_name : 'فتح ملف العميل' })),
             el('td', {}, phoneLinks(row.client && row.client.phone)),
-            el('td', { text: label(CHANNEL, row.channel) }),
+            el('td', {}, row.channel === 'visit' ? badge(label(CHANNEL, row.channel), 'gold') : document.createTextNode(label(CHANNEL, row.channel))),
             el('td', { text: dash(row.purpose) }),
             el('td', { text: staffName(names, row.assigned_to) }),
             el('td', {}, badge(label(FOLLOW_UP_STATUS, row.status), FOLLOW_UP_STATUS_TONE[row.status] || 'neutral')),

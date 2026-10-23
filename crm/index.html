@@ -7,7 +7,7 @@
     <title>ملائم — إدارة العملاء</title>
     <link rel="icon" type="image/jpeg" href="../images/logo.jpg">
 
-    <!-- خط عربي واحد للنظام كله: IBM Plex Sans Arabic -->
+    <!-- خط عربي واحد للنظام كله: IBM Plex Sans Arabic (التصميم السادس يعود إليه وحده: أوضح في الجداول والأرقام) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -17,14 +17,20 @@
     <link rel="stylesheet" href="../css/theme.css">
     <!-- تصميم نظام العمل: قائمة جانبية فاتحة، وألوان هادئة، وصفحة «عملي اليوم» (crm/app.css) -->
     <link rel="stylesheet" href="app.css">
-    <!-- التصميم الخامس «أسهل» (2026-10-22): بطاقات الجوال، وبحث العميل في القائمة الجانبية. يُحمَّل آخر الكل -->
+    <!-- التصميم الخامس «أسهل» (2026-10-22): بطاقات الجوال، وبحث العميل في القائمة الجانبية -->
     <link rel="stylesheet" href="easy.css">
-    <!-- التصميم الخامس: خط Readex Pro وحده، ورق دافئ، شريط علوي -->
-    <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- التصميم الخامس: ورق دافئ، شريط علوي، زر واحد في كل مكان -->
     <link rel="stylesheet" href="v5.css">
+    <!-- التصميم السادس «الوسيط» (2026-10-23): حبر وورق، البحث السريع، أرقام الوسيط، أقسام الطلبات والمطابقات والعمولات. يُحمَّل آخر الكل -->
+    <link rel="stylesheet" href="v6.css">
 </head>
 
 <body>
+    <!-- أول ما يصله Tab: يتخطى الشريط العلوي إلى محتوى الصفحة (app.js: wireSkipLink) -->
+    <button type="button" class="skip-link" id="skipLink">انتقل إلى المحتوى</button>
+    <!-- يظهر حين ينقطع الإنترنت (app.js: wireOffline) -->
+    <div class="offline-bar" id="offlineBar" role="status" hidden>لا يوجد اتصال بالإنترنت — ما تراه قد لا يكون محدّثاً، ولن يُحفظ شيء حتى يعود الاتصال.</div>
+
     <!-- تظهر حتى تُقرأ الجلسة، ثم تُخفى -->
     <div class="loading" id="bootScreen" style="padding-top:90px">جارٍ التحقق من الجلسة</div>
 
@@ -65,9 +71,10 @@
                     </div>
                 </div>
 
-                <!-- بحث سريع عن عميل بالاسم أو الجوال من أي صفحة (app.js يصله بصفحة العملاء). الجوال له بحث صفحة العملاء -->
+                <!-- البحث السريع من أي صفحة: عملاء وعقارات وصفحات (app.js يفتح به palette.js). الجوال له زر البحث في «عملي اليوم» -->
                 <form class="side-search" id="sideSearch" role="search">
-                    <input type="search" id="sideSearchBox" placeholder="ابحث عن عميل…" aria-label="بحث عن عميل بالاسم أو الجوال" autocomplete="off">
+                    <input type="search" id="sideSearchBox" placeholder="ابحث عن عميل أو عقار…" aria-label="بحث سريع في العملاء والعقارات (Ctrl+K)" aria-keyshortcuts="Control+K" autocomplete="off">
+                    <kbd class="side-search-kbd" aria-hidden="true">Ctrl K</kbd>
                 </form>
 
                 <nav class="crm-nav" id="crmNav" aria-label="القائمة الرئيسية"></nav>
@@ -81,7 +88,7 @@
                 </div>
             </aside>
 
-            <main id="view"></main>
+            <main id="view" tabindex="-1"></main>
         </div>
     </div>
 

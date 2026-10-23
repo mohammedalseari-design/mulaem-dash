@@ -51,16 +51,29 @@ export function replace(node, children) {
 /* ===================== حالات الشاشة ===================== */
 
 export function loading(message = 'جارٍ التحميل') {
-    // role=status وaria-busy: قارئ الشاشة يعلن الانتظار، وcss/theme.css يرسم هيكلاً رمادياً مكان المحتوى
+    // role=status وaria-busy: قارئ الشاشة يعلن الانتظار، وcrm/v6.css يرسم أسطراً رمادية مكان المحتوى
     return el('div', { class: 'loading', role: 'status', 'aria-busy': 'true', text: message });
 }
 
-export function empty(message) {
-    return el('div', { class: 'crm-empty', text: message });
+// حالة فارغة: جملة تقول ما الذي لا يوجد، وسطر اختياري يقول ما الذي يُفعل، وإجراء اختياري (زر أو رابط).
+// الاستدعاء القديم empty(نص) يبقى كما كان: النص نفسه هو كل محتوى المربع المقروء.
+export function empty(message, hint = null, action = null) {
+    return el('div', { class: 'crm-empty' + (hint || action ? ' crm-empty-rich' : '') }, [
+        el('span', { class: 'crm-empty-ico', 'aria-hidden': 'true' }, icon('inbox')),
+        el('strong', { class: 'crm-empty-title', text: message }),
+        hint ? el('span', { class: 'crm-empty-hint', text: hint }) : null,
+        action || null
+    ]);
 }
 
-export function errorBox(error, prefix = 'تعذّر تحميل البيانات') {
-    return el('div', { class: 'crm-error', text: prefix + ': ' + errorText(error) });
+// retry: دالة تعيد التحميل، فيظهر بجانب الرسالة زر «إعادة المحاولة» بدل أن يعيد الموظف فتح الصفحة كلها
+export function errorBox(error, prefix = 'تعذّر تحميل البيانات', retry = null) {
+    return el('div', { class: 'crm-error' + (retry ? ' crm-error-retry' : ''), role: 'alert' }, [
+        el('span', { class: 'crm-error-text', text: prefix + ': ' + errorText(error) }),
+        retry ? el('button', {
+            type: 'button', class: 'btn btn-outline btn-xs crm-retry', onclick: retry
+        }, [icon('refresh'), el('span', { text: 'إعادة المحاولة' })]) : null
+    ]);
 }
 
 // رموز Postgres/PostgREST الشائعة: رسالة الخادم بالإنجليزية ولا تفيد المستخدم،
@@ -74,10 +87,29 @@ const CODE_AR = {
     '23514': 'قيمة مرفوضة: تخالف قاعدة في قاعدة البيانات'
 };
 
+// رسائل الشبكة والجلسة كما يكتبها المتصفح وsupabase-js بالإنجليزية: تُقال للموظف بالعربية مع ما يفعله
+const NETWORK_RE = /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet|err_network/i;
+const TIMEOUT_RE = /timeout|timed out|57014/i;
+const SESSION_RE = /jwt expired|invalid jwt|jwt malformed|refresh token/i;
+
 export function errorText(error) {
     if (!error) return 'خطأ غير معروف';
     if (error.code && CODE_AR[error.code]) return CODE_AR[error.code];
-    return error.message || error.error_description || error.details || error.hint || String(error);
+    const raw = String(error.message || error.error_description || error.details || error.hint || error);
+    if ((typeof navigator !== 'undefined' && navigator.onLine === false) || NETWORK_RE.test(raw)) {
+        return 'لا يوجد اتصال بالخادم. تحقق من الإنترنت ثم أعد المحاولة';
+    }
+    if (error.code === 'PGRST301' || SESSION_RE.test(raw)) return 'انتهت الجلسة. أعد تحميل الصفحة وسجّل الدخول من جديد';
+    if (error.code === '57014' || TIMEOUT_RE.test(raw)) return 'استغرق الطلب وقتاً أطول من المعتاد. أعد المحاولة بعد لحظات';
+    if (error.status === 429 || /rate limit/i.test(raw)) return 'طلبات كثيرة في وقت قصير. انتظر قليلاً ثم أعد المحاولة';
+    return raw;
+}
+
+// جدول أو عرض غير موجود في قاعدة البيانات الحالية (ترحيل لم يُطبَّق بعد): الصفحة تعود إلى المصدر الأقدم بدل الخطأ
+export function isMissingRelation(error) {
+    if (!error) return false;
+    return error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST200'
+        || /does not exist|could not find the table|schema cache/i.test(String(error.message || ''));
 }
 
 /* ===================== التنبيهات ===================== */
@@ -158,18 +190,26 @@ export function wireFileDrop() {
 /* ===================== النافذة المنبثقة ===================== */
 
 let onModalClose = null;
+// العنصر الذي فتح النافذة: يعود إليه التركيز عند إغلاقها، فلا يبدأ مستخدم لوحة المفاتيح من أول الصفحة
+let modalOpener = null;
 
 export function openModal(title, body, options = {}) {
     const holder = document.getElementById('modalContent');
+    const modal = document.getElementById('modal');
+    if (!modal.classList.contains('active')) modalOpener = document.activeElement;
     holder.className = 'modal-content' + (options.narrow ? ' modal-narrow' : '');
+    holder.setAttribute('role', 'dialog');
+    holder.setAttribute('aria-modal', 'true');
+    holder.setAttribute('aria-labelledby', 'crmModalTitle');
     clear(holder);
     holder.appendChild(el('button', { type: 'button', class: 'modal-close', title: 'إغلاق', 'aria-label': 'إغلاق', text: '×', onclick: closeModal }));
-    holder.appendChild(el('h2', { class: 'crm-modal-title', text: title }));
+    holder.appendChild(el('h2', { class: 'crm-modal-title', id: 'crmModalTitle', text: title }));
     append(holder, body);
     onModalClose = options.onClose || null;
-    document.getElementById('modal').classList.add('active');
-    const firstField = holder.querySelector('input, select, textarea');
+    modal.classList.add('active');
+    const firstField = holder.querySelector('input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
     if (firstField) firstField.focus();
+    else holder.querySelector('.modal-close').focus();
 }
 
 export function closeModal() {
@@ -179,13 +219,28 @@ export function closeModal() {
     clear(document.getElementById('modalContent'));
     const cb = onModalClose;
     onModalClose = null;
+    const opener = modalOpener;
+    modalOpener = null;
     if (cb) cb();
+    if (opener && opener.isConnected && typeof opener.focus === 'function' && !modal.classList.contains('active')) opener.focus();
 }
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function initModal() {
     const modal = document.getElementById('modal');
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+    // Tab يدور داخل النافذة المفتوحة ولا يخرج إلى الصفحة التي خلفها
+    modal.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab' || !modal.classList.contains('active')) return;
+        const items = Array.from(modal.querySelectorAll(FOCUSABLE)).filter((n) => n.offsetParent !== null);
+        if (!items.length) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
 }
 
 /* ===================== عناصر النماذج ===================== */
@@ -423,6 +478,17 @@ const ICON_PATHS = {
     sun: ['M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z', 'M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4'],
     logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
     help: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7', 'M12 17h.01'],
+    // التصميم السادس: البحث السريع، وإعادة المحاولة، والطلبات والمطابقات والعمولات، وانقطاع الاتصال
+    search: ['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z', 'M21 21l-4.3-4.3'],
+    refresh: ['M21 12a9 9 0 1 1-2.6-6.4', 'M21 4v5h-5'],
+    plus: ['M12 5v14M5 12h14'],
+    close: ['M18 6L6 18M6 6l12 12'],
+    file: ['M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z', 'M14 3v5h5', 'M9 13h6M9 17h4'],
+    target: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M12 12h.01'],
+    wallet: ['M4 7a2 2 0 0 1 2-2h12v4', 'M4 7v11a2 2 0 0 0 2 2h14V9H6a2 2 0 0 1-2-2z', 'M16 14.5h.01'],
+    key: ['M15 9a3 3 0 1 0 0-.01', 'M13 11l-9 9', 'M7 17l2 2M9 15l2 2'],
+    offline: ['M2 2l20 20', 'M8.5 16.4a5 5 0 0 1 7 0', 'M5 12.6a10 10 0 0 1 4.7-2.5', 'M2 8.8a15 15 0 0 1 4-2.6', 'M22 8.8A15 15 0 0 0 11 5', 'M19 12.6a10 10 0 0 0-1.7-1.3', 'M12 20h.01'],
+    enter: ['M9 10l-5 5 5 5', 'M20 4v7a4 4 0 0 1-4 4H4'],
     settings: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z']
 };
 
@@ -462,4 +528,65 @@ export function actionBtn(text, iconName, attrs = {}, primary = false) {
         class: 'btn ' + (primary ? 'btn-primary' : 'btn-outline') + ' w4-qbtn',
         type: tag === 'button' ? 'button' : null
     }, attrs), [iconName ? icon(iconName) : null, el('span', { text: text })]);
+}
+
+/* ===================== التصميم السادس «الوسيط»: تبويبات ومرشّحات مشتركة ===================== */
+
+// تبويبات تحت رأس الصفحة، كل تبويب رابط لمساره (العملاء | الطلبات | المطابقات، الصفقات | العمولات).
+// الحالي يُعلَّم aria-current، فقارئ الشاشة يعرف أين هو والضغط عليه لا يعيد شيئاً.
+export function subTabs(label, items, current) {
+    return el('nav', { class: 'sub-tabs', 'aria-label': label }, items.map((item) => el('a', {
+        class: 'sub-tab' + (item.hash === current ? ' on' : ''),
+        href: item.hash,
+        'aria-current': item.hash === current ? 'page' : null
+    }, [item.icon ? icon(item.icon) : null, el('span', { text: item.label })])));
+}
+
+// أزرار تصفية متجاورة (حبّات): واحد فقط مضغوط. items: [{ value, label }]. setCount يكتب العدد بجانب الاسم
+// بعد وصوله من الخادم، فتظهر الحبّات فوراً ولا تنتظر العدّ.
+export function filterChips(label, items, value, onChange) {
+    const buttons = new Map();
+    const node = el('div', { class: 'f-chips', role: 'group', 'aria-label': label }, items.map((item) => {
+        const count = el('span', { class: 'f-chip-count', hidden: true });
+        const button = el('button', {
+            type: 'button', class: 'f-chip', 'aria-pressed': String(item.value) === String(value) ? 'true' : 'false',
+            onclick: () => { set(item.value); onChange(item.value); }
+        }, [el('span', { text: item.label }), count]);
+        buttons.set(String(item.value), { button, count });
+        return button;
+    }));
+    function set(next) {
+        for (const [key, b] of buttons) b.button.setAttribute('aria-pressed', key === String(next) ? 'true' : 'false');
+    }
+    function setCount(key, n) {
+        const b = buttons.get(String(key));
+        if (!b) return;
+        b.count.textContent = number(n);
+        b.count.hidden = n === null || n === undefined;
+    }
+    return { node, set, setCount };
+}
+
+// سطر النتائج فوق الجدول: العدد بصيغته العربية، و«مسح التصفية» حين يكون هناك ما يُمسح.
+// aria-live: قارئ الشاشة يعلن العدد الجديد بعد كل تصفية.
+export function resultLine(text, onReset) {
+    return el('div', { class: 'result-line', 'aria-live': 'polite' }, [
+        el('span', { class: 'result-count', text: text }),
+        onReset ? el('button', { type: 'button', class: 'link-btn result-reset', onclick: onReset }, [icon('close'), el('span', { text: 'مسح التصفية' })]) : null
+    ]);
+}
+
+// تأريخ نسبي قصير للمواعيد القادمة: «اليوم»، «غداً»، ثم اسم اليوم والتاريخ
+const FMT_DAY = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'short' });
+export function dayText(iso) {
+    if (!iso) return DASH;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return DASH;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const day = new Date(d); day.setHours(0, 0, 0, 0);
+    const diff = Math.round((day - start) / 86400000);
+    if (diff === 0) return 'اليوم';
+    if (diff === 1) return 'غداً';
+    if (diff === -1) return 'أمس';
+    return FMT_DAY.format(d);
 }

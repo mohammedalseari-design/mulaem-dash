@@ -20,12 +20,32 @@ export const CLIENT_TYPE = {
     invest: 'استثمار'
 };
 
+// أسماء الفئات في مرشّحات القائمة (التصميم السادس): من يشتري ومن يستأجر ومن يملك ويبيع ومن يستثمر
+export const CLIENT_TYPE_GROUP = {
+    buy: 'مشترون',
+    rent: 'مستأجرون',
+    sell: 'ملاك وبائعون',
+    invest: 'مستثمرون'
+};
+
 // source نص حر في قاعدة البيانات؛ هذه القيم المقترحة في التصميم
 export const CLIENT_SOURCES = ['إعلان', 'توصية', 'اتصال', 'معرض', 'موقع', 'واتساب', 'أخرى'];
 
 export const PURPOSE = {
     sale: 'بيع',
     rent: 'إيجار'
+};
+
+// غرض الطلب بلسان الوسيط: طلب على عقار «للبيع» يعني أن العميل يريد الشراء
+export const REQUEST_PURPOSE = {
+    sale: 'شراء',
+    rent: 'إيجار'
+};
+
+// غرض العقار المعروض (projects.purpose و v_units.purpose)
+export const LISTING_PURPOSE = {
+    sale: 'للبيع',
+    rent: 'للإيجار'
 };
 
 export const REQ_STATUS = {

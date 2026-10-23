@@ -1,0 +1,974 @@
+/* ملائم — التصميم السادس «الوسيط» (2026-10-23). يُحمَّل آخر ملف أنماط في crm/index.html وprojects.html، بعد v5.css.
+   طلب المالك: لوحة تناسب عمل الوسيط العقاري بجودة تجربة «zed-creative»: حبر على ورق، خط واحد واضح، أرقام تقول ما
+   يحتاج عملاً، وبحث سريع من أي مكان. القواعد الثابتة من التصاميم السابقة باقية: لا زخارف ولا شريط داكن كبير، خط
+   عربي واحد (IBM Plex Sans Arabic: أوضح في الجداول والأرقام من Readex Pro)، اللون يحمل معنى فقط (أحمر للمتأخر،
+   كهرماني لما حان أو لم يُحصَّل، أخضر لـ«تم»)، ولون الشعار للإجراء الرئيسي، وزر رئيسي واحد في كل رأس صفحة.
+   الزعفراني من zed-creative خيط رفيع فقط: يدل على الصفحة الحالية في الشريط العلوي وشريط الجوال.
+   كل نص ملوّن هنا فُحص تباينه ≥ 4.5:1 على خلفيته في الوضعين، والخطوط غير النصية ≥ 3:1. */
+
+/* ===================== المتغيرات ===================== */
+
+:root {
+    --font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, system-ui, sans-serif;
+
+    --bg: #f5f2eb;
+    --surface: #fffefb;
+    --surface-2: #faf8f3;
+    --hover: #f2eee6;
+    --ink: #15201c;
+    --ink-2: #3a4541;
+    --muted: #5d6762;
+    --line: #e7e1d6;
+    --line-2: #d5cdbf;
+
+    --brand: #1b5b62;
+    --brand-hover: #144a50;
+    --brand-soft: #e3eeed;
+    --brand-ink: #185860;
+    --on-brand: #ffffff;
+
+    --saffron: #b07a10;
+    --saffron-soft: #f7ecd5;
+
+    --danger: #b3261e;
+    --danger-soft: #fbeeec;
+    --danger-line: #f1c7c2;
+    --amber: #8f5410;
+    --amber-soft: #fbf1e1;
+    --ok: #0b7553;
+    --ok-soft: #e5f3ec;
+    --done: #0b7553;
+    --done-hover: #095f43;
+
+    --r-xl: 18px;
+    --r-lg: 14px;
+    --r-md: 10px;
+    --r-sm: 8px;
+    --ring: 0 0 0 3px rgba(27, 91, 98, 0.22);
+    --shadow-pop: 0 24px 60px -18px rgba(16, 28, 24, 0.36), 0 2px 6px rgba(16, 28, 24, 0.06);
+    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+body.crm-dark {
+    --bg: #0e1412;
+    --surface: #151c19;
+    --surface-2: #19211e;
+    --hover: #1f2824;
+    --ink: #ece8de;
+    --ink-2: #c9cdc5;
+    --muted: #a2a9a2;
+    --line: rgba(236, 232, 222, 0.1);
+    --line-2: rgba(236, 232, 222, 0.18);
+
+    --brand: #8ccac9;
+    --brand-hover: #a6d7d6;
+    --brand-soft: rgba(140, 202, 201, 0.13);
+    --brand-ink: #8ccac9;
+    --on-brand: #0d2224;
+
+    --saffron: #e6b04c;
+    --saffron-soft: rgba(230, 176, 76, 0.14);
+
+    --danger: #f2a094;
+    --danger-soft: rgba(242, 160, 148, 0.12);
+    --danger-line: rgba(242, 160, 148, 0.32);
+    --amber: #e8b770;
+    --amber-soft: rgba(232, 183, 112, 0.12);
+    --ok: #82d6b1;
+    --ok-soft: rgba(130, 214, 177, 0.12);
+    --done: #2f9a74;
+    --done-hover: #3bb087;
+
+    --ring: 0 0 0 3px rgba(140, 202, 201, 0.28);
+    --shadow-pop: 0 24px 60px -18px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* ===================== الأساس ===================== */
+
+body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+h1, h2, h3 { letter-spacing: 0; }
+.num, .crm-table td.num, .w4-time strong, .count-pill, .kpi-num, .pipe-n, .f-chip-count { font-variant-numeric: tabular-nums; }
+
+/* التركيز من لوحة المفاتيح ظاهر دائماً بلون الشعار؛ الحقول لها حلقتها الخاصة */
+:where(a, button, summary, [tabindex], .f-chip, .kpi-link):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+/* «انتقل إلى المحتوى»: مخفي حتى يصله Tab */
+.skip-link {
+    position: fixed;
+    top: 10px;
+    inset-inline-start: 12px;
+    z-index: 1300;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--brand);
+    color: var(--on-brand);
+    font: 600 0.9rem var(--font);
+    cursor: pointer;
+    transform: translateY(-180%);
+    transition: transform 0.15s var(--ease);
+}
+.skip-link:focus, .skip-link:focus-visible { transform: none; outline: 2px solid var(--saffron); outline-offset: 2px; }
+body:has(#loginScreen:not(.crm-hidden)) .skip-link { display: none; }
+
+/* شريط انقطاع الإنترنت: فوق كل شيء، أسفل الشاشة، ولا يغطي الشريط السفلي على الجوال */
+.offline-bar {
+    position: fixed;
+    inset-inline: 16px;
+    bottom: 16px;
+    z-index: 95;
+    max-width: 620px;
+    margin-inline: auto;
+    padding: 10px 16px;
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    background: var(--amber-soft);
+    color: var(--amber);
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: var(--shadow-pop);
+}
+.offline-bar[hidden] { display: none; }
+@media (max-width: 700px) {
+    .offline-bar { bottom: calc(80px + env(safe-area-inset-bottom)); inset-inline: 10px; }
+}
+
+/* ===================== الشريط العلوي (الكمبيوتر) ===================== */
+
+@media (min-width: 701px) {
+    .side { gap: 18px; background: var(--surface); }
+    .side-name strong { font-weight: 700; }
+    .side .crm-nav a { color: var(--ink-2); font-weight: 500; }
+    .side .crm-nav a:hover { color: var(--ink); }
+    .side .crm-nav a.active { color: var(--ink); font-weight: 600; }
+    /* الصفحة الحالية: خيط زعفراني تحت اسمها */
+    .side .crm-nav a.active::after { height: 3px; inset-inline: 10px; background: var(--saffron); }
+
+    /* حقل البحث باب البحث السريع: عدسة، والنص، واختصار لوحة المفاتيح في طرفه */
+    .side-search { position: relative; width: 260px; flex: 0 1 260px; }
+    .side-search input {
+        min-height: 38px;
+        padding-inline-end: 64px;
+        border: 1px solid var(--line-2);
+        background: var(--surface-2);
+        cursor: text;
+    }
+    .side-search input:hover { border-color: var(--brand); }
+    /* العدسة أيقونة SVG داخل النموذج (app.js)؛ عدسة css/theme.css الخلفية كانت تتراكب معها */
+    .side-search input[type=search] { background-image: none; }
+    .side-search-ico { width: 17px; height: 17px; }
+    .side-search-kbd {
+        position: absolute;
+        inset-inline-end: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+    }
+}
+/* اللوحي: الحقل يصير دائرة بعدسة (كان مخفياً في التصميم الخامس) */
+@media (min-width: 701px) and (max-width: 1100px) {
+    .side-search { display: block; order: 3; flex: 0 0 40px; width: 40px; margin-inline-start: auto; }
+    .side-search input { width: 40px; min-height: 40px; padding: 0 !important; color: transparent; cursor: pointer; }
+    .side-search input::placeholder { color: transparent; }
+    .side-search-ico { inset-inline-start: 11px; }
+    .side-search-kbd { display: none; }
+}
+
+/* بلا direction: ltr — مواضع inset-inline تُحسب باتجاه العنصر نفسه، فكان «Ctrl K» ينتقل إلى بداية الحقل فوق العدسة */
+kbd, .side-search-kbd, .pal-foot kbd {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 6px;
+    border: 1px solid var(--line-2);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font: 600 0.7rem/1.5 var(--font);
+    text-align: center;
+    unicode-bidi: isolate;
+}
+
+/* ===================== رأس الصفحة والأقسام ===================== */
+
+@media (min-width: 701px) {
+    .w4-title h1 { font-size: 1.75rem; font-weight: 600; }
+}
+.w4-sub { color: var(--muted); }
+
+/* تبويبات الأقسام تحت رأس الصفحة (ui.js: subTabs) — روابط، والحالي بخط بلون الشعار */
+.sub-tabs {
+    display: flex;
+    gap: 2px;
+    margin: -4px 0 16px;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.sub-tabs::-webkit-scrollbar { display: none; }
+.sub-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    padding: 10px 14px 11px;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.sub-tab .ico { width: 17px; height: 17px; }
+.sub-tab:hover { color: var(--ink); }
+.sub-tab.on { color: var(--brand-ink); font-weight: 600; }
+.sub-tab.on::after {
+    content: '';
+    position: absolute;
+    inset-inline: 10px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--brand);
+}
+
+/* ===================== البطاقات والجداول ===================== */
+
+.crm-card { border-color: var(--line); background: var(--surface); }
+.crm-table th, .users-table th { color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
+.crm-table td, .users-table td { vertical-align: middle; }
+.crm-table tr.clickable { cursor: pointer; }
+.crm-table tr.clickable:hover > td { background: var(--hover); }
+
+/* الاسم وسطره الصغير تحته (العميل ونوعه، الصفقة وعقارها) */
+.cl-name { display: grid; gap: 1px; min-width: 0; }
+.cl-name > strong, .cl-name > a { color: var(--ink); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.cl-name > a:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.cl-type { color: var(--muted); font-size: 0.8rem; }
+.cl-type:empty { display: none; }
+
+.count-pill {
+    display: inline-grid;
+    place-items: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.fu-when { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; font-size: 0.88rem; }
+.fu-time { color: var(--muted); }
+.fu-when.fu-late { color: var(--danger); font-weight: 600; }
+.fu-flag { padding: 0 7px; border-radius: 999px; background: var(--danger-soft); color: var(--danger); font-size: 0.72rem; font-weight: 700; }
+
+.req-what { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.req-what strong { font-weight: 600; }
+.score-tag { font-size: 0.82rem; font-weight: 600; }
+.score-green { color: var(--ok); }
+.score-gold { color: var(--amber); }
+.score-neutral { color: var(--muted); }
+.k-remaining.is-due { color: var(--amber); font-weight: 700; }
+.r-budget { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.badge { font-size: 0.78rem; padding: 2px 9px; }
+
+/* ===================== المرشّحات وسطر النتائج ===================== */
+
+.crm-toolbar input:not([type=checkbox]):not([type=radio]), .crm-toolbar select,
+.form-group input:not([type=checkbox]):not([type=radio]):not([type=file]), .form-group select, .form-group textarea {
+    min-height: 42px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font);
+}
+.crm-toolbar input:not([type=checkbox]):not([type=radio]):focus, .crm-toolbar select:focus,
+.form-group input:not([type=checkbox]):not([type=radio]):focus, .form-group select:focus, .form-group textarea:focus {
+    outline: 0;
+    border-color: var(--brand);
+    box-shadow: var(--ring);
+}
+/* حبّة «المتاح فقط» في العقارات: مربع الاختيار بحجمه، فلا تنتفخ الحبّة إلى ارتفاع الحقول */
+.crm-toolbar .chip { min-height: 36px; padding: 4px 12px; border-radius: 999px; gap: 7px; }
+.crm-toolbar .chip input[type=checkbox] { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; accent-color: var(--brand); }
+.form-group input:user-invalid, .form-group select:user-invalid, .form-group textarea:user-invalid {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-soft);
+}
+.form-group label { color: var(--ink-2); font-size: 0.86rem; font-weight: 600; }
+.form-group .hint { color: var(--muted); font-size: 0.8rem; }
+::placeholder { color: var(--muted); opacity: 1; }
+
+/* حبّات التصفية (ui.js: filterChips): واحدة مضغوطة، وبجانب كل اسم عدده */
+.f-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 12px; }
+.f-row > .f-chips { margin: 0; }
+/* مجموعتا حبّات في سطر واحد (الغرض | الحالة): خط رفيع بينهما */
+.f-row > .f-chips + .f-chips { padding-inline-start: 16px; border-inline-start: 1px solid var(--line-2); }
+.f-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.f-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 4px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font: 500 0.86rem var(--font);
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.f-chip:hover { border-color: var(--brand); color: var(--ink); }
+.f-chip[aria-pressed="true"] {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--brand);
+}
+.f-chip-count {
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-align: center;
+}
+.f-chip-count[hidden] { display: none; }
+.f-chip[aria-pressed="true"] .f-chip-count { background: var(--surface); color: var(--brand-ink); }
+
+.result-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 10px; color: var(--muted); font-size: 0.86rem; }
+.result-count { font-weight: 500; }
+.link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--brand-ink);
+    font: 600 0.84rem var(--font);
+    text-decoration: none;
+    cursor: pointer;
+}
+.link-btn:hover { background: var(--brand-soft); }
+.link-btn .ico { width: 14px; height: 14px; }
+
+/* ===================== الأرقام (عملي اليوم، العمولات) ===================== */
+/* خطوط رفيعة بين الخانات من خلفية الشبكة نفسها (gap 1px)، فتبقى صحيحة مهما التفّت الخانات */
+
+.kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--line);
+    overflow: hidden;
+}
+.kpi-strip-3 { --cols: 3; }
+.crm-view > .kpi-strip { margin-bottom: 16px; }
+.kpi-strip-4 { --cols: 4; }
+.kpi-strip-5 { --cols: 5; }
+.kpi-strip-6 { --cols: 6; }
+.kpi-strip > .loading, .kpi-strip > .crm-error { grid-column: 1 / -1; margin: 0; border-radius: 0; background: var(--surface); }
+.kpi-strip > .crm-error { background: var(--danger-soft); }
+.kpi {
+    position: relative;
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 0;
+    padding: 14px 18px 13px;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    text-align: start;
+    text-decoration: none;
+}
+.kpi-link { cursor: pointer; transition: background-color 0.15s; }
+.kpi-link:hover { background: var(--hover); }
+.kpi-link:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.kpi-label { color: var(--ink-2); font-size: 0.84rem; font-weight: 500; }
+.kpi-num {
+    color: var(--ink);
+    font-size: 1.8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.kpi-unit { margin-inline-start: 5px; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.kpi-sub { min-height: 1.3em; color: var(--muted); font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-sub-late { color: var(--danger); font-weight: 600; }
+/* المعنى بلون الرقم وخيط أعلى الخانة، لا بخلفية ملونة */
+.kpi-late .kpi-num, .kpi-late .kpi-label { color: var(--danger); }
+.kpi-late::before, .kpi-due::before {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 3px;
+    background: var(--danger);
+}
+.kpi-due .kpi-num { color: var(--amber); }
+.kpi-due::before { background: var(--amber); }
+.kpi-failed .kpi-num { color: var(--muted); }
+.kpi.is-loading .kpi-num {
+    width: 56%;
+    color: transparent;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--hover) 0%, var(--surface-2) 50%, var(--hover) 100%);
+    background-size: 200% 100%;
+    animation: v6-shimmer 1.3s ease-in-out infinite;
+}
+
+@media (max-width: 1100px) {
+    .kpi-strip-6 { --cols: 3; }
+    .kpi-strip-5 { --cols: 3; }
+}
+
+/* ===================== «عملي اليوم» ===================== */
+
+.w6 { gap: 16px; }
+/* زر البحث للجوال وحده (الكمبيوتر له حقل الشريط العلوي) */
+.work-search { display: none; }
+.w6 .w4-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1080px) { .w6 .w4-board { grid-template-columns: minmax(0, 1fr); } }
+
+.w4-panel-head h2 .ico { width: 18px; height: 18px; }
+.w4-panel-visits .w4-panel-head h2 .ico { color: var(--amber); }
+.w4-badge-visit { background: var(--amber-soft); color: var(--amber); }
+.w4-row-visit { grid-template-columns: 104px minmax(0, 1fr) auto; }
+.w4-row-visit .w4-time strong { font-size: 0.88rem; white-space: normal; line-height: 1.35; }
+
+/* الصفقة والطلب: السطر كله رابط، بلا أزرار (زر واحد في كل مكان) */
+.w4-row-deal { display: block; padding: 0; }
+.w4-row-link {
+    display: grid;
+    gap: 1px;
+    padding: 11px 16px;
+    color: inherit;
+    text-decoration: none;
+}
+.w4-row-link:hover { background: var(--hover); }
+.w4-row-link:hover .w4-name { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.w4-row-link .w4-top { justify-content: space-between; }
+.w4-meta .is-late { color: var(--danger); font-weight: 600; }
+
+/* «و3 معاينات أخرى»: سطر في آخر اللوحة يفتح الصفحة الكاملة */
+.w4-more {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    color: var(--brand-ink);
+    font-size: 0.86rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.w4-more:hover { background: var(--hover); }
+.w4-more .ico { width: 16px; height: 16px; }
+
+/* ===================== حالات الشاشة ===================== */
+
+/* التحميل: الجملة باهتة صغيرة وتحتها سطر رمادي يلمع، بدل دائرة دوّارة */
+.loading {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    justify-items: start;
+    padding: 18px 16px;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-align: start;
+}
+.loading::after {
+    content: '';
+    display: block;
+    width: min(420px, 72%);
+    height: 12px;
+    margin: 0;
+    border: 0;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--hover) 0%, var(--surface-2) 50%, var(--hover) 100%);
+    background-size: 200% 100%;
+    animation: v6-shimmer 1.3s ease-in-out infinite;
+}
+#bootScreen.loading { justify-items: center; text-align: center; font-size: 0.95rem; }
+#bootScreen.loading::after { width: 180px; height: 4px; }
+
+.crm-empty {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    padding: 36px 16px;
+    color: var(--muted);
+    font-weight: 400;
+    text-align: center;
+}
+.crm-empty-ico {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    margin-bottom: 2px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--muted);
+}
+.crm-empty-ico .ico { width: 20px; height: 20px; }
+.crm-empty-title { color: var(--ink); font-size: 0.98rem; font-weight: 600; }
+.crm-empty-hint { max-width: 48ch; font-size: 0.88rem; line-height: 1.75; }
+.crm-empty > .btn { margin-top: 6px; text-decoration: none; }
+
+.crm-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--danger-line);
+    border-radius: 12px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-weight: 500;
+    line-height: 1.6;
+}
+.crm-retry { flex: 0 0 auto; gap: 6px; background: var(--surface); border-color: var(--danger-line); color: var(--danger); }
+.crm-retry:hover:not(:disabled) { background: var(--surface); border-color: var(--danger); color: var(--danger); }
+.crm-retry .ico { width: 15px; height: 15px; }
+
+/* الإشعار: بطاقة صغيرة أسفل الشاشة، والمعنى بخط ملون في طرفها */
+#notification.notification {
+    top: auto;
+    bottom: 24px;
+    left: auto;
+    right: auto;
+    inset-inline-start: 24px;
+    transform: none;
+    max-width: min(440px, calc(100vw - 32px));
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-inline-start: 4px solid var(--brand);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 500;
+    line-height: 1.6;
+    box-shadow: var(--shadow-pop);
+    animation: v6-toast 0.22s var(--ease);
+}
+#notification.notification.success { border-inline-start-color: var(--ok); color: var(--ink); }
+#notification.notification.error { border-inline-start-color: var(--danger); color: var(--danger); }
+#notification.notification.info { border-inline-start-color: var(--brand); color: var(--ink); }
+@media (max-width: 700px) {
+    #notification.notification { inset-inline: 12px; bottom: calc(80px + env(safe-area-inset-bottom)); max-width: none; }
+}
+
+/* ===================== النافذة (CRM فقط: #modal) ===================== */
+
+#modal.modal { background: rgba(14, 20, 18, 0.46); backdrop-filter: blur(3px); }
+#modal .modal-content {
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    background: var(--surface);
+    box-shadow: var(--shadow-pop);
+    padding: 24px 26px;
+}
+#modal.active .modal-content { animation: v6-pop 0.2s var(--ease); }
+#modal .modal-content h2.crm-modal-title { font-size: 1.18rem; font-weight: 700; color: var(--ink); }
+#modal .modal-close { width: 36px; height: 36px; border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 1.4rem; }
+#modal .modal-close:hover { background: var(--hover); color: var(--ink); }
+@media (max-width: 700px) {
+    #modal .modal-content { padding: 22px 16px calc(20px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; border-bottom: 0; }
+    /* مقبض صغير أعلى النافذة الصاعدة: يقول إنها ورقة فوق الصفحة */
+    #modal .modal-content::before {
+        content: '';
+        display: block;
+        width: 38px;
+        height: 4px;
+        margin: -10px auto 12px;
+        border-radius: 4px;
+        background: var(--line-2);
+    }
+}
+
+/* ===================== البحث السريع (palette.js) ===================== */
+
+body.pal-open { overflow: hidden; }
+.pal-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 11vh 16px 16px;
+    background: rgba(14, 20, 18, 0.42);
+    backdrop-filter: blur(2px);
+}
+.pal-scrim[hidden] { display: none; }
+.pal {
+    display: flex;
+    flex-direction: column;
+    width: min(640px, 100%);
+    max-height: min(580px, 78vh);
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--shadow-pop);
+    animation: v6-pop 0.18s var(--ease);
+}
+.pal-field { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.pal-ico { flex: none; width: 20px; height: 20px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pal-input {
+    flex: 1;
+    min-width: 0;
+    height: 56px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ink);
+    font: 500 1.02rem var(--font);
+}
+.pal-input::-webkit-search-cancel-button { display: none; }
+/* css/theme.css يضع عدسة وحاشية لكل حقل بحث (padding-inline-start بـ !important): حقل النافذة له عدسته وإطارها */
+.pal .pal-input,
+.pal .pal-input:focus,
+.pal .pal-input:focus-visible {
+    border: 0 !important;
+    border-radius: 0;
+    box-shadow: none !important;
+    outline: 0 !important;
+    background: transparent none !important;
+    padding-inline-start: 0 !important;
+}
+.pal-close {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    cursor: pointer;
+}
+.pal-close:hover { background: var(--hover); color: var(--ink); }
+.pal-close .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.pal-status { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: 0.8rem; }
+.pal-status:empty { display: none; }
+.pal-list { flex: 1; margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
+.pal-group { padding: 10px 12px 4px; color: var(--muted); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.02em; }
+.pal-opt {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+.pal-opt.on { background: var(--brand-soft); }
+.pal-opt-ico {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+}
+.pal-opt-ico .ico { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pal-opt.on .pal-opt-ico { border-color: transparent; background: var(--surface); color: var(--brand-ink); }
+.pal-opt-text { display: grid; min-width: 0; }
+.pal-opt-text strong { overflow: hidden; color: var(--ink); font-size: 0.95rem; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.pal-opt-meta { overflow: hidden; color: var(--muted); font-size: 0.8rem; white-space: nowrap; text-overflow: ellipsis; }
+.pal-opt-hint { color: var(--muted); font-size: 0.74rem; white-space: nowrap; }
+.pal-more .pal-opt-text strong { color: var(--brand-ink); }
+.pal-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 8px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 0.76rem;
+}
+.pal-foot span { margin-inline-end: 10px; }
+@media (max-width: 700px) {
+    .pal-scrim { align-items: stretch; padding: 0; }
+    .pal { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; }
+    .pal-input { height: 58px; font-size: 16px; }
+    .pal-foot { display: none; }
+    .pal-opt { min-height: 52px; }
+}
+
+/* ===================== الصفقات: شريط المراحل ===================== */
+
+.pipe {
+    margin-bottom: 16px;
+    padding: 14px 18px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+}
+.pipe-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.pipe-head h2 { margin: 0; color: var(--ink); font-size: 1rem; font-weight: 600; }
+.pipe-total { color: var(--muted); font-size: 0.86rem; }
+.pipe-bar {
+    display: flex;
+    gap: 3px;
+    height: 10px;
+    margin: 12px 0 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+.pipe-seg { min-width: 0; background: var(--brand); opacity: var(--k, 1); transition: flex-grow 0.45s var(--ease); }
+.pipe-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 0; padding: 0; list-style: none; }
+.pipe-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 34px;
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font: 500 0.86rem var(--font);
+    cursor: pointer;
+}
+.pipe-key:hover { border-color: var(--brand); color: var(--ink); }
+.pipe-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); opacity: var(--k, 1); }
+.pipe-n { color: var(--ink); font-weight: 700; }
+.deal-col { scroll-margin: 16px; }
+.deal-col.flash { animation: v6-flash 1.4s var(--ease); }
+.deal-card.deal-late { border-color: var(--danger-line); }
+.deal-due-late { color: var(--danger); font-size: 0.82rem; font-weight: 600; }
+
+/* ===================== «كيف أبدأ؟»: سطر البحث السريع ===================== */
+
+.help-tip { max-width: 720px; margin-bottom: 8px; background: var(--surface-2); }
+.help-tip h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: 1rem; font-weight: 600; }
+.help-tip h2 .ico { width: 18px; height: 18px; color: var(--brand-ink); }
+.help-tip p { margin: 0; color: var(--ink-2); line-height: 1.8; }
+
+/* ===================== لوحة الإدارة: الأرقام شريط واحد ===================== */
+
+.dashboard-shell .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--line);
+    overflow: hidden;
+}
+.dashboard-shell .stat-card { border: 0; border-radius: 0; background: var(--surface); box-shadow: none; padding: 14px 16px; }
+.dashboard-shell .stat-card h3 { font-size: 1.5rem; font-weight: 600; }
+.dashboard-shell .stat-card p { color: var(--ink-2); font-size: 0.8rem; font-weight: 500; }
+
+/* ===================== الجوال ===================== */
+
+@media (max-width: 700px) {
+    /* البحث السريع أول «عملي اليوم» */
+    .work-search {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 46px;
+        padding: 0 14px;
+        border: 1px solid var(--line-2);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--muted);
+        font: 500 0.95rem var(--font);
+        text-align: start;
+        cursor: pointer;
+    }
+    .work-search .ico { width: 18px; height: 18px; flex: none; }
+
+    /* الأرقام: ثلاثة في الصف بلا سطر شرح (يكفي الرقم واسمه)، واثنان على أضيق الجوالات */
+    .kpi-strip-6, .kpi-strip-5 { --cols: 3; }
+    .kpi-strip-4 { --cols: 2; }
+    .kpi-strip-3 { --cols: 1; }
+    .kpi { padding: 10px 12px; }
+    .kpi-label { font-size: 0.76rem; line-height: 1.35; }
+    .kpi-num { font-size: clamp(1.05rem, 5vw, 1.3rem); }
+    .kpi-strip-6 .kpi-sub, .kpi-strip-5 .kpi-sub, .kpi-strip-4 .kpi-sub { display: none; }
+    .kpi-strip-3 .kpi { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; }
+    .kpi-strip-3 .kpi-sub { grid-column: 1 / -1; }
+
+    /* المفتاح: أربع لوحات */
+    .w4-seg.w6-seg { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .w4-seg.w6-seg button { min-width: 0; padding: 0 4px; font-size: 0.8rem; flex-wrap: wrap; gap: 4px; }
+    .w4-seg.w6-seg button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .w6 .w4-board[data-show] > .w4-panel { display: none; }
+    .w6 .w4-board[data-show="late"] > .w4-panel-late,
+    .w6 .w4-board[data-show="today"] > .w4-panel-today,
+    .w6 .w4-board[data-show="visits"] > .w4-panel-visits,
+    .w6 .w4-board[data-show="deals"] > .w4-panel-deals { display: grid; }
+    .w4-row-visit { grid-template-columns: minmax(0, 1fr); }
+    .w4-row-visit .w4-time { display: flex; align-items: baseline; gap: 8px; }
+    .w4-row-link { padding: 12px 14px; }
+
+    .sub-tabs { margin-inline: -12px; padding-inline: 8px; }
+    .sub-tab { padding: 10px 10px 11px; font-size: 0.88rem; }
+    .f-chips { flex-wrap: nowrap; overflow-x: auto; margin-inline: -14px; padding: 0 14px 2px; scrollbar-width: none; }
+    .f-chips::-webkit-scrollbar { display: none; }
+    .f-chip { flex: 0 0 auto; }
+    /* مجموعتا الحبّات سطران، كل سطر يُسحب وحده */
+    .f-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .f-row > .f-chips + .f-chips { padding-inline-start: 14px; border-inline-start: 0; }
+    .crm-toolbar input, .crm-toolbar select, .form-group input, .form-group select, .form-group textarea { font-size: 16px; }
+
+    /* شريط الجوال: الصفحة الحالية بخيط زعفراني أعلى أيقونتها */
+    .tabbar a.active::before, .tabbar button.active::before {
+        content: '';
+        position: absolute;
+        top: -6px;
+        inset-inline: 26%;
+        height: 3px;
+        border-radius: 0 0 3px 3px;
+        background: var(--saffron);
+    }
+    .nav-sheet-search {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 0 14px;
+        border: 1px solid var(--line-2);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--muted);
+        font: 500 0.95rem var(--font);
+        cursor: pointer;
+    }
+    .nav-sheet-search .ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+    /* ---------- بطاقات الجداول الجديدة (t-card من easy.css: صف مرن يلتف) ---------- */
+    #view table.crm-table.t-card > tbody > tr > td.c-next[data-label]::before,
+    #view table.crm-table.t-card > tbody > tr > td.c-reqs[data-label]::before,
+    #view table.crm-table.t-card > tbody > tr > td.r-budget[data-label]::before,
+    #view table.crm-table.t-card > tbody > tr > td.k-remaining[data-label]::before,
+    #view table.crm-table.t-card > tbody > tr > td.k-gross[data-label]::before,
+    #view table.crm-table.t-card > tbody > tr > td.k-collected[data-label]::before {
+        display: inline-block;
+        content: attr(data-label) ':';
+        max-width: none;
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 600;
+        /* خانات الأرقام اتجاهها من اليسار: التسمية تبقى عربية الاتجاه فلا تنقلب النقطتان إلى أولها */
+        direction: rtl;
+        unicode-bidi: isolate;
+    }
+
+    /* العملاء: الاسم | الحالة — الجوال — المتابعة القادمة · الطلبات — الوسيط · التحديث */
+    #view table.t-clients6 > tbody > tr > td.c-name { order: 1; flex: 1 1 0; font-size: 1.02rem; }
+    #view table.t-clients6 > tbody > tr > td.c-status { order: 2; }
+    #view table.t-clients6 > tbody > tr > td.c-phone { order: 3; flex-basis: 100%; }
+    #view table.t-clients6 > tbody > tr > td.c-next { order: 4; }
+    #view table.t-clients6 > tbody > tr > td.c-reqs { order: 5; }
+    #view table.t-clients6 > tbody > tr > td.c-owner,
+    #view table.t-clients6 > tbody > tr > td.c-updated { order: 6; color: var(--muted); font-size: 0.84rem; }
+    #view table.t-clients6 > tbody > tr > td.c-owner::after { content: '·'; color: var(--line-2); }
+    #view table.t-clients6 > tbody > tr > td.c-next { flex-basis: 100%; }
+
+    /* الطلبات: العميل | الحالة — الطلب — المكان — الميزانية · الأولوية · التاريخ */
+    #view table.t-requests > tbody > tr > td.r-client { order: 1; flex: 1 1 0; }
+    #view table.t-requests > tbody > tr > td.r-status { order: 2; }
+    #view table.t-requests > tbody > tr > td.r-what { order: 3; flex-basis: 100%; }
+    #view table.t-requests > tbody > tr > td.r-where { order: 4; flex-basis: 100%; color: var(--ink-2); font-size: 0.88rem; }
+    #view table.t-requests > tbody > tr > td.r-budget { order: 5; flex-basis: 100%; }
+    #view table.t-requests > tbody > tr > td.r-priority { order: 6; }
+    #view table.t-requests > tbody > tr > td.r-date { order: 7; font-size: 0.84rem; }
+    #view table.t-requests .cl-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+
+    /* المطابقات: العميل | الحالة — العقار — المطابقة · التاريخ — الملاحظة */
+    #view table.t-matches > tbody > tr > td.m-client { order: 1; flex: 1 1 0; }
+    #view table.t-matches > tbody > tr > td.m-state { order: 2; }
+    #view table.t-matches > tbody > tr > td.m-property { order: 3; flex-basis: 100%; }
+    #view table.t-matches > tbody > tr > td.m-score { order: 4; }
+    #view table.t-matches > tbody > tr > td.m-date { order: 5; font-size: 0.84rem; }
+    #view table.t-matches > tbody > tr > td.m-note { order: 6; flex-basis: 100%; font-size: 0.86rem; }
+
+    /* العمولات: الصفقة | الحالة — المتبقي — الإجمالي · المحصّل — الفاتورة · الوسيط */
+    #view table.t-commissions > tbody > tr > td.k-deal { order: 1; flex: 1 1 0; }
+    #view table.t-commissions > tbody > tr > td.k-status { order: 2; }
+    #view table.t-commissions > tbody > tr > td.k-remaining { order: 3; flex-basis: 100%; font-size: 1.05rem; }
+    #view table.t-commissions > tbody > tr > td.k-gross,
+    #view table.t-commissions > tbody > tr > td.k-collected { order: 4; font-size: 0.88rem; }
+    #view table.t-commissions > tbody > tr > td.k-invoice,
+    #view table.t-commissions > tbody > tr > td.k-broker { order: 5; font-size: 0.84rem; color: var(--muted); }
+
+    .pipe { padding: 12px 14px 14px; }
+    .pipe-legend { flex-wrap: nowrap; overflow-x: auto; margin-inline: -14px; padding: 0 14px 2px; scrollbar-width: none; }
+    .pipe-legend::-webkit-scrollbar { display: none; }
+    .pipe-key { flex: 0 0 auto; }
+}
+
+@media (max-width: 360px) {
+    .kpi-strip-6, .kpi-strip-5 { --cols: 2; }
+    .w4-seg.w6-seg button { font-size: 0.74rem; }
+}
+
+/* ===================== الحركة ===================== */
+
+@keyframes v6-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes v6-pop { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes v6-toast { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes v6-flash { 0%, 40% { box-shadow: 0 0 0 2px var(--brand); } 100% { box-shadow: 0 0 0 2px transparent; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .loading::after, .kpi.is-loading .kpi-num { animation: none; }
+    .pal, #modal.active .modal-content, #notification.notification, .deal-col.flash { animation: none; }
+    .skip-link, .f-chip, .kpi-link, .pipe-seg { transition: none; }
+}
+
+@media print {
+    .skip-link, .offline-bar, .pal-scrim, .work-search, .sub-tabs, .f-chips, .pipe { display: none !important; }
+}

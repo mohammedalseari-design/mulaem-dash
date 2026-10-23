@@ -8,7 +8,7 @@
 // لا ترشيح بالمستخدم هنا: سياسة commissions_select (crm_can_see_deal) تُري المدير كل العمولات والوسيط عمولات
 // صفقاته وحدها. مركز الاتصال لا يصل إلى هذا المسار (الموجّه يمنعه والقاعدة لا تُريه شيئاً).
 
-import { supabase, PAGE_SIZE, pageRange, fetchAll } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack, fetchAll } from './supabase.js';
 import { isAdmin } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { COMMISSION_STATUS, COMMISSION_STATUS_TONE, label } from './labels.js';
@@ -38,6 +38,10 @@ const remembered = { page: 0, status: 'open' };
 export async function renderCommissions(root) {
     const view = remembered;
     const body = el('div');
+    // تُعرَّف قبل الحبّات: ضغطة حبّة قبل وصول أسماء الموظفين ترسم الجدول بأسماء فارغة لا بخطأ
+    let names = new Map();
+    // ردّ تحميل أقدم يصل بعد أحدث يُهمَل
+    let seq = 0;
     const summary = el('div', { class: 'kpi-strip kpi-strip-3', role: 'group', 'aria-label': 'ملخص العمولات' }, loading());
     const chips = filterChips('حالة العمولة', STATUS_CHIPS, view.status, (value) => { view.status = value; view.page = 0; load(); });
 
@@ -48,12 +52,13 @@ export async function renderCommissions(root) {
         el('div', { class: 'crm-card' }, [chips.node, body])
     ]);
 
-    const names = await staffMap().catch(() => new Map());
+    names = await staffMap().catch(() => new Map());
     if (!root.isConnected) return;
 
     loadSummary(summary);
 
     async function load() {
+        const mine = ++seq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
         let query = supabase
@@ -67,8 +72,11 @@ export async function renderCommissions(root) {
         if (chip.statuses) query = query.in('status', chip.statuses);
         if (chip.review) query = query.eq('needs_review', true);
 
-        const { data, error, count } = await query;
-        if (!body.isConnected) return;
+        const result = await Promise.resolve(query).catch((error) => ({ error }));
+        if (mine !== seq || !body.isConnected) return;
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
+        const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العمولات', load));
 
         if (!data || data.length === 0) {

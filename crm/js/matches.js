@@ -6,7 +6,7 @@
 //
 // لا ترشيح بالمستخدم هنا: سياسة matches_select (crm_can_see_requirement) تُري كل دور مطابقات عملائه وحدها.
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack } from './supabase.js';
 import { MATCH_STATE, MATCH_STATE_TONE, REQUEST_PURPOSE, label, scoreLabel } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, pageHead, subTabs, filterChips, resultLine, countText, fmtDate, dash
@@ -26,6 +26,8 @@ const remembered = { page: 0, state: '' };
 export async function renderMatches(root) {
     const view = remembered;
     const body = el('div');
+    // ردّ تحميل أقدم يصل بعد أحدث يُهمَل
+    let seq = 0;
     const stateChips = filterChips('حالة المطابقة', STATE_CHIPS, view.state, (value) => { view.state = value; view.page = 0; load(); });
 
     function reset() {
@@ -53,6 +55,7 @@ export async function renderMatches(root) {
     })();
 
     async function load() {
+        const mine = ++seq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
         let query = supabase
@@ -65,8 +68,11 @@ export async function renderMatches(root) {
             .range(from, to);
         if (view.state) query = query.eq('state', view.state);
 
-        const { data, error, count } = await query;
-        if (!body.isConnected) return;
+        const result = await Promise.resolve(query).catch((error) => ({ error }));
+        if (mine !== seq || !body.isConnected) return;
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
+        const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل المطابقات', load));
 
         if (!data || data.length === 0) {

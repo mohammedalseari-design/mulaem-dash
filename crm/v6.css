@@ -547,6 +547,8 @@ body.crm-dark .crm-toolbar input[type=search] {
     font-weight: 400;
     text-align: center;
 }
+/* css/theme.css يرسم صندوقاً في ::before لكل حالة فارغة؛ empty() في ui.js صارت ترسم أيقونتها، فلا تتكرر الأيقونة */
+.crm-empty::before { content: none; display: none; }
 .crm-empty-ico {
     display: grid;
     place-items: center;

@@ -6,19 +6,19 @@
 //
 // لا ترشيح بالمستخدم هنا: سياسة requirements_select (crm_can_see_client) تُري كل دور طلبات عملائه وحدها.
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack } from './supabase.js';
 import { sanitizeSearch, phoneNeedle } from './data.js';
 import { REQUEST_PURPOSE, REQ_STATUS, REQ_STATUS_TONE, PRIORITY, PRIORITY_TONE, label } from './labels.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, select, pageHead, subTabs, filterChips, resultLine,
     countText, fmtDate, phoneLinks
 } from './ui.js';
-import { CLIENT_TABS } from './clients.js';
+import { CLIENT_TABS, ACTIVE_REQUEST } from './clients.js';
 import { districtsText, budgetText } from './requirements.js';
 
 // «النشطة» = مفتوح أو تمت مطابقته: ما زال العميل يبحث، وهو ما يعمل عليه الوسيط
 const STATUS_CHIPS = [
-    { value: 'active', label: 'النشطة', statuses: ['open', 'matched'] },
+    { value: 'active', label: 'النشطة', statuses: ACTIVE_REQUEST },
     { value: 'open', label: 'مفتوحة', statuses: ['open'] },
     { value: 'matched', label: 'تمت المطابقة', statuses: ['matched'] },
     { value: 'won', label: 'منجزة', statuses: ['won'] },
@@ -43,6 +43,9 @@ const remembered = { page: 0, search: '', purpose: '', status: 'active', priorit
 export async function renderRequests(root) {
     const view = remembered;
     const body = el('div');
+    // ردّ تحميل أقدم يصل بعد أحدث (ضغطتان متتاليتان على شبكة بطيئة) يُهمَل
+    let seq = 0;
+    let countSeq = 0;
 
     const searchBox = el('input', {
         type: 'search', class: 'crm-search', placeholder: 'ابحث باسم العميل أو جواله…', autocomplete: 'off',
@@ -81,23 +84,39 @@ export async function renderRequests(root) {
         ])
     ]);
 
-    // عدد الطلبات النشطة لكل غرض بجانب اسمه (head، مرة عند فتح الصفحة)
-    (async () => {
-        const counts = await Promise.all(PURPOSE_CHIPS.map((chip) => {
-            let query = supabase.from('client_requirements').select('id', { count: 'exact', head: true }).in('status', ['open', 'matched']);
+    // الحالة والأولوية والبحث المختارة على الاستعلام (للقائمة ولعدّ الحبّات معاً)
+    function filters(query, term) {
+        const chip = STATUS_CHIPS.find((c) => c.value === view.status) || STATUS_CHIPS[0];
+        if (chip.statuses) query = query.in('status', chip.statuses);
+        if (view.priority) query = query.eq('priority', Number(view.priority));
+        if (term) {
+            const needle = phoneNeedle(term);
+            query = needle ? query.ilike('client.phone', '%' + needle + '%') : query.ilike('client.full_name', '%' + term + '%');
+        }
+        return query;
+    }
+
+    // عدد الطلبات لكل غرض بالحالة والأولوية والبحث المختارة، فيطابق العدد ما تعرضه القائمة حين تُضغط الحبّة
+    function countPurposes(term) {
+        const mine = ++countSeq;
+        Promise.all(PURPOSE_CHIPS.map((chip) => {
+            let query = filters(supabase.from('client_requirements')
+                .select('id' + (term ? ', client:clients!inner(full_name, phone)' : ''), { count: 'exact', head: true }), term);
             if (chip.value) query = query.eq('purpose', chip.value);
             return Promise.resolve(query).catch(() => ({ count: null }));
-        }));
-        if (!root.isConnected) return;
-        PURPOSE_CHIPS.forEach((chip, i) => purposeChips.setCount(chip.value, counts[i].error ? null : counts[i].count));
-    })();
+        })).then((counts) => {
+            if (mine !== countSeq || !root.isConnected) return;
+            PURPOSE_CHIPS.forEach((chip, i) => purposeChips.setCount(chip.value, counts[i].error ? null : counts[i].count));
+        });
+    }
 
     async function load() {
+        const mine = ++seq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
         const sort = SORTS[view.sort] || SORTS.new;
         const term = sanitizeSearch(view.search);
-        const needle = term ? phoneNeedle(term) : null;
+        countPurposes(term);
 
         // !inner: البحث باسم العميل يرشّح الطلبات نفسها، لا العميل المضمَّن وحده
         let query = supabase
@@ -107,14 +126,14 @@ export async function renderRequests(root) {
             .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
             .order('created_at', { ascending: false })
             .range(from, to);
-        const chip = STATUS_CHIPS.find((c) => c.value === view.status) || STATUS_CHIPS[0];
-        if (chip.statuses) query = query.in('status', chip.statuses);
+        query = filters(query, term);
         if (view.purpose) query = query.eq('purpose', view.purpose);
-        if (view.priority) query = query.eq('priority', Number(view.priority));
-        if (term) query = needle ? query.ilike('client.phone', '%' + needle + '%') : query.ilike('client.full_name', '%' + term + '%');
 
-        const { data, error, count } = await query;
-        if (!body.isConnected) return;
+        const result = await Promise.resolve(query).catch((error) => ({ error }));
+        if (mine !== seq || !body.isConnected) return;
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
+        const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل الطلبات', load));
 
         const filtered = Boolean(term || view.purpose || view.priority || view.status !== 'active');

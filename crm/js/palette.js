@@ -9,7 +9,7 @@ import { supabase } from './supabase.js';
 import { sanitizeSearch, phoneNeedle } from './data.js';
 import { isAdmin, myRole } from './auth.js';
 import { CLIENT_TYPE, LISTING_PURPOSE, label } from './labels.js';
-import { el, clear, icon, money, errorText } from './ui.js';
+import { el, clear, icon, errorText } from './ui.js';
 import { presetClientSearch } from './clients.js';
 import { presetPropertySearch } from './properties.js';
 import { openClientForm } from './client-form.js';
@@ -102,10 +102,11 @@ function build() {
 
 /* ===================== الفتح والإغلاق ===================== */
 
-export function openPalette(text = '') {
+// returnTo: العنصر الذي يعود إليه التركيز عند الإغلاق (حقل الشريط العلوي يمرّر نفسه)، وإلا ما كان مركّزاً قبل الفتح
+export function openPalette(text = '', returnTo = null) {
     if (!root) build();
     if (!root.hidden) { input.focus(); return; }
-    opener = document.activeElement;
+    opener = returnTo || document.activeElement;
     root.hidden = false;
     document.body.classList.add('pal-open');
     input.value = text;
@@ -118,24 +119,26 @@ export function closePalette(restoreFocus = true) {
     root.hidden = true;
     token += 1;
     clearTimeout(timer);
+    root.querySelector('.pal').removeAttribute('aria-busy');
     document.body.classList.remove('pal-open');
     const back = opener;
     opener = null;
     if (restoreFocus && back && back.isConnected && typeof back.focus === 'function') back.focus();
 }
 
-// Ctrl+K (أو ⌘K) من أي مكان، و«/» حين لا يكون التركيز في حقل كتابة ولا نافذة مفتوحة.
+// Ctrl+K (أو ⌘K) من أي مكان، و«/» حين لا يكون التركيز في حقل كتابة. لا شيء منهما والنافذة (نموذج) مفتوحة: البحث
+// كان سيفتح تحتها فتضيع الكتابة، وفتح نتيجة ينقل الصفحة فيضيع النموذج.
 // e.code لا e.key: على لوحة المفاتيح العربية يكتب الحرف K «ن» والشرطة المائلة «ظ».
 export function initPalette() {
     document.addEventListener('keydown', (event) => {
+        const modal = document.getElementById('modal');
+        if (modal && modal.classList.contains('active')) return;
         if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.code === 'KeyK' || String(event.key).toLowerCase() === 'k')) {
             event.preventDefault();
             openPalette();
             return;
         }
         if (event.code === 'Slash' && !event.ctrlKey && !event.metaKey && !event.altKey && !typing(event.target)) {
-            const modal = document.getElementById('modal');
-            if (modal && modal.classList.contains('active')) return;
             event.preventDefault();
             openPalette();
         }
@@ -155,6 +158,8 @@ function schedule() {
     const term = sanitizeSearch(input.value);
     const actions = matchActions(term);
     if (term.length < 2) {
+        // بحث سابق أُلغي قبل أن يكتمل: النافذة لم تعد مشغولة، فيُعلن قارئ الشاشة السطر التالي
+        root.querySelector('.pal').removeAttribute('aria-busy');
         status.textContent = term ? 'اكتب حرفين على الأقل للبحث في العملاء والعقارات.' : '';
         render([{ title: term ? 'الصفحات' : 'انتقل إلى', rows: actions.map(actionRow) }]);
         return;
@@ -175,7 +180,7 @@ async function search(term, actions, mine) {
             .order('updated_at', { ascending: false })
             .range(0, LIMIT - 1),
         supabase.from('projects')
-            .select('id, name, type, district, city, price, purpose')
+            .select('id, name, type, district, city, purpose')
             .or('name.ilike.%' + term + '%,district.ilike.%' + term + '%')
             .eq('status', 'approved')
             .is('deleted_at', null)
@@ -233,14 +238,15 @@ function clientRow(row) {
     };
 }
 
+// بلا سعر: projects.price لمشاريع الشقق مجموع أسعار نماذجها (004)، فلا يصلح سعراً للعرض. السعر لكل وحدة في «العقارات».
+// الضغط يفتح «العقارات» على وحدات هذا العقار وحده بمعرّفه (المتاحة وغيرها)، لا ببحث نصي قد لا يطابق.
 function propertyRow(row) {
     return {
         icon: 'building',
         title: row.name || 'عقار رقم ' + row.id,
-        meta: [[row.type, label(LISTING_PURPOSE, row.purpose, ''), row.district || row.city].filter(Boolean).join(' · '),
-            row.price ? money(row.price) + ' ر.س' : null],
-        run: () => { presetPropertySearch(row.name || ''); go('#/properties'); },
-        hint: 'العقارات'
+        meta: [[row.type, label(LISTING_PURPOSE, row.purpose, ''), row.district || row.city].filter(Boolean).join(' · ')],
+        run: () => { presetPropertySearch(row.name || '', row.id); go('#/properties'); },
+        hint: 'وحداته'
     };
 }
 

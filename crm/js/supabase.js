@@ -44,3 +44,15 @@ export function pageRange(page, size = PAGE_SIZE) {
     const from = page * size;
     return [from, from + size - 1];
 }
+
+// صفحة صارت بعد آخر القائمة (تغيّرت البيانات والموظف في صفحة أخرى، أو أُنجز آخر صف فيها ثم أُعيد التحميل):
+// PostgREST يرد 416 (PGRST103) مع count=exact حين تتجاوز البداية العدد، أو صفوفاً فارغة حين تساويه. ترجع رقم
+// الصفحة التي يُعاد التحميل عليها (آخر صفحة صالحة) بدل شاشة «لا يوجد» كاذبة، أو null حين لا حاجة لذلك.
+export function pageBack(page, result, size = PAGE_SIZE) {
+    if (!(page > 0) || !result) return null;
+    const { data, error, count } = result;
+    if (error) return error.code === 'PGRST103' ? 0 : null;
+    if (data && data.length) return null;
+    const last = Math.max(0, Math.ceil((Number(count) || 0) / size) - 1);
+    return last < page ? last : 0;
+}

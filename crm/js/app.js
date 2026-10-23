@@ -229,10 +229,10 @@ function wireSideSearch() {
     form.dataset.wired = '1';
     form.insertBefore(icon('search', 'side-search-ico'), form.firstChild);
     const box = form.querySelector('input');
+    // Esc يعيد التركيز إلى هذا الحقل نفسه (لا مستمع للتركيز عليه، فلا يعود فيفتح النافذة ثانية)
     const open = (text) => {
         box.value = '';
-        box.blur();
-        openPalette(text);
+        openPalette(text, box);
     };
     box.addEventListener('click', () => open(box.value));
     box.addEventListener('keydown', (event) => {

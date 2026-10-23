@@ -14,7 +14,7 @@
 // و«صفقات تحتاج متابعة» (لمركز الاتصال: «طلبات جديدة»). على الجوال مفتاح يعرض لوحة واحدة كاملة.
 // كل رقم وكل لوحة استعلام مستقل: تعذّر أحدها يظهر في مكانه ولا يخفي البقية.
 
-import { supabase, PAGE_SIZE, pageRange, fetchAll } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack, fetchAll } from './supabase.js';
 import { staffMap, staffName, dealStages, stageMap, stageName } from './data.js';
 import { CHANNEL, DEAL_STAGE_TONE, REQUEST_PURPOSE, label } from './labels.js';
 import { myRole } from './auth.js';
@@ -27,6 +27,7 @@ import { openClientForm } from './client-form.js';
 import { openPalette } from './palette.js';
 import { presetCalendarScope } from './calendar.js';
 import { budgetText } from './requirements.js';
+import { ACTIVE_REQUEST } from './clients.js';
 
 // تُستعمل أيضاً في لوحة الإدارة (#/dashboard) فوق بطاقات القمع الشهري
 export const WORK_CARDS = [
@@ -54,7 +55,7 @@ export async function renderWork(root) {
     const panels = {
         late: panel('late', 'متابعات متأخرة', 'alert', el('span', { class: 'w4-panel-hint', text: 'الأقدم أولاً' })),
         today: panel('today', 'مواعيد اليوم', 'today', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المواعيد' })),
-        visits: panel('visits', 'المعاينات القادمة', 'eye', el('a', {
+        visits: panel('visits', 'المعاينات القادمة (7 أيام)', 'eye', el('a', {
             class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المعاينات',
             onclick: () => presetCalendarScope('visits')
         })),
@@ -135,10 +136,9 @@ export async function renderWork(root) {
         const work = Promise.resolve(supabase.from('v_my_work').select('*').maybeSingle()).catch((error) => ({ error }));
         const visits = Promise.resolve(supabase.from('follow_ups').select('id', { count: 'exact', head: true })
             .eq('status', 'pending').eq('channel', 'visit').gte('due_at', localDayStart(0)).lt('due_at', localDayStart(VISIT_DAYS + 1))).catch((error) => ({ error }));
-        const viewingMatches = Promise.resolve(supabase.from('property_matches').select('id', { count: 'exact', head: true }).eq('state', 'viewing')).catch((error) => ({ error }));
-        const leads = fetchAll(() => supabase.from('client_requirements').select('id, client_id').in('status', ['open', 'matched']).order('id', { ascending: true }));
+        const leads = fetchAll(() => supabase.from('client_requirements').select('id, client_id').in('status', ACTIVE_REQUEST).order('id', { ascending: true }));
 
-        const [w, v, vm, l] = await Promise.all([work, visits, viewingMatches, leads]);
+        const [w, v, l] = await Promise.all([work, visits, leads]);
         if (!kpis.node.isConnected) return;
 
         const value = (key) => Number(w.data && w.data[key]) || 0;
@@ -159,9 +159,10 @@ export async function renderWork(root) {
 
         kpis.set('overdue', w.error ? failed(w.error) : { value: number(overdue), tone: overdue ? 'late' : null, sub: overdue ? 'ابدأ بالأقدم' : 'لا شيء متأخر' });
         kpis.set('today', w.error ? failed(w.error) : { value: number(todayCount), sub: todayCount ? 'مكالمات وزيارات اليوم' : 'يومك خالٍ من المواعيد' });
+        // النافذة نفسها للرقم ولوحة «المعاينات القادمة» (سبعة أيام)؛ «كل المعاينات» في المواعيد بلا حد، فالسطر يقول المدة صراحة
         kpis.set('visits', v.error ? failed(v.error) : {
             value: number(v.count || 0),
-            sub: vm.error || !vm.count ? 'خلال ' + VISIT_DAYS + ' أيام' : arCount(vm.count, 'عقار في مرحلة المعاينة', 'عقاران في مرحلة المعاينة', 'عقارات في مرحلة المعاينة', 'عقاراً في مرحلة المعاينة')
+            sub: v.count ? 'خلال ' + VISIT_DAYS + ' أيام' : 'لا شيء خلال ' + VISIT_DAYS + ' أيام'
         });
         if (l.error) kpis.set('leads', failed(l.error));
         else {
@@ -195,11 +196,12 @@ export async function renderWork(root) {
         ]);
         if (!kpis.node.isConnected) return;
         if (all.error) return void kpis.set('deals', failed(all.error));
+        // العدد صريح دائماً تحت الرقم («صفقة متأخرة…» لا «تجاوزت…» وحدها، فلا يُفهم أن الصفقات كلها متأخرة)
         kpis.set('deals', {
             value: number(all.count || 0),
             subTone: late.count ? 'late' : null,
-            sub: late.count ? arCount(late.count, 'تجاوزت موعد إغلاقها', 'تجاوزتا موعد إغلاقهما', 'تجاوزت موعد إغلاقها', 'تجاوزت موعد إغلاقها')
-                : closing.count ? arCount(closing.count, 'تُغلق خلال أسبوعين', 'تُغلقان خلال أسبوعين', 'تُغلق خلال أسبوعين', 'تُغلق خلال أسبوعين')
+            sub: late.count ? arCount(late.count, 'صفقة متأخرة عن موعدها', 'صفقتان متأخرتان عن موعدهما', 'صفقات متأخرة عن موعدها', 'صفقة متأخرة عن موعدها')
+                : closing.count ? arCount(closing.count, 'صفقة تُغلق خلال أسبوعين', 'صفقتان تُغلقان خلال أسبوعين', 'صفقات تُغلق خلال أسبوعين', 'صفقة تُغلق خلال أسبوعين')
                 : 'من الاهتمام حتى الإغلاق'
         });
     }
@@ -391,8 +393,10 @@ function quickActions(onSaved) {
 function followUpList(target, scope, draw) {
     const view = { page: 0 };
     const host = target.body;
+    let seq = 0;
 
     async function reload() {
+        const mine = ++seq;
         replace(host, loading());
         const [from, to] = pageRange(view.page);
 
@@ -414,8 +418,12 @@ function followUpList(target, scope, draw) {
                 .order('due_at', { ascending: true });
         }
 
-        const { data, error, count } = await Promise.resolve(query).catch((e) => ({ error: e }));
-        if (!host.isConnected) return;
+        const result = await Promise.resolve(query).catch((e) => ({ error: e }));
+        if (mine !== seq || !host.isConnected) return;
+        // «تم» على آخر صف في آخر صفحة: يعود إلى آخر صفحة صالحة بدل «لا متابعات» كاذبة
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return reload(); }
+        const { data, error, count } = result;
         if (error) return void replace(host, errorBox(error, 'تعذّر تحميل المتابعات', reload));
         const rows = data || [];
         const total = count || rows.length;

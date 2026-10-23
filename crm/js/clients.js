@@ -2,11 +2,12 @@
 // لا تُحمَّل القائمة كاملة أبداً: كل صفحة استعلام مستقل بـ ‎.range()‎ و count دقيق.
 //
 // التصميم السادس «الوسيط» (2026-10-23): الصفحة باب لثلاثة أقسام (العملاء، طلبات الشراء والإيجار، المطابقات)،
-// والفئات حبّات بعددها (مشترون، مستأجرون، ملاك وبائعون، مستثمرون) فيجد الوسيط الملاك بضغطة. المصدر
-// v_clients_overview (006، security_invoker فيخضع لسياسات clients نفسها) لعمودَي «طلبات مفتوحة» و«المتابعة
-// القادمة». إن لم يوجد العرض في قاعدة البيانات تعود الصفحة إلى جدول clients كما كانت، بلا العمودين.
+// والفئات حبّات بعددها (مشترون، مستأجرون، ملاك وبائعون، مستثمرون) فيجد الوسيط الملاك بضغطة. عمود «طلبات نشطة»
+// (مفتوح أو تمت المطابقة، كما يعدّها رقم «عملاء محتملون» وحبّة «النشطة») يُقرأ لصفوف الصفحة وحدها من
+// client_requirements. والمتابعة القادمة وترتيبها من v_clients_overview (006، security_invoker فيخضع لسياسات
+// clients نفسها)؛ إن لم يوجد العرض في قاعدة البيانات تعود الصفحة إلى جدول clients بلا ذلك العمود.
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack } from './supabase.js';
 import { staffMap, staffName, sanitizeSearch, phoneNeedle } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, CLIENT_TYPE_GROUP, label } from './labels.js';
 import {
@@ -21,6 +22,9 @@ export const CLIENT_TABS = [
     { hash: '#/requests', label: 'طلبات الشراء والإيجار', icon: 'file' },
     { hash: '#/matches', label: 'المطابقات', icon: 'target' }
 ];
+
+// طلب «نشط»: ما زال العميل يبحث (مفتوح، أو تمت مطابقته ولم يُنجز)
+export const ACTIVE_REQUEST = ['open', 'matched'];
 
 const SORTS = {
     updated: { label: 'آخر تحديث', column: 'updated_at', ascending: false },
@@ -43,11 +47,21 @@ export function presetClientSearch(term) {
     remembered.scroll = 0;
 }
 
+// شرط البحث بالاسم أو الجوال كما تكتبه القائمة والعدّ معاً
+function searchFilter(query, term) {
+    if (!term) return query;
+    const needle = phoneNeedle(term) || term;
+    return query.or('full_name.ilike.%' + term + '%,phone.ilike.%' + needle + '%');
+}
+
 export async function renderClients(root) {
     const view = remembered;
     const restoreScroll = view.scroll;
     view.scroll = 0;
     let names = new Map();
+    // كل تحميل يأخذ رقماً؛ ردّ تحميل أقدم يصل متأخراً (شبكة بطيئة وضغطتان متتاليتان) يُهمَل
+    let seq = 0;
+    let countSeq = 0;
 
     const body = el('div');
     const searchBox = el('input', {
@@ -93,7 +107,7 @@ export async function renderClients(root) {
     }
 
     root.appendChild(pageHead('العملاء', 'المشترون والمستأجرون والملاك في مكان واحد. افتح ملف العميل لطلباته ومتابعاته وصفقاته.', [
-        actionBtn('عميل جديد', 'userPlus', { onclick: () => openClientForm(null, () => { view.page = 0; load(); countTypes(); }) }, true)
+        actionBtn('عميل جديد', 'userPlus', { onclick: () => openClientForm(null, () => { view.page = 0; load(); }) }, true)
     ]));
     root.appendChild(subTabs('أقسام العملاء', CLIENT_TABS, '#/clients'));
     root.appendChild(el('div', { class: 'crm-card' }, [
@@ -110,22 +124,28 @@ export async function renderClients(root) {
     }
     if (!root.isConnected) return;
 
-    // عدد كل فئة بجانب اسمها: عدّ بلا صفوف (head) لكل فئة، مرة عند فتح الصفحة. فشل العدّ يترك الحبّة بلا رقم.
-    async function countTypes() {
+    // عدد كل فئة بجانب اسمها بالحالة والبحث المختارين (فيطابق العدد ما تعرضه القائمة حين تُضغط الحبّة).
+    // عدّ بلا صفوف (head)، وفشل العدّ يترك الحبّة بلا رقم.
+    function countTypes(term) {
+        const mine = ++countSeq;
         const keys = [''].concat(Object.keys(CLIENT_TYPE_GROUP));
-        const counts = await Promise.all(keys.map((key) => {
-            let query = supabase.from('clients').select('id', { count: 'exact', head: true });
+        Promise.all(keys.map((key) => {
+            let query = searchFilter(supabase.from('clients').select('id', { count: 'exact', head: true }), term);
             if (key) query = query.eq('client_type', key);
+            if (view.status) query = query.eq('status', view.status);
             return Promise.resolve(query).catch(() => ({ count: null }));
-        }));
-        if (!root.isConnected) return;
-        keys.forEach((key, i) => typeChips.setCount(key, counts[i].error ? null : counts[i].count));
+        })).then((counts) => {
+            if (mine !== countSeq || !root.isConnected) return;
+            keys.forEach((key, i) => typeChips.setCount(key, counts[i].error ? null : counts[i].count));
+        });
     }
 
     async function load() {
+        const mine = ++seq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
         const term = sanitizeSearch(view.search);
+        countTypes(term);
 
         const build = (useOverview) => {
             const wanted = SORTS[view.sort] || SORTS.updated;
@@ -133,26 +153,25 @@ export async function renderClients(root) {
             let query = supabase
                 .from(useOverview ? 'v_clients_overview' : 'clients')
                 .select('id, full_name, phone, client_type, status, owner_id, created_at, updated_at'
-                    + (useOverview ? ', open_requirements, next_follow_up_at' : ''), { count: 'exact' })
+                    + (useOverview ? ', next_follow_up_at' : ''), { count: 'exact' })
                 .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
                 .order('id', { ascending: true })
                 .range(from, to);
-            if (term) {
-                const needle = phoneNeedle(term) || term;
-                query = query.or('full_name.ilike.%' + term + '%,phone.ilike.%' + needle + '%');
-            }
+            query = searchFilter(query, term);
             if (view.status) query = query.eq('status', view.status);
             if (view.type) query = query.eq('client_type', view.type);
             return query;
         };
 
-        let result = await build(!overviewMissing);
+        let result = await Promise.resolve(build(!overviewMissing)).catch((error) => ({ error }));
         if (result.error && !overviewMissing && isMissingRelation(result.error)) {
             overviewMissing = true;
-            result = await build(false);
+            result = await Promise.resolve(build(false)).catch((error) => ({ error }));
         }
+        if (mine !== seq || !body.isConnected) return;
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
         const { data, error, count } = result;
-        if (!body.isConnected) return;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العملاء', load));
 
         const filtered = Boolean(term || view.status || view.type);
@@ -164,24 +183,33 @@ export async function renderClients(root) {
             return;
         }
 
+        // الطلبات النشطة لعملاء هذه الصفحة وحدهم (25 على الأكثر)؛ تعذّرها يُظهر شرطة لا خطأ
+        const active = await Promise.resolve(supabase.from('client_requirements').select('client_id')
+            .in('client_id', data.map((row) => row.id)).in('status', ACTIVE_REQUEST)).catch((error) => ({ error }));
+        if (mine !== seq || !body.isConnected) return;
+        let activeBy = null;
+        if (!active.error) {
+            activeBy = new Map();
+            for (const row of active.data || []) activeBy.set(row.client_id, (activeBy.get(row.client_id) || 0) + 1);
+        }
+
         const total = count === null || count === undefined ? data.length : count;
         replace(body, [
             resultLine(countText(total, ['عميل واحد', 'عميلان', 'عملاء', 'عميلاً']), filtered ? reset : null),
-            el('div', { class: 'crm-table-wrap' }, table(data, names, !overviewMissing)),
+            el('div', { class: 'crm-table-wrap' }, table(data, names, !overviewMissing, activeBy)),
             pager(view.page, total, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
     }
 
-    countTypes();
     await load();
     if (restoreScroll > 0 && root.isConnected) requestAnimationFrame(() => window.scrollTo(0, restoreScroll));
 }
 
-function table(rows, names, overview) {
+function table(rows, names, overview, activeBy) {
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'العميل' }),
         el('th', { text: 'الجوال' }),
-        overview ? el('th', { text: 'طلبات مفتوحة' }) : null,
+        el('th', { text: 'طلبات نشطة' }),
         overview ? el('th', { text: 'المتابعة القادمة' }) : null,
         el('th', { text: 'الوسيط المسؤول' }),
         el('th', { text: 'الحالة' }),
@@ -190,6 +218,7 @@ function table(rows, names, overview) {
 
     const body = el('tbody');
     for (const row of rows) {
+        const activeCount = activeBy ? activeBy.get(row.id) || 0 : null;
         body.appendChild(el('tr', {
             class: 'clickable',
             onclick: () => { remembered.scroll = window.scrollY; location.hash = '#/clients/' + row.id; }
@@ -199,9 +228,9 @@ function table(rows, names, overview) {
                 row.client_type ? el('span', { class: 'cl-type', text: label(CLIENT_TYPE, row.client_type) }) : null
             ])),
             el('td', { class: 'c-phone' }, phoneLinks(row.phone)),
-            overview ? el('td', { class: 'c-reqs num' }, Number(row.open_requirements) > 0
-                ? el('span', { class: 'count-pill', text: number(row.open_requirements) })
-                : el('span', { class: 'crm-subtle', text: '—' })) : null,
+            el('td', { class: 'c-reqs num' }, activeCount > 0
+                ? el('span', { class: 'count-pill', text: number(activeCount) })
+                : el('span', { class: 'crm-subtle', text: '—' })),
             overview ? el('td', { class: 'c-next' }, nextFollowUp(row.next_follow_up_at)) : null,
             el('td', { class: 'c-owner', text: staffName(names, row.owner_id) }),
             el('td', { class: 'c-status' }, badge(label(CLIENT_STATUS, row.status), CLIENT_STATUS_TONE[row.status] || 'neutral')),

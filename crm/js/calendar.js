@@ -3,7 +3,7 @@
 // التصميم السادس «الوسيط» (2026-10-23): نطاق «المعاينات» = المتابعات المعلّقة بقناة «زيارة» من اليوم فصاعداً، وهي
 // مواعيد معاينة العقار مع العميل. «عملي اليوم» يفتح الصفحة عليه مباشرة (presetCalendarScope).
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack } from './supabase.js';
 import { staffMap, staffName } from './data.js';
 import { CHANNEL, FOLLOW_UP_STATUS, FOLLOW_UP_STATUS_TONE, label } from './labels.js';
 import {
@@ -28,6 +28,8 @@ export async function renderCalendar(root) {
     const view = { page: 0, scope: presetScope || 'upcoming' };
     presetScope = null;
     const body = el('div');
+    // ردّ تحميل أقدم يصل بعد أحدث (تبديل النطاق بسرعة) يُهمَل
+    let seq = 0;
     const names = await staffMap().catch(() => new Map());
     const chips = filterChips('نطاق المواعيد', SCOPES, view.scope, (value) => { view.scope = value; view.page = 0; load(); });
 
@@ -37,6 +39,7 @@ export async function renderCalendar(root) {
     ]);
 
     async function load() {
+        const mine = ++seq;
         replace(body, loading());
         const [from, to] = pageRange(view.page);
         let query = supabase
@@ -56,8 +59,12 @@ export async function renderCalendar(root) {
             query = query.eq('status', 'done').order('due_at', { ascending: false });
         }
 
-        const { data, error, count } = await query;
-        if (!body.isConnected) return;
+        const result = await Promise.resolve(query).catch((error) => ({ error }));
+        if (mine !== seq || !body.isConnected) return;
+        // بعد «تم» على آخر صف في الصفحة الأخيرة: يعود إلى آخر صفحة صالحة بدل «لا توجد مواعيد» كاذبة
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
+        const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل المواعيد', load));
         if (!data || data.length === 0) return void replace(body, empty(emptyText(view.scope), emptyHint(view.scope)));
 

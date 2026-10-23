@@ -166,8 +166,11 @@ body:has(#loginScreen:not(.crm-hidden)) .skip-link { display: none; }
         cursor: text;
     }
     .side-search input:hover { border-color: var(--brand); }
-    /* العدسة أيقونة SVG داخل النموذج (app.js)؛ عدسة css/theme.css الخلفية كانت تتراكب معها */
-    .side-search input[type=search] { background-image: none; }
+    /* العدسة أيقونة SVG داخل النموذج (app.js)؛ عدسة css/theme.css الخلفية كانت تتراكب معها، وفي الوضع الليلي
+       تتكرر صفّاً من العدسات (خلل قديم في التصميم الخامس: background المختصرة تعيد التكرار) */
+    .side-search input[type=search], body.crm-dark .side-search input[type=search] { background-image: none; }
+    /* الصفحة الحالية في الوضع الليلي كما في النهاري: خيط زعفراني بلا خلفية (app.css كان يظللها ليلاً فقط) */
+    body.crm-dark .side .crm-nav a.active { background: none; color: var(--ink); }
     .side-search-ico { width: 17px; height: 17px; }
     .side-search-kbd {
         position: absolute;
@@ -295,9 +298,19 @@ kbd, .side-search-kbd, .pal-foot kbd {
     min-height: 42px;
     border: 1px solid var(--line-2);
     border-radius: var(--r-md);
-    background: var(--surface);
+    background-color: var(--surface);
     color: var(--ink);
     font-family: var(--font);
+}
+/* حقول البحث في الصفحات: عدسة واحدة في بدايتها (css/theme.css يحجز لها 42px، والتصميم الخامس كان يمحوها فيبقى فراغ) */
+.crm-toolbar input[type=search] {
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%235d6762'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M11%2019a8%208%200%201%200%200-16%208%208%200%200%200%200%2016z'%2F%3E%3Cpath%20d%3D'M21%2021l-4.3-4.3'%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-size: 17px;
+    background-position: right 14px center;
+}
+body.crm-dark .crm-toolbar input[type=search] {
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%23a2a9a2'%20stroke-width%3D'2'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M11%2019a8%208%200%201%200%200-16%208%208%200%200%200%200%2016z'%2F%3E%3Cpath%20d%3D'M21%2021l-4.3-4.3'%2F%3E%3C%2Fsvg%3E");
 }
 .crm-toolbar input:not([type=checkbox]):not([type=radio]):focus, .crm-toolbar select:focus,
 .form-group input:not([type=checkbox]):not([type=radio]):focus, .form-group select:focus, .form-group textarea:focus {

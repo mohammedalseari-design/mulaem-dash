@@ -237,14 +237,16 @@ export async function recordLink(kind, id) {
 // ترتيب مقصود: صف الطلب أولاً (معرّفه هو مجلد المخزن الذي تسمح به سياسة الرفع)،
 // ثم رفع كل مصدر، ثم صفّه في agent_sources. فشل أي مرفق يحذف الطلب كله حتى لا
 // يبقى طلب نصف مكتمل يُستخرج من مصادر ناقصة.
-// payload: { instruction, title?, deep? («تفكير عميق»), text?, textName? (لاتيني), files?, url?, progress? }
+// payload: { instruction, title?, deep? («تفكير عميق»), text?, moreTexts? (نسخ أخرى من النص نفسه), textName? (لاتيني), files?, url?,
+//            target? (المشروع المقصود لطلب «تحديث» من المدير — 035؛ قبله يفرّغه الحارس فيُختار المشروع بالاسم كما كان), progress? }
 export async function createRequest(kind, payload) {
     const progress = typeof payload.progress === 'function' ? payload.progress : () => {};
     const { data: request, error } = await supabase
         .from('agent_requests')
         .insert({
             kind: kind, title: payload.title || null, instruction: payload.instruction,
-            effort_hint: payload.deep ? 'deep' : 'auto'
+            effort_hint: payload.deep ? 'deep' : 'auto',
+            target_id: payload.target ? String(payload.target) : null
         })
         .select('id')
         .maybeSingle();
@@ -259,6 +261,16 @@ export async function createRequest(kind, payload) {
             const blob = new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
             const buffer = await blob.arrayBuffer();
             await putSource(request.id, index + '-' + (payload.textName || 'pasted') + '.txt', blob, 'text/plain;charset=utf-8', {
+                kind: 'text', bytes: blob.size, sha256: await sha256Hex(buffer)
+            });
+        }
+        // نسخ أخرى من العرض نفسه (منشورات واتساب متشابهة): مصدر نصي لكل نسخة ببصمته، فتُعرف كل نسخة «مرسلة» لاحقاً
+        for (const extra of payload.moreTexts || []) {
+            index += 1;
+            progress('جارٍ رفع نسخة أخرى من النص…');
+            const blob = new Blob([extra], { type: 'text/plain;charset=utf-8' });
+            const buffer = await blob.arrayBuffer();
+            await putSource(request.id, index + '-' + (payload.textName || 'pasted') + '-copy.txt', blob, 'text/plain;charset=utf-8', {
                 kind: 'text', bytes: blob.size, sha256: await sha256Hex(buffer)
             });
         }
@@ -286,6 +298,51 @@ export async function createRequest(kind, payload) {
     }
 
     return request.id;
+}
+
+// طلب «تحديث مشروع أو وحدة» لمشروع بعينه من مصادر طلب سابق: طلب «مشروع جديد» توقف لأن اسمه طابق مشروعاً قائماً، أو
+// مسودة مشروع جديد يطابق مشروعاً قائماً. المصادر تُنسخ من المخزن كما هي (النصوص بنصها فتبقى بصماتها، والملفات بأسمائها،
+// والرابط يُقرأ من جديد)، ثم يبدأ التنفيذ. والطلب السابق إن كان ينتظر اختياراً يُلغى (035) فلا يبقى يسأل.
+// project: { id, name }. يعيد معرّف الطلب الجديد، ويرمي إن تعذّر إنشاؤه (والسابق يبقى كما هو)
+export async function updateFromRequest(request, project, progress) {
+    const { data: rows, error } = await sourceRows(request.id);
+    if (error) throw error;
+    const texts = [];
+    const files = [];
+    let url = null;
+    for (const row of rows || []) {
+        if (row.kind === 'url') {
+            if (!url && row.url) url = row.url;
+            continue;
+        }
+        if (!row.storage_path) continue;
+        const { data: blob, error: readError } = await supabase.storage.from(BUCKET).download(row.storage_path);
+        if (readError) throw readError;
+        if (row.kind === 'text') texts.push(await blob.text());
+        else files.push(new File([blob], row.storage_path.split('/').pop().replace(/^\d+-/, ''), { type: blob.type }));
+    }
+    if (!texts.length && !files.length && !url) throw new Error('لا مصادر في الطلب السابق تُنسخ');
+    const name = project.name ? ' «' + project.name + '»' : '';
+    const id = await createRequest('update', {
+        title: 'تحديث #' + project.id + name,
+        instruction: 'حدّث المشروع رقم ' + project.id + name + ' بما في هذا المصدر.',
+        text: texts[0],
+        moreTexts: texts.slice(1),
+        textName: 'source',
+        files: files,
+        url: url,
+        target: String(project.id),
+        progress: progress
+    });
+    startExtraction(id);
+    if (request.status === 'ready' && Array.isArray(request.candidates) && request.candidates.length) {
+        const { error: cancelError } = await supabase.from('agent_requests')
+            .update({ status: 'cancelled', error_ar: 'حُوّل إلى طلب تحديث للمشروع رقم ' + project.id })
+            .eq('id', request.id).eq('status', 'ready');
+        // قبل 035 يرفض الحارس إلغاء الجاهز: الطلب الجديد أُنشئ، والسابق يبقى يعرض اختياره
+        if (cancelError) console.warn('[CRM] cancel converted request', cancelError);
+    }
+    return id;
 }
 
 async function putSource(requestId, name, body, contentType, row) {

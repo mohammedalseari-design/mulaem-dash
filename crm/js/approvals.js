@@ -14,12 +14,15 @@ import {
     DRAFT_STATUS, DRAFT_STATUS_TONE, DRAFT_TARGET, label,
     PURPOSE, UNIT_STATUS, CLIENT_STATUS, CLIENT_TYPE, PRIORITY
 } from './labels.js';
-import { recheckTwins, recordLink, safeUrl, sourceRows, targetRow, valueText } from './agent.js';
+import { recheckTwins, recordLink, safeUrl, sourceRows, targetRow, valueText, updateFromRequest } from './agent.js';
 import { sourcesList, decisionsBox } from './assistant.js';
 import { REJECTABLE, clearDuplicates, projectRefs } from './dupes.js';
+import { waitDays, waitText, isLate, strongMatches, fillableFields, parseFill, FILL_FIELDS, PROJECT_AVAILABILITY } from './review.js';
+import { myId } from './auth.js';
 import {
     el, append, replace, loading, empty, errorBox, badge, pager, field, input,
-    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn, money, countText
+    select, optionList, openModal, closeModal, notify, fail, errorText, fmtDateTime, toAsciiDigits, pageHead, actionBtn, money, countText,
+    moneyInput
 } from './ui.js';
 
 const QUEUE_FILTERS = {
@@ -75,13 +78,14 @@ export async function renderApprovals(root) {
         replace(body, loading());
         const [from, to] = pageRange(view.page);
 
-        // الترشيح على المسودات يتم في الخادم عبر ضم داخلي، فلا تُقرأ طلبات لا مسودات لها
+        // الترشيح على المسودات يتم في الخادم عبر ضم داخلي، فلا تُقرأ طلبات لا مسودات لها.
+        // «بانتظار الاعتماد» طابورٌ: الأقدم أولاً، فلا تبقى مسودة أسابيع تحت ما وصل بعدها. باقي الحالات سجلّ: الأحدث أولاً
         const embed = view.status ? 'agent_drafts!inner' : 'agent_drafts';
         let query = supabase
             .from('agent_requests')
             .select('id, kind, title, status, created_at, requested_by, agent_sources(id, kind),'
                 + ' ' + embed + '(id, status, target_kind, target_id, conflicts, duplicates)', { count: 'exact' })
-            .order('created_at', { ascending: false })
+            .order('created_at', { ascending: view.status === 'submitted' })
             .range(from, to);
         if (view.status) query = query.eq('agent_drafts.status', view.status);
 
@@ -396,6 +400,8 @@ function queueTable(rows, names, twinState) {
         const sources = row.agent_sources || [];
         const kinds = [];
         for (const source of sources) if (!kinds.includes(source.kind)) kinds.push(source.kind);
+        // عمر الطلب ما دامت فيه مسودة تنتظر القرار، ويُعلَّم بعد يومين
+        const days = drafts.some((d) => d.status === 'submitted') ? waitDays(row.created_at) : null;
 
         body.appendChild(el('tr', {
             class: 'clickable',
@@ -409,7 +415,11 @@ function queueTable(rows, names, twinState) {
             ]),
             el('td', { text: staffName(names, row.requested_by) }),
             el('td', { class: 'crm-subtle', text: sources.length ? sources.length + ' مصدر' : '—' }),
-            el('td', { class: 'crm-subtle', text: fmtDateTime(row.created_at) }),
+            el('td', { class: 'crm-subtle' }, [
+                el('div', { text: fmtDateTime(row.created_at) }),
+                days === null ? null : isLate(days) ? badge('الانتظار: ' + waitText(days), 'gold')
+                    : el('div', { text: 'الانتظار: ' + waitText(days) })
+            ]),
             el('td', {}, statusBadges(drafts)),
             el('td', { class: 'num', text: String(additions) }),
             el('td', { class: 'num', text: String(edits) })
@@ -497,14 +507,26 @@ export async function renderApproval(root, requestId) {
     if (!root.isConnected) return;
 
     const reload = () => renderApproval(root, requestId);
-    const twinState = drafts.error ? new Map() : await twinStatuses(drafts.data || []);
+    const [twinState, nextId] = await Promise.all([
+        drafts.error ? new Map() : twinStatuses(drafts.data || []),
+        nextRequestId(requestId)
+    ]);
     if (!root.isConnected) return;
+
+    // «التالي» أقدم طلب آخر ينتظر القرار. يصير الزر الرئيسي حين لا يبقى في هذا الطلب ما يُقرَّر
+    const pending = (drafts.data || []).some((d) => d.status === 'submitted');
+    // طلب المدير نفسه (مثل منشورات واتساب): تعديله لا يُعاد إليه كأنه موظف، بل يبقى بانتظار اعتماده
+    const own = Boolean(request.requested_by) && request.requested_by === myId();
 
     replace(root, [
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [
                 el('h2', { text: label(AGENT_KIND, request.kind) + (request.title ? ' — ' + request.title : '') }),
-                el('a', { class: 'btn btn-outline btn-sm', href: '#/approvals', text: 'رجوع للطابور' })
+                el('div', { class: 'btn-row' }, [
+                    el('a', { class: 'btn btn-outline btn-sm', href: '#/approvals', text: 'رجوع للطابور' }),
+                    nextId ? el('a', { class: pending ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm',
+                        href: '#/approvals/' + encodeURIComponent(nextId), text: 'الطلب التالي' }) : null
+                ])
             ]),
             el('div', { class: 'kv-grid' }, [
                 el('div', { class: 'kv' }, [el('span', { text: 'مقدّم الطلب' }),
@@ -526,19 +548,31 @@ export async function renderApproval(root, requestId) {
             drafts.error
                 ? errorBox(drafts.error, 'تعذّر تحميل المسودات')
                 : ((drafts.data || []).length
-                    ? draftCards(drafts.data, names, reload, twinState)
+                    ? draftCards(drafts.data, names, reload, twinState, { own, requestId, request })
                     : empty('لا مسودات على هذا الطلب'))
         ])
     ]);
 }
 
-function draftCards(rows, names, reload, twinState) {
+// أقدم طلب آخر فيه مسودة بانتظار الاعتماد (ترتيب الطابور نفسه)، أو null. تعذّر القراءة لا يوقف الصفحة: يغيب الزر فقط
+async function nextRequestId(currentId) {
+    const { data, error } = await supabase.from('agent_requests')
+        .select('id, agent_drafts!inner(id)')
+        .eq('agent_drafts.status', 'submitted')
+        .neq('id', currentId)
+        .order('created_at', { ascending: true })
+        .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0].id;
+}
+
+function draftCards(rows, names, reload, twinState, context) {
     const holder = el('div');
-    for (const draft of rows) holder.appendChild(draftCard(draft, names, reload, twinState));
+    for (const draft of rows) holder.appendChild(draftCard(draft, names, reload, twinState, context));
     return holder;
 }
 
-function draftCard(draft, names, reload, twinState) {
+function draftCard(draft, names, reload, twinState, context) {
     const card = el('div', { class: 'agent-draft' });
     const isNew = !draft.target_id;
     const titleNode = el('strong', { text: isNew ? 'سجل جديد' : 'تعديل على سجل قائم — ' + draft.target_id });
@@ -558,15 +592,20 @@ function draftCard(draft, names, reload, twinState) {
         ]));
     }
 
-    const existing = isNew && OPEN_DRAFT.includes(draft.status)
-        ? (draft.duplicates || []).filter((d) => d && d.kind === 'project' && d.id) : [];
+    const fieldsBox = el('div');
+    // التحذير الأحمر للمطابقة القوية وحدها (الاسم نفسه أو اسم يحوي الآخر). الموقع القريب أو الحي والنوع وحدهما
+    // يبقيان في «مكرّرات محتملة»: كانا يُظهران الصندوق الأحمر على كل مسودة تقريباً فلا يُلتفت إليه
+    const existing = isNew && OPEN_DRAFT.includes(draft.status) ? strongMatches(draft.duplicates).slice(0, 3) : [];
     if (existing.length) {
+        const compare = compareControl(draft, fieldsBox);
         card.appendChild(el('div', { class: 'crm-warn-box dup-strong' }, [
-            el('strong', { text: 'يطابق مشروعاً قائماً — تأكد قبل الاعتماد أنه ليس مكرراً، أو استعمل «مطابقة مع الأصل»' }),
-            el('ul', { class: 'agent-list' }, existing.slice(0, 3).map((d) => el('li', {
-                text: 'المشروع رقم ' + d.id + (d.name ? ' «' + d.name + '»' : '') + (d.district ? ' (' + d.district + ')' : '')
-                    + (d.reason ? ' — ' + d.reason : '')
-            })))
+            el('strong', { text: 'يطابق مشروعاً قائماً — قارن قبل الاعتماد حتى لا يُضاف مكرراً' }),
+            el('ul', { class: 'agent-list' }, existing.map((d) => el('li', {}, [
+                el('span', { text: 'المشروع رقم ' + d.id + (d.name ? ' «' + d.name + '»' : '') + (d.district ? ' (' + d.district + ')' : '')
+                    + (d.reason ? ' — ' + d.reason : '') + ' ' }),
+                compare.button(d.id),
+                draft.status === 'submitted' && context && context.request ? convertButton(draft, d, context.request, reload) : null
+            ])))
         ]));
     }
 
@@ -587,7 +626,6 @@ function draftCard(draft, names, reload, twinState) {
     const body = actionable ? card : el('details', { class: 'agent-draft-more' }, el('summary', { text: 'تفاصيل المسودة' }));
     if (!actionable) card.appendChild(body);
 
-    const fieldsBox = el('div');
     body.appendChild(fieldsBox);
 
     // جدول قبل/بعد يحتاج الصف الهدف؛ يُقرأ مرة واحدة لكل مسودة
@@ -615,14 +653,86 @@ function draftCard(draft, names, reload, twinState) {
     body.appendChild(duplicatesBlock(draft.duplicates, twinState));
     card.appendChild(suspiciousBlock(draft.suspicious));
     body.appendChild(touchedBlock(draft));
-    card.appendChild(actionsRow(draft, reload));
+    card.appendChild(actionsRow(draft, reload, context));
     card.appendChild(decisionsBox(draft.id));
     return card;
 }
 
-// الحقول: المقترح ودليله، ومع التعديل القيمةُ الحالية بجانبه.
+// مقارنة مسودة المشروع الجديد بمشروع قائم يطابقها، جنباً إلى جنب في جدول الحقول نفسه (الصف الباهت متطابق).
+// زرٌّ لكل مرشّح، والضغط على المعروض يعيد الجدول كما كان
+function compareControl(draft, fieldsBox) {
+    let shown = null;
+    const buttons = new Map();
+    const sync = () => { for (const [id, b] of buttons) b.textContent = id === shown ? 'إخفاء المقارنة' : 'قارن'; };
+    const show = async (id) => {
+        if (id === shown) {
+            shown = null;
+            sync();
+            return void replace(fieldsBox, fieldsTable(draft, null));
+        }
+        const button = buttons.get(id);
+        button.disabled = true;
+        const row = await targetRow('project', id);
+        button.disabled = false;
+        if (!fieldsBox.isConnected) return;
+        if (!row) return void notify('تعذّرت قراءة المشروع رقم ' + id, 'error');
+        shown = id;
+        sync();
+        replace(fieldsBox, [
+            el('div', { class: 'crm-subtle', text: 'مقارنة بالمشروع رقم ' + id + (row.name ? ' «' + row.name + '»' : '') + ' — الصفوف الباهتة متطابقة.' }),
+            fieldsTable(draft, row, 'في المشروع رقم ' + id)
+        ]);
+    };
+    return {
+        button(id) {
+            const key = String(id);
+            const b = el('button', { type: 'button', class: 'btn btn-outline btn-xs', text: 'قارن', onclick: () => show(key) });
+            buttons.set(key, b);
+            return b;
+        }
+    };
+}
+
+// مسودة مشروع جديد تطابق مشروعاً قائماً مطابقة قوية: الأرجح أنها تحديث له. التحويل ينشئ طلب «تحديث» لذلك المشروع من
+// مصادر الطلب نفسها (updateFromRequest)، ثم تُرفض هذه المسودة بسببه بمسار زر الرفض نفسه (recordDecision). لا يُكتب في
+// المشروع شيء: مسودة التحديث تصل إلى هنا وتُعتمد كغيرها
+function convertButton(draft, match, request, reload) {
+    const project = { id: String(match.id), name: match.name || '' };
+    const caption = 'حوّلها تحديثاً لـ#' + project.id;
+    return el('button', {
+        type: 'button', class: 'btn btn-outline btn-xs', text: 'حوّلها تحديثاً',
+        onclick: () => {
+            const go = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: caption });
+            const cancel = el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal });
+            go.addEventListener('click', async () => {
+                go.disabled = true;
+                cancel.disabled = true;
+                try {
+                    await updateFromRequest(request, project, (text) => { go.textContent = text; });
+                } catch (error) {
+                    go.disabled = false;
+                    cancel.disabled = false;
+                    go.textContent = caption;
+                    return void fail(error, 'تعذّر إنشاء طلب التحديث');
+                }
+                const failure = await recordDecision(draft, 'reject', 'حُوّلت إلى طلب تحديث للمشروع رقم ' + project.id);
+                closeModal();
+                if (failure) notify('أُنشئ طلب التحديث، لكن تعذّر رفض هذه المسودة — ارفضها بزر «رفض مع سبب»', 'error', 10000);
+                else notify('أُنشئ طلب تحديث للمشروع رقم ' + project.id + ' ورُفضت هذه المسودة. تصل مسودة التحديث إلى هنا خلال دقائق.', 'success', 9000);
+                reload();
+            });
+            openModal('تحويل إلى تحديث', el('div', {}, [
+                el('p', { text: 'يُنشأ طلب «تحديث» للمشروع رقم ' + project.id + (project.name ? ' «' + project.name + '»' : '')
+                    + ' من مصدر هذا الطلب نفسه، وتُرفض هذه المسودة. ما في المصدر يصير تغييرات مقترحة على المشروع تراجعها هنا قبل أن يُكتب شيء.' }),
+                el('div', { class: 'btn-row btn-row-end' }, [cancel, go])
+            ]), { narrow: true });
+        }
+    });
+}
+
+// الحقول: المقترح ودليله، ومع التعديل القيمةُ الحالية بجانبه (أو قيمة المشروع المطابق عند المقارنة).
 // ما لا تكتبه دالة الاعتماد يُعلَّم صراحة حتى لا يُعتمد شيء يُظن أنه سيُحفظ.
-function fieldsTable(draft, current) {
+function fieldsTable(draft, current, currentLabel = 'القيمة الحالية') {
     const proposed = draft.proposed || {};
     const evidence = draft.evidence || {};
     const allowed = AGENT_APPLIED_FIELDS[draft.target_kind] || [];
@@ -631,7 +741,7 @@ function fieldsTable(draft, current) {
 
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'الحقل' }),
-        current ? el('th', { text: 'القيمة الحالية' }) : null,
+        current ? el('th', { text: currentLabel }) : null,
         el('th', { text: 'القيمة المقترحة' }),
         el('th', { text: 'الدليل من المصدر' })
     ]));
@@ -886,7 +996,7 @@ function touchedBlock(draft) {
 
 /* ===================== الإجراءات ===================== */
 
-function actionsRow(draft, reload) {
+function actionsRow(draft, reload, context) {
     const row = el('div', { class: 'btn-row' });
     if (draft.status !== 'submitted') {
         row.appendChild(el('span', { class: 'crm-subtle', text: 'لا إجراء متاح على مسودة في هذه الحالة.' }));
@@ -905,11 +1015,11 @@ function actionsRow(draft, reload) {
     append(row, [
         el('button', {
             type: 'button', class: 'btn btn-outline btn-xs', text: 'تعديل المسودة',
-            onclick: () => openDraftEditor(draft, reload)
+            onclick: () => openDraftEditor(draft, reload, context)
         }),
         el('button', {
             type: 'button', class: 'btn btn-primary btn-xs', text: 'اعتماد',
-            onclick: (event) => approve(draft, event.currentTarget, reload)
+            onclick: (event) => approve(draft, event.currentTarget, reload, context)
         }),
         el('button', {
             type: 'button', class: 'btn btn-danger btn-xs', text: 'رفض مع سبب',
@@ -924,7 +1034,7 @@ function actionsRow(draft, reload) {
 }
 
 // الاعتماد يمرّر بصمة ما هو معروض. الدالة ترفض إن تغيّرت المسودة أو الصف الهدف.
-async function approve(draft, button, reload) {
+async function approve(draft, button, reload, context = {}) {
     button.disabled = true;
     button.textContent = 'جارٍ الاعتماد…';
     const { data, error } = await supabase.rpc('agent_apply_draft', {
@@ -943,17 +1053,26 @@ async function approve(draft, button, reload) {
         return void reload();
     }
 
-    const target = await recordLink(result.record_kind, result.record_id);
+    // بعد الاعتماد غالباً ما يكون التالي هو الطلب التالي في الطابور، فهو الزر الرئيسي إن وُجد
+    const [target, nextId] = await Promise.all([
+        recordLink(result.record_kind, result.record_id),
+        context.requestId ? nextRequestId(context.requestId) : null
+    ]);
     notify(result.code === 'already_applied' ? 'هذه المسودة مطبَّقة أصلاً — لم يُكتب سجل ثانٍ' : 'تم الاعتماد وكُتب السجل',
            'success', 9000);
-    if (target) {
+    if (target || nextId) {
+        // الانتقال إلى الطلب التالي يرسم صفحته في المكان نفسه: إعادة رسم هذا الطلب عند الإغلاق كانت قد تنتهي بعده فتغطيه
+        let leaving = false;
         openModal('تم الاعتماد', el('div', {}, [
             el('p', { text: label(DRAFT_TARGET, result.record_kind) + ' رقم ' + result.record_id }),
             el('div', { class: 'btn-row' }, [
-                el('a', { class: 'btn btn-primary btn-sm', href: target.href, text: target.text, onclick: closeModal }),
+                nextId ? el('a', { class: 'btn btn-primary btn-sm', href: '#/approvals/' + encodeURIComponent(nextId),
+                    text: 'الطلب التالي', onclick: () => { leaving = true; closeModal(); } }) : null,
+                target ? el('a', { class: nextId ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm', href: target.href,
+                    text: target.text, onclick: closeModal }) : null,
                 el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إغلاق', onclick: closeModal })
             ])
-        ]), { narrow: true, onClose: reload });
+        ]), { narrow: true, onClose: () => { if (!leaving) reload(); } });
     } else {
         reload();
     }
@@ -1176,15 +1295,31 @@ function openDuplicates(found, reload) {
 /* ===================== تعديل المسودة ===================== */
 // حقل لكل مفتاح في المقترح، بنفس نوع القيمة الأصلية. القيم المركّبة (كائن أو
 // مصفوفة كائنات) تُعرض ولا تُحرَّر هنا حتى لا يُفسد تحرير نصي بنية السجل.
+// وفي مسودة مشروع جديد تُضاف الحقول المهمة التي لم يذكرها المصدر (FILL_FIELDS): السعر وحده كان ناقصاً في 14 من 20
+// مسودة، ولم يكن للمدير طريق لإضافته إلا إعادة المسودة.
 // أي تعديل يغيّر content_hash في المشغّل، فيسقط أي اعتماد بُني على النسخة القديمة.
 
-function openDraftEditor(draft, reload) {
+function openDraftEditor(draft, reload, context = {}) {
     const proposed = draft.proposed || {};
     const keys = Object.keys(proposed);
     const controls = new Map();
     const grid = el('div', { class: 'form-grid' });
+    const fillable = fillableFields(draft);
+    const fills = new Map();
+
+    // الناقص أولاً: هو غالباً سبب فتح النافذة، ولا يُدفن تحت حقول المسودة على الجوال
+    if (fillable.length) {
+        grid.appendChild(el('h4', { class: 'span-2', text: 'حقول لم يذكرها المصدر — أكمل ما تعرفه منها' }));
+        for (const key of fillable) {
+            const control = fillControl(key);
+            fills.set(key, control);
+            grid.appendChild(field(label(AGENT_FIELD, key, key), control));
+        }
+        grid.appendChild(el('h4', { class: 'span-2', text: 'قيم المسودة' }));
+    }
 
     for (const key of keys) {
+        if (fillable.includes(key)) continue;
         const value = proposed[key];
         const complex = value !== null && typeof value === 'object' && !isStringArray(value);
         if (complex) {
@@ -1203,7 +1338,9 @@ function openDraftEditor(draft, reload) {
 
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'حفظ التعديل' });
     const form = el('form', {}, [
-        el('p', { class: 'crm-subtle', text: 'التعديل يغيّر بصمة المسودة، فتُعاد إلى الموظف فعلياً: أي اعتماد سابق لهذه النسخة يسقط.' }),
+        el('p', { class: 'crm-subtle', text: context.own
+            ? 'الطلب طلبك، فيبقى بانتظار اعتمادك بالقيم الجديدة: راجعها في الصفحة ثم اعتمد.'
+            : 'التعديل يغيّر بصمة المسودة، فتُعاد إلى الموظف فعلياً: أي اعتماد سابق لهذه النسخة يسقط.' }),
         grid,
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
@@ -1231,10 +1368,21 @@ function openDraftEditor(draft, reload) {
                 next[key] = raw;
             }
         }
+        // الحقل المضاف يُقرأ قبل أي كتابة: رقمٌ غير صالح يوقف الحفظ هنا بدل أن يُفشل الاعتماد بعده
+        for (const [key, control] of fills) {
+            const parsed = parseFill(key, control.value);
+            if (parsed.error) {
+                control.focus();
+                return void notify(label(AGENT_FIELD, key, key) + ': ' + parsed.error, 'error', 8000);
+            }
+            if (!parsed.skip) next[key] = parsed.value;
+            else if (key in proposed) next[key] = proposed[key];
+        }
 
         saveBtn.disabled = true;
-        // المسودة تعود إلى "أُعيدت للموظف": المدير عدّل المحتوى، ومن أعدّها يراجع
-        // ويعيد إرسالها. لا طريق من التعديل إلى الاعتماد في خطوة واحدة.
+        // المسودة تمرّ بـ"أُعيدت للموظف": المدير عدّل المحتوى، ومن أعدّها يراجع ويعيد إرسالها. وطلب المدير نفسه يعود
+        // بعدها «بانتظار الاعتماد» (resubmitOwn). في الحالتين لا طريق من التعديل إلى الاعتماد في خطوة واحدة:
+        // الاعتماد يكون على ما يراه المدير في الصفحة بعد الحفظ.
         const { error: decisionError } = await supabase.from('agent_decisions')
             .insert({ draft_id: draft.id, decision: 'edit', reason: 'تعديل المدير على المسودة', content_hash: draft.content_hash });
         if (decisionError) {
@@ -1257,7 +1405,7 @@ function openDraftEditor(draft, reload) {
         const { data: saved, error: saveError } = await supabase.from('agent_drafts')
             .update({ proposed: next })
             .eq('id', draft.id)
-            .select('id');
+            .select('id, content_hash');
         if (saveError || !saved || saved.length === 0) {
             saveBtn.disabled = false;
             if (saveError) return void fail(saveError, 'تعذّر حفظ المقترح');
@@ -1271,12 +1419,43 @@ function openDraftEditor(draft, reload) {
             saveBtn.textContent = 'جارٍ فحص المسودات المكررة…';
             await recheckTwins(draft.id);
         }
+        const failure = context.own ? await resubmitOwn(draft.id, saved[0].content_hash) : null;
         if (form.isConnected) closeModal();
-        notify('حُفظ التعديل وأُعيدت المسودة للموظف لإعادة إرسالها', 'success', 9000);
+        if (!context.own) notify('حُفظ التعديل وأُعيدت المسودة للموظف لإعادة إرسالها', 'success', 9000);
+        else if (failure) notify('حُفظ التعديل، لكن تعذّرت إعادته لطابور الاعتماد (' + failure + ') — أرسله من «طلباتي»', 'error', 12000);
+        else notify('حُفظ التعديل والمسودة بانتظار اعتمادك — راجع القيم ثم اعتمد', 'success', 9000);
         reload();
     });
 
     openModal('تعديل المسودة', form);
+}
+
+// حقل الإدخال المناسب لحقل ناقص: المبلغ بفواصل، والتاريخ والتوفر والغرض من قائمة، وغيرها نص
+function fillControl(key) {
+    const kind = FILL_FIELDS[key];
+    if (kind === 'money') return moneyInput();
+    if (kind === 'number' || kind === 'integer') return input({ inputMode: kind === 'integer' ? 'numeric' : 'decimal', autocomplete: 'off' });
+    if (kind === 'date') return input({ type: 'date' });
+    if (kind === 'availability') return select(optionList(PROJECT_AVAILABILITY, '—'), '');
+    if (kind === 'purpose') return select(optionList(PURPOSE, '—'), '');
+    return input({ autocomplete: 'off' });
+}
+
+// إعادة مسودة المدير نفسه «بانتظار الاعتماد» بعد تعديله، بالمسار نفسه الذي يرسل به الموظف (قرار «إرسال» ببصمة النسخة
+// المحفوظة، ثم الحالة بشرط البصمة). الحارس يسمح للمدير بالانتقال من «أُعيدت» إلى «بانتظار الاعتماد».
+// null: نجح، وإلا نص الخطأ — والتعديل محفوظ في الحالتين
+async function resubmitOwn(draftId, contentHash) {
+    if (!contentHash) return 'بصمة المسودة غير معروفة';
+    const { error: decisionError } = await supabase.from('agent_decisions')
+        .insert({ draft_id: draftId, decision: 'submit', content_hash: contentHash });
+    if (decisionError) return errorText(decisionError);
+    const { data, error } = await supabase.from('agent_drafts')
+        .update({ status: 'submitted' })
+        .eq('id', draftId)
+        .eq('content_hash', contentHash)
+        .select('id');
+    if (error) return errorText(error);
+    return data && data.length ? null : 'تغيّرت المسودة';
 }
 
 function isStringArray(value) {

@@ -16,8 +16,9 @@ import {
 import {
     ACCEPT_ATTR, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES,
     baseName, fileKind, safeUrl, signedUrl, sourceRows, sourceText, valueText, createRequest,
-    extractionStatus, startExtraction, pickTarget
+    extractionStatus, startExtraction, pickTarget, updateFromRequest
 } from './agent.js';
+import { matchedProjects } from './review.js';
 import {
     el, append, clear, replace, loading, empty, errorBox, badge, pager, field, input,
     openModal, closeModal, notify, fail, errorText, fmtDateTime, number, dash, pageHead, actionBtn
@@ -526,12 +527,35 @@ function candidatePicker(request, candidates, reload) {
             button
         ]));
     }
+    // اسمه طابق مشروعاً قائماً: الأرجح أنه تحديث له، فيُحوَّل بضغطة إلى طلب «تحديث» بالمصادر نفسها (updateFromRequest)
+    // بدل إعادة إرسالها يدوياً. مركز الاتصال لا ينشئ طلبات التحديث، ويُحوِّل صاحبُ الطلب أو المدير
+    const converts = onlyNew && myRole() !== 'callcenter' && (isAdmin() || request.requested_by === myId())
+        ? matchedProjects(request.error_ar) : [];
+    const convertRow = converts.length ? el('div', { class: 'btn-row' }, converts.map((project) => {
+        const button = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'حوّله تحديثاً لـ#' + project.id });
+        button.addEventListener('click', async () => {
+            for (const b of [...buttons, ...convertRow.querySelectorAll('button')]) b.disabled = true;
+            try {
+                const id = await updateFromRequest(request, project, (text) => { button.textContent = text; });
+                notify('أُنشئ طلب تحديث للمشروع رقم ' + project.id + ' بالمصدر نفسه، وبدأ تنفيذه', 'success', 9000);
+                location.hash = '#/assistant/' + id;
+            } catch (error) {
+                button.textContent = 'حوّله تحديثاً لـ#' + project.id;
+                for (const b of [...buttons, ...convertRow.querySelectorAll('button')]) b.disabled = false;
+                fail(error, 'تعذّر إنشاء طلب التحديث');
+            }
+        });
+        return button;
+    })) : null;
     return el('div', { class: 'crm-warn-box' }, [
         el('strong', { text: request.error_ar || 'اختر السجل المقصود' }),
-        el('div', { class: 'crm-subtle', text: onlyNew
-            ? 'لن يُنشأ مشروع ثانٍ بالاسم نفسه إلا باختيارك. إن كان العرض للمشروع القائم فلا تختر شيئاً هنا، وأنشئ طلب «'
-                + AGENT_KIND.update + '» بالمصدر نفسه.'
-            : 'لن يُخمَّن السجل نيابةً عنك. إن لم يكن المقصود في القائمة فأعد صياغة التعليمات أو أرفق مصدراً أوضح.' }),
+        el('div', { class: 'crm-subtle', text: converts.length
+            ? 'إن كان العرض للمشروع القائم فحوّله تحديثاً له، وإن كان مشروعاً آخر بالاسم نفسه فاختر «أنشئه مشروعاً جديداً».'
+            : onlyNew
+                ? 'لن يُنشأ مشروع ثانٍ بالاسم نفسه إلا باختيارك. إن كان العرض للمشروع القائم فلا تختر شيئاً هنا، وأنشئ طلب «'
+                    + AGENT_KIND.update + '» بالمصدر نفسه.'
+                : 'لن يُخمَّن السجل نيابةً عنك. إن لم يكن المقصود في القائمة فأعد صياغة التعليمات أو أرفق مصدراً أوضح.' }),
+        convertRow,
         list
     ]);
 }

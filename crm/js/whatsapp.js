@@ -28,9 +28,12 @@ import {
     parseChat, groupFromFileName, normalizeForDedupe, readZipIndex, readZipEntry, chatEntry
 } from './whatsapp-parse.js';
 import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn, countText, openModal, closeModal } from './ui.js';
+import { twinGroups } from './whatsapp-twins.js';
 
 // «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
 const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
+// نسخ نصية من العرض نفسه تُرفق بطلبه، والباقي من المتشابه يُحسب مرسلاً معه بلا نصه
+const TWIN_TEXTS = 3;
 const GROUP_FORMS = ['مجموعة واحدة', 'مجموعتان', 'مجموعات', 'مجموعة'];
 const FILE_FORMS = ['ملف واحد', 'ملفان', 'ملفات', 'ملفاً'];
 // عرض الجوال (كما في css/theme.css): المرشحات الإضافية تبدأ مطوية
@@ -426,12 +429,13 @@ export async function renderWhatsApp(root) {
         for (const item of candidates) {
             for (const copy of item.copies) if (!copy.hash) copy.hash = await textHash(copy.text);
         }
-        const hashes = [...new Set(candidates.flatMap((i) => i.copies.map((c) => c.hash)).filter(Boolean))]
+        await refreshPastCopies(candidates);
+        const hashes = [...new Set(candidates.flatMap((i) => [...i.copies.map((c) => c.hash), ...(i.pastShas || [])]).filter(Boolean))]
             .filter((h) => !page.sent.has(h));
         for (let i = 0; i < hashes.length; i += 100) {
             const chunk = hashes.slice(i, i + 100);
             const { data, error } = await supabase.from('agent_sources')
-                .select('sha256, request_id, agent_requests(status)').in('sha256', chunk);
+                .select('sha256, request_id, agent_requests(status, candidates)').in('sha256', chunk);
             if (error) {
                 // ما تعذّر استعلامه الآن لا يُعتمد فيه على استعلام أقدم: لا يُحدَّد مسبقاً حتى يرجع استعلامه
                 for (const hash of hashes.slice(i)) page.checked.delete(hash);
@@ -442,17 +446,50 @@ export async function renderWhatsApp(root) {
                 const st = row.agent_requests ? row.agent_requests.status : null;
                 const prev = page.sent.get(row.sha256);
                 if (prev && prev.status !== 'failed' && prev.status !== 'cancelled') continue;
-                page.sent.set(row.sha256, { request_id: row.request_id, status: st });
+                // طلب انتهى بلا مسودة ينتظر اختياراً (اسمه طابق مشروعاً قائماً، أو تعذّر تحديد المشروع): «أُرسل» وحدها كانت
+                // تخفيه فلا يذكّر أحداً بأنه ينتظر قراراً
+                const choices = row.agent_requests ? row.agent_requests.candidates : null;
+                const waiting = st === 'ready' && Array.isArray(choices) && choices.length > 0;
+                page.sent.set(row.sha256, { request_id: row.request_id, status: st, waiting: waiting });
             }
             for (const hash of chunk) page.checked.add(hash);
+        }
+    }
+
+    // العرض نفسه منشوراً في تصدير آخر (مجموعة أخرى أو يوم آخر) له بصمة «نص مصدر» أخرى، فلا تكشفه بصمات الملف الحاضر
+    // إن لم تكن نسخته المرسلة فيه. لكن نص الكتلة نفسه، وJev يحفظ لكل نص (wa_triage.key = sha256 للنص بعد trim)
+    // بصمات كل نسخه التي رآها (source_shas): إن أُرسلت إحداها سابقاً عُرف العرض مرسلاً (item.pastShas).
+    // قراءة إضافية للمدير وحده: تعذّرها لا يوقف شيئاً ويبقى الكشف بالبصمات الحاضرة، وتُعاد في التحديث التالي
+    async function refreshPastCopies(candidates) {
+        const need = candidates.filter((item) => !item.pastShas);
+        for (const item of need) {
+            for (const copy of item.copies) {
+                const text = (copy.block.text || '').trim();
+                if (!copy.textKey && text) copy.textKey = await textHash(text);
+            }
+        }
+        const keys = [...new Set(need.flatMap((i) => i.copies.map((c) => c.textKey)).filter(Boolean))];
+        const shasByKey = new Map();
+        for (let i = 0; i < keys.length; i += 100) {
+            const { data, error } = await supabase.from('wa_triage').select('key, source_shas').in('key', keys.slice(i, i + 100));
+            if (error) return void console.warn('[CRM] wa_triage source_shas', error);
+            for (const row of data || []) {
+                const list = shasByKey.get(row.key) || [];
+                for (const sha of row.source_shas || []) if (!list.includes(sha)) list.push(sha);
+                shasByKey.set(row.key, list);
+            }
+        }
+        for (const item of need) {
+            const own = new Set(item.copies.map((c) => c.hash));
+            item.pastShas = [...new Set(item.copies.flatMap((c) => shasByKey.get(c.textKey) || []))].filter((sha) => !own.has(sha));
         }
     }
 
     function sentInfo(item) {
         if (item.sentRequest) return { request_id: item.sentRequest, status: 'queued' };
         let failed = null;
-        for (const copy of item.copies) {
-            const info = copy.hash ? page.sent.get(copy.hash) : null;
+        for (const hash of [...item.copies.map((c) => c.hash), ...(item.pastShas || [])]) {
+            const info = hash ? page.sent.get(hash) : null;
             if (!info) continue;
             if (info.status === 'failed' || info.status === 'cancelled') failed = info;
             else return info;
@@ -557,7 +594,8 @@ export async function renderWhatsApp(root) {
             if (f.group && !item.copies.some((c) => c.source.group === f.group)) return false;
             if (!f.kinds.has(block.kind) && !(jev && isSurfaced(block.kind, resultOf(item)))) return false;
             if (!isNew(item)) return false;
-            if (f.hideSent && isSent(item)) return false;
+            // ما ينتظر قراراً بلا مسودة يبقى ظاهراً ولو أُرسل
+            if (f.hideSent && isSent(item) && !sentInfo(item).waiting) return false;
             if (q && normalizeForDedupe(block.text + ' ' + block.sender).indexOf(q) === -1) return false;
             return true;
         });
@@ -850,7 +888,8 @@ export async function renderWhatsApp(root) {
         if (block.attachments.length) badges.push(badge(block.attachments.length + ' مرفق', 'blue'));
         else if (block.documents.length) badges.push(badge('مستند لم يُصدَّر', 'orange'));
         else if (block.media) badges.push(badge('صور لم تُصدَّر', 'neutral'));
-        if (sent) badges.push(badge('أُرسل للمساعد', 'green'));
+        if (sent && info.waiting) badges.push(badge('لم تُنشأ مسودة — يحتاج قرارك', 'orange'));
+        else if (sent) badges.push(badge('أُرسل للمساعد', 'green'));
         else if (info && info.failed) badges.push(badge('فشل إرسال سابق', 'red'));
         if (page.copied.has(item.id)) badges.push(badge('نُسخ', 'neutral'));
 
@@ -1039,35 +1078,49 @@ export async function renderWhatsApp(root) {
     // يلتقط ما لم يبدأ). ما أُرسل سابقاً لا يُرسل ثانية، والإرسال يتوقف عند الحد اليومي.
     // حين يوجد ما حدده Jev: ما حدده المالك أولاً بترتيبه المعتاد، ثم ما حدده Jev بثقة النية من الأعلى، فإن قطع
     // الحدُّ اليومي الإرسالَ سقط الأقل ثقة (sendOrder). بلا تحديد مسبق يبقى الترتيب كما كان.
+    // المنشورات المتشابهة بين المحدد عرضٌ واحد (whatsapp-twins.js): يُرسل أحدثها طلباً واحداً، ونصوص البقية مصادر
+    // إضافية فيه (حتى TWIN_TEXTS)، فلا يُدفع استخراجٌ لكل نسخة ولا تصير توائم في «طلبات الاعتماد». العدّ والحد اليومي بالطلبات.
     async function sendSelected() {
         const chosen = sendOrder(page.items.filter((item) => page.selected.has(item.id) && !isSent(item)),
             { auto: autoPicked, resultOf: resultOf });
         if (!chosen.length || page.sending) return;
-        const limit = page.remaining === null ? chosen.length : Math.min(chosen.length, page.remaining);
+        const groups = twinGroups(chosen, (item) => item.main.block.text, (a, b) => a.main.block.lastAt > b.main.block.lastAt);
+        const limit = page.remaining === null ? groups.length : Math.min(groups.length, page.remaining);
         if (!limit) return void notify('بلغت الحد اليومي لطلبات المساعد', 'error');
         page.sending = true;
         drawBar();
         let done = 0;
+        let covered = 0;
+        let merged = 0;
         let stopError = null;
         const files = { sent: 0, left: 0 };
         try {
-            for (const item of chosen.slice(0, limit)) {
+            for (const group of groups.slice(0, limit)) {
+                const item = group.main;
+                const extra = group.others.slice(0, TWIN_TEXTS);
+                const members = [item, ...group.others];
                 sendBtn.textContent = 'جارٍ الإرسال ' + (done + 1) + ' من ' + limit + '…';
-                const attached = await attachmentsOf(item);
+                // مرفقات كل نسخ المجموعة، فيما يبقى من حد المصادر بعد النصوص
+                const attached = await attachmentsOf({ copies: members.flatMap((m) => m.copies) }, MAX_FILES - 1 - extra.length);
                 const id = await createRequest('project', {
                     title: titleOf(item.main.source.group, item.main.block),
                     instruction: INSTRUCTION,
                     text: item.main.text,
+                    moreTexts: extra.map((m) => m.main.text),
                     textName: 'whatsapp',
                     files: attached.files
                 });
                 files.sent += attached.files.length;
                 files.left += attached.left;
-                item.sentRequest = id;
-                page.selected.delete(item.id);
-                autoPicked.delete(item.id);
+                for (const member of members) {
+                    member.sentRequest = id;
+                    page.selected.delete(member.id);
+                    autoPicked.delete(member.id);
+                }
                 startExtraction(id);
                 done += 1;
+                covered += members.length;
+                merged += group.others.length;
             }
         } catch (error) {
             stopError = error;
@@ -1078,24 +1131,27 @@ export async function renderWhatsApp(root) {
             drawSummary();
             drawList();
         }
-        // رسالة واحدة ثابتة بما حدث كله: ما أُرسل، وأين توقف ولماذا، وأن الباقي ما زال محدداً
-        const left = chosen.length - done;
+        // رسالة واحدة ثابتة بما حدث كله: ما أُرسل، وأين توقف ولماذا، وأن الباقي ما زال محدداً. العدّ هنا بالمنشورات
+        // المحددة، ومنها ما أُرسل نسخةً مع شبيهه
+        const left = chosen.length - covered;
         if (stopError) {
-            return void fail(stopError, 'أُرسل ' + done + ' من ' + chosen.length + ' ثم توقف الإرسال، والباقي (' + left + ') ما زال محدداً');
+            return void fail(stopError, 'أُرسل ' + covered + ' من ' + chosen.length + ' ثم توقف الإرسال، والباقي (' + left + ') ما زال محدداً');
         }
         if (left > 0) {
-            return void notify('أُرسل ' + done + ' من ' + chosen.length + '. توقف الإرسال لبلوغ الحد اليومي، والباقي (' + left + ') ما زال محدداً.', 'error', 10000);
+            return void notify('أُرسل ' + covered + ' من ' + chosen.length + '. توقف الإرسال لبلوغ الحد اليومي، والباقي (' + left + ') ما زال محدداً.', 'error', 10000);
         }
         if (done) {
             notify('أُرسل ' + done + ' للمساعد' + (files.sent ? ' ومعها ' + countText(files.sent, FILE_FORMS) : '')
+                + (merged ? '. والمنشورات المتشابهة (' + merged + ') أُرفقت بعروضها نسخاً بدل طلبات مستقلة' : '')
                 + '. تظهر مسوداتها في «طلبات الاعتماد» خلال دقائق.'
                 + (files.left ? ' تُرك ' + countText(files.left, FILE_FORMS) + ' لا يقبله المساعد (ليس PDF أو صورة، أو أكبر من حده).' : ''), 'success', 9000);
         }
     }
 
     // مرفقات العرض الموجودة في ملف التصدير (كتيّبات PDF وصور)، من كل نسخه بلا تكرار، في حدود المساعد: PDF أو صورة،
-    // و10 ميغابايت للملف، و20 صفحة للـPDF، و9 ملفات مع النص. ما خرج عنها يُترك ويُعدّ في رسالة الإرسال.
-    async function attachmentsOf(item) {
+    // و10 ميغابايت للملف، و20 صفحة للـPDF، و9 ملفات مع النص (room: أقل حين تُرفق نسخ نصية أخرى). ما خرج عنها يُترك
+    // ويُعدّ في رسالة الإرسال.
+    async function attachmentsOf(item, room = MAX_FILES - 1) {
         const out = { files: [], left: 0 };
         const seen = new Set();
         for (const copy of item.copies) {
@@ -1104,7 +1160,7 @@ export async function renderWhatsApp(root) {
                 seen.add(name);
                 const spec = fileKind(name);
                 const load = copy.source.files ? copy.source.files.get(name) : null;
-                if (!load || !spec || (spec.kind !== 'pdf' && spec.kind !== 'image') || out.files.length >= MAX_FILES - 1) { out.left += 1; continue; }
+                if (!load || !spec || (spec.kind !== 'pdf' && spec.kind !== 'image') || out.files.length >= room) { out.left += 1; continue; }
                 const blob = await load();
                 if (blob.size > MAX_FILE_BYTES) { out.left += 1; continue; }
                 if (spec.kind === 'pdf') {

@@ -642,6 +642,9 @@ button.chip { font-family: 'Tajawal', sans-serif; color: var(--text-secondary); 
 .wa-text { max-height: none; }
 .wa-text.wa-clamped { max-height: 220px; overflow: hidden; }
 .wa-docs { margin-top: 6px; }
+/* «قد يكون تحديثاً لـ#N»: سطر يلتف على الجوال، كل اقتراح بزره */
+.wa-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; font-size: .92rem; }
+.wa-suggest-item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .wa-card-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
 .wa-card-actions { display: flex; flex-wrap: wrap; gap: 14px; }
 .wa-kind { margin-inline-start: 6px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border-light); background: var(--bg-card); color: inherit; font-family: inherit; }

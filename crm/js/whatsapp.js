@@ -19,7 +19,7 @@
 // ما الجديد؟ لكل مجموعة مؤشر «آخر مراجعة» في crm_settings (مفتاح wa_cursor:<المجموعة>).
 // «إنهاء المراجعة» يقدّمه إلى آخر رسالة في الملف، فلا يظهر ما قبلها في المرة القادمة.
 
-import { supabase } from './supabase.js';
+import { supabase, fetchAll } from './supabase.js';
 import { myId } from './auth.js';
 import {
     sha256Hex, createRequest, startExtraction, extractionStatus, fileKind, pdfPageCount, MAX_FILE_BYTES, MAX_FILES, MAX_PDF_PAGES
@@ -29,6 +29,7 @@ import {
 } from './whatsapp-parse.js';
 import { el, replace, clear, notify, fail, errorText, errorBox, badge, empty, localDayStart, pageHead, actionBtn, countText, openModal, closeModal } from './ui.js';
 import { twinGroups } from './whatsapp-twins.js';
+import { prepareProjects, suggestProjects } from './project-match.js';
 
 // «عنصر» مع عدده: عنصر واحد، عنصران، 3 عناصر، 11 عنصراً
 const ITEM_FORMS = ['عنصر واحد', 'عنصران', 'عناصر', 'عنصراً'];
@@ -213,7 +214,8 @@ export async function renderWhatsApp(root) {
         remaining: null,    // ما بقي من حد طلبات المساعد اليومي
         cap: 20,
         extraction: null,   // هل الاستخراج مفعّل (المفتاح مضبوط)
-        sending: false
+        sending: false,
+        projects: null      // مفاتيح المشاريع القائمة لـ«قد يكون تحديثاً لـ#N» (project-match.js)، null قبل وصولها أو إن تعذّرت
     };
 
     // فرز Jev. status: رد إجراء status (null قبل وصوله). autoPicked: معرّفات ما حدده Jev لا المالك.
@@ -315,6 +317,7 @@ export async function renderWhatsApp(root) {
     ]);
 
     refreshQuota();
+    loadProjects();
     extractionStatus(true).then((st) => { page.extraction = st; drawBar(); });
     // فرز Jev: سؤال واحد عن حالته عند فتح الصفحة (لا يرمي). تعذّره أو تعطيله يترك الصفحة كما كانت.
     triageStatus(supabase).then(applyStatus).catch((error) => console.error('[CRM]', error));
@@ -500,6 +503,22 @@ export async function renderWhatsApp(root) {
     function isSent(item) {
         const info = sentInfo(item);
         return Boolean(info && !info.failed);
+    }
+
+    // المشاريع القائمة مرة واحدة للصفحة، لاقتراح «قد يكون تحديثاً لـ#N» على البطاقات. تعذّرها لا يوقف شيئاً: تغيب الاقتراحات فقط
+    async function loadProjects() {
+        const { data, error } = await fetchAll(() => supabase.from('projects').select('id, name, district')
+            .is('deleted_at', null).neq('status', 'rejected').order('id', { ascending: true }));
+        if (error) return void console.warn('[CRM] projects for update suggestions', error);
+        page.projects = prepareProjects(data);
+        if (page.items.length) drawListSoon();
+    }
+
+    // اقتراحات البطاقة تُحسب مرة لكل عنصر: عرض أو تحديث له نص، لم يُرسل، والمشاريع وصلت
+    function suggestionsFor(item) {
+        if (!page.projects || !['offer', 'update'].includes(item.main.block.kind) || !item.main.block.text) return [];
+        if (!item.suggest) item.suggest = suggestProjects(item.main.block.text, page.projects);
+        return item.suggest;
     }
 
     // الحد اليومي لطلبات المساعد لكل مستخدم (القاعدة تفرضه؛ هنا للعرض ولإيقاف الإرسال قبله)
@@ -919,12 +938,66 @@ export async function renderWhatsApp(root) {
             text,
             block.documents.length ? el('div', { class: 'crm-subtle wa-docs', text: 'مستندات: ' + block.documents.join('، ') }) : null,
             others.length ? el('div', { class: 'crm-subtle', text: 'نُشر أيضاً في: ' + others.join('، ') }) : null,
+            sent ? null : suggestLine(item),
             el('div', { class: 'wa-card-foot' }, [
                 jev.slot,
                 el('div', { class: 'wa-card-actions' }, actions)
             ])
         ]);
         return { node: node, item: item, check: check, kindBadge: kindBadge, badges: jev.badges, slot: jev.slot, fix: jev.fix, sig: jevSig(result) };
+    }
+
+    // «قد يكون تحديثاً لـ#N»: حتى ثلاثة مشاريع قائمة من نص المنشور (project-match.js)، لكلٍّ «أرسله تحديثاً». للعرض فقط:
+    // «إرسال للمساعد» يبقى مشروعاً جديداً كما كان، والتحديث باختيار المدير وحده
+    function suggestLine(item) {
+        const list = suggestionsFor(item);
+        if (!list.length) return null;
+        return el('div', { class: 'wa-suggest' }, [
+            el('span', { class: 'crm-subtle', text: list[0].strong ? 'يبدو تحديثاً لمشروع قائم:' : 'قد يكون تحديثاً لـ:' }),
+            ...list.map((p, i) => el('span', { class: 'wa-suggest-item' }, [
+                // «رقم 101» لا «#101»: في السطر العربي تنقلب «#101» إلى «101#»
+                el('span', { text: 'رقم ' + p.id + ' «' + p.name + '»' + (p.district ? ' (' + p.district + ')' : ''), title: p.reason }),
+                el('button', { type: 'button', class: i === 0 ? 'btn btn-outline btn-xs' : 'wa-link', text: 'أرسله تحديثاً',
+                    title: 'طلب «تحديث مشروع أو وحدة» للمشروع رقم ' + p.id + ' بنص هذا المنشور ومرفقاته',
+                    onclick: (event) => sendAsUpdate(item, p, event.currentTarget) })
+            ]))
+        ]);
+    }
+
+    // منشور واحد ← طلب «تحديث» للمشروع المختار (035 يُبقي الهدف لطلب المدير)، بنصه ومرفقاته، ثم يبدأ تنفيذه.
+    // يُحسب مرسلاً كغيره، ويحترم الحد اليومي وتوقف الاستخراج
+    async function sendAsUpdate(item, project, button) {
+        if (page.sending || isSent(item)) return;
+        if (sendingBlocked()) return void notify('الإرسال متوقف: الاستخراج التلقائي غير مفعّل', 'error');
+        if (page.remaining === 0) return void notify('بلغت الحد اليومي لطلبات المساعد', 'error');
+        page.sending = true;
+        button.disabled = true;
+        drawBar();
+        try {
+            const attached = await attachmentsOf(item);
+            const name = ' «' + project.name + '»';
+            const id = await createRequest('update', {
+                title: 'تحديث #' + project.id + name,
+                instruction: 'حدّث المشروع رقم ' + project.id + name + ' بما في هذا المنشور.',
+                text: item.main.text,
+                textName: 'whatsapp',
+                files: attached.files,
+                target: project.id
+            });
+            item.sentRequest = id;
+            page.selected.delete(item.id);
+            autoPicked.delete(item.id);
+            startExtraction(id);
+            notify('أُرسل تحديثاً للمشروع رقم ' + project.id + '. تظهر مسودة التحديث في «طلبات الاعتماد» خلال دقائق.', 'success', 9000);
+        } catch (error) {
+            button.disabled = false;
+            fail(error, 'تعذّر إرسال التحديث');
+        } finally {
+            page.sending = false;
+            await refreshQuota();
+            drawSummary();
+            drawList();
+        }
     }
 
     // شارة حكم Jev (وبعدها «Jev: عرض فاته الفرز» لما فات القارئ) وسطره مع «تصحيح Jev». بلا نتيجة: لا شارة،

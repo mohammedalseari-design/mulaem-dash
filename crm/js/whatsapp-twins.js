@@ -24,8 +24,13 @@ export const MIN_WORDS_SHARED = 0.6;
 // لا يبدأ بعد رقم: «350000000» سعرٌ وليس جوالاً يبدأ من خانته الثانية
 const PHONE = /(^|\D)(?:(?:\+|00)\s*966|966)?[\s-]*0?5(?:[\s-]*\d){8}(?!\d)/g;
 
+// النص بأرقام لاتينية وبلا محارف الاتجاه وبلا أرقام الجوال (project-match.js يستعمله أيضاً)
+export function withoutPhones(text) {
+    return asciiDigits(cleanLine(text)).replace(PHONE, '$1 ');
+}
+
 export function shapeOf(text) {
-    const norm = normalizeForDedupe(asciiDigits(cleanLine(text)).replace(PHONE, '$1 '));
+    const norm = normalizeForDedupe(withoutPhones(text));
     const tokens = norm.split(' ').filter(Boolean);
     return {
         size: norm.length,

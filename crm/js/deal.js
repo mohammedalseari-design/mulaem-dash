@@ -7,6 +7,9 @@
 //
 // "خسرت" بلا سبب يرفضه قيد ‎deals_lost_reason_required‎ برمز 23514، فالنموذج
 // يطلب السبب قبل الإرسال بدل أن نُري المستخدم خطأ قاعدة بيانات.
+//
+// صفقة "تمت" يعيد فتحها ويعدّل قيمتها المدير وحده (‎deals_won_lock‎ في 034_won_deal_admin_lock.sql)،
+// فلا تُعرض أزرار إعادة الفتح لغيره، وقيمتها في «تعديل الصفقة» للعرض فقط.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName, dealStages, lostReasons, brokerStaff } from './data.js';
@@ -132,6 +135,7 @@ function headerCard(deal, stage, names, reload) {
 // «تعديل الصفقة»: القيمة والوحدة والإغلاق المتوقع، والوسيط للمدير وحده (الخادم يُبقي وسيط الوسيط كما هو).
 // العمولة تتبع القيمة الجديدة في قاعدة البيانات نفسها ما دام لم يُحصَّل منها شيء، وإلا تُعلَّم للمراجعة
 // (deals_after في 009_hardening.sql)، فالنموذج يقول ذلك ولا يلمس جدول العمولات.
+// قيمة صفقة «تمت» للمدير وحده (034): تظهر لغيره للعلم ولا تُرسل.
 async function openDealEdit(deal, stage, reload) {
     let brokers = [];
     if (isAdmin()) {
@@ -141,7 +145,8 @@ async function openDealEdit(deal, stage, reload) {
             return void fail(error, 'تعذّر تحميل أسماء الوسطاء');
         }
     }
-    const amount = moneyInput({ value: deal.amount ?? '' });
+    const amountLocked = Boolean(stage && stage.is_won && !isAdmin());
+    const amount = moneyInput({ value: deal.amount ?? '', disabled: amountLocked });
     const unitKey = el('input', { type: 'text', value: deal.unit_key || '', maxLength: 120, placeholder: 'اسم الوحدة أو رقمها (اختياري)' });
     const expectedClose = el('input', { type: 'date', value: deal.expected_close_date || '' });
     const broker = isAdmin() ? select(brokers, deal.broker_id || '') : null;
@@ -150,9 +155,11 @@ async function openDealEdit(deal, stage, reload) {
     const form = el('form', {}, [
         el('div', { class: 'form-grid' }, [
             field('قيمة الصفقة (ريال)', amount, {
-                hint: stage && stage.is_won
-                    ? 'الصفقة تمت: إن لم يُحصَّل شيء من العمولة تتبعها العمولة تلقائياً، وإلا تُعلَّم للمراجعة.'
-                    : 'أساس العمولة عند الإتمام.'
+                hint: amountLocked
+                    ? 'الصفقة تمت: تعديل قيمتها للمدير فقط.'
+                    : stage && stage.is_won
+                        ? 'الصفقة تمت: إن لم يُحصَّل شيء من العمولة تتبعها العمولة تلقائياً، وإلا تُعلَّم للمراجعة.'
+                        : 'أساس العمولة عند الإتمام.'
             }),
             field('الإغلاق المتوقع', expectedClose),
             field('الوحدة', unitKey, { span2: true }),
@@ -167,14 +174,14 @@ async function openDealEdit(deal, stage, reload) {
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const value = parseNumber(amount.value);
-        if (stage && stage.is_won && (value === null || value <= 0)) {
+        if (!amountLocked && stage && stage.is_won && (value === null || value <= 0)) {
             return void notify('الصفقة تمت: قيمتها مطلوبة لأنها أساس العمولة', 'error', 7000);
         }
         const patch = {
-            amount: value,
             unit_key: unitKey.value.trim() || null,
             expected_close_date: expectedClose.value || null
         };
+        if (!amountLocked) patch.amount = value;
         if (broker && broker.value) patch.broker_id = broker.value;
 
         saveBtn.disabled = true;
@@ -335,10 +342,11 @@ function stageCard(deal, stages, reload) {
     }
 
     // الصفقة المغلقة (تمت أو خسرت) تُعاد إلى مرحلة جارية أولاً، فلا تُتمّ صفقة خاسرة بضغطة
-    // ولا تُقلب صفقة تمت إلى خاسرة مباشرة.
+    // ولا تُقلب صفقة تمت إلى خاسرة مباشرة. و«تمت» يعيد فتحها المدير وحده (034).
     const closed = Boolean(current && current.is_terminal);
+    const locked = Boolean(current && current.is_won && !isAdmin());
     const actions = el('div', { class: 'btn-row' });
-    for (const stage of stages) {
+    for (const stage of locked ? [] : stages) {
         if (stage.id === deal.stage_id) continue;
         if (closed && stage.is_terminal) continue;
         const button = el('button', {
@@ -350,15 +358,18 @@ function stageCard(deal, stages, reload) {
         actions.appendChild(button);
     }
 
+    let note = null;
+    if (locked) note = 'الصفقة مغلقة («تمت»). إعادة فتحها وتعديل قيمتها للمدير فقط.';
+    else if (closed && current.is_won) note = 'الصفقة مغلقة («تمت»). لإعادة فتحها اختر مرحلة: تُلغى عمولتها إن لم يُحصَّل منها شيء، وإلا تُعلَّم «تحتاج مراجعة».';
+    else if (closed) note = 'الصفقة مغلقة («خسرت»). لإعادة فتحها اختر مرحلة، ثم تُغلق بـ«تمت» أو «خسرت» من جديد.';
+
     return el('div', { class: 'crm-card' }, [
         el('div', { class: 'crm-card-head' }, [el('h2', { text: 'المرحلة' })]),
         steps,
-        closed
-            ? el('div', { class: 'crm-subtle deal-reopen-note', text: current.is_won
-                ? 'الصفقة مغلقة («تمت»). لإعادة فتحها اختر مرحلة: تُلغى عمولتها إن لم يُحصَّل منها شيء، وإلا تُعلَّم «تحتاج مراجعة».'
-                : 'الصفقة مغلقة («خسرت»). لإعادة فتحها اختر مرحلة، ثم تُغلق بـ«تمت» أو «خسرت» من جديد.' })
+        note
+            ? el('div', { class: 'crm-subtle deal-reopen-note', text: note })
             : el('div', { class: 'crm-subtle', style: 'margin:14px 0 8px', text: 'الانتقال إلى مرحلة أخرى:' }),
-        actions
+        locked ? null : actions
     ]);
 }
 

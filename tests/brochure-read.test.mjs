@@ -96,6 +96,13 @@ t('the dropped-images note counts each image once', twice.notes.some((n) => /ت�
 const foreign = readingToBrochure(reading, { ...media, read: 1e9, images: media.images.map((m, i) => (i === 0 ? { ...m, url: 'https://evil.example/x.jpg' } : m)) }, { mediaPrefix: 'https://img.test/brochures/r1/' });
 t('media.json: images only from this brochure\'s storage, pages capped at 40', !foreign.project.images.some((i) => /evil/.test(i.url)) && foreign.spec.pages.length === 40);
 
+// بروشور لامير الحقيقي: آخر صفحة غلافه الخلفي، وقبلها صفحة «تواصل معنا»؛ والاسم بمدّ «سيـرين»
+const closing = readingToBrochure({ ...reading, project: { ...reading.project, name: 'لامير سيـرين' },
+    pages: [...reading.pages.slice(0, 5), page(6, 'contact', { title: 'تواصل معنا لتتعرف على الخصم' }), page(7, 'cover', { title: 'لاميـر سيـرين' })] }, { ...media, read: 7 }, {});
+t('the closing page of the developer brochure is the Mulaem back cover; the contact page before it is a statement', closing.spec.pages[6].kind === 'back'
+    && closing.spec.pages[5].kind === 'statement' && closing.spec.pages[5].text.title === 'تواصل معنا لتتعرف على الخصم', closing.spec.pages.map((x) => x.kind));
+t('stretched letters (ـ) in the developer names are not copied', closing.project.name === 'لامير سيرين');
+
 t('areaIn: the area printed in a plan', areaIn('نموذج شقة (3) مساحتها 168م²') === 168 && areaIn('مساحة: ١٠٧') === 107 && areaIn('97 م') === 97 && areaIn('97 مجلس') === null && areaIn(null) === null);
 
 console.log(`passed ${pass}, failed ${fail}`);

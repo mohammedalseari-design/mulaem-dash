@@ -19,8 +19,10 @@ export function areaIn(label) {
     return m ? Number(m[1]) : null;
 }
 
+// نص كما طُبع بلا مدّ الكشيدة (ـ): المطوّر يمدّ الحروف زخرفةً («سيـرين»)، وخط ملائم يرسم الكلمة بلا مدّ
 function str(value, max) {
-    return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
+    const t = typeof value === 'string' ? value.replace(/ـ/g, '').trim() : '';
+    return t ? t.slice(0, max) : null;
 }
 
 // result: القراءة (الإصدار 2)؛ media: { pages, read, images: [{ url, page, w, h, kind, tone, tall, on: [{ page, n }] }] }؛
@@ -69,10 +71,14 @@ export function readingToBrochure(result, media, meta = {}) {
     const models = [];
     const pages = [];
     let statsShown = false;
-    // الغلاف الخلفي (تواصل ملائم) مكان آخر صفحة تواصل، وإلا مكان آخر صفحة ما لم تكن نموذجاً: العدد نفسه وخاتمة ملائم
+    // الغلاف الخلفي (تواصل ملائم) مكان صفحة المطوّر الختامية (غلافه الخلفي أو تواصل أو غيرها في آخر البروشور)، وإلا مكان آخر
+    // صفحة تواصل، وإلا آخر صفحة ما لم تكن نموذجاً: العدد نفسه وخاتمة ملائم في آخره
     const contactPages = r.pages.filter((x) => x.role === 'contact').map((x) => x.page);
-    const lastContact = contactPages.length ? Math.max(...contactPages)
-        : count > 1 && !(read.get(count) && read.get(count).role === 'model') ? count : null;
+    const final = read.get(count);
+    const lastContact = count < 2 ? null
+        : !final || ['cover', 'contact', 'other'].includes(final.role) ? count
+        : contactPages.length ? Math.max(...contactPages)
+        : final.role !== 'model' ? count : null;
     const firstExterior = () => {
         for (const x of r.pages) for (const im of x.images || []) if (im.role === 'exterior' && all[at.get(x.page + ':' + im.n)]) return at.get(x.page + ':' + im.n);
         return null;
@@ -157,9 +163,9 @@ export function readingToBrochure(result, media, meta = {}) {
 
     const project = {
         id: meta.id ?? null,
-        name: p.name ?? null, city: p.city ?? null, district: p.district ?? null, availability: 'available',
+        name: str(p.name, 80), city: str(p.city, 40), district: str(p.district, 60), availability: 'available',
         images,
-        details: { developer: p.developer ?? null, name_en: p.name_latin ?? null, tagline: p.tagline ?? null, license: p.license ?? null, models }
+        details: { developer: str(p.developer, 80), name_en: str(p.name_latin, 60), tagline: str(p.tagline, 120), license: str(p.license, 120), models }
     };
     return { project, spec: { version: 3, pages }, notes };
 }

@@ -85,6 +85,7 @@ export async function renderApprovals(root) {
             .from('agent_requests')
             .select('id, kind, title, status, created_at, requested_by, agent_sources(id, kind),'
                 + ' ' + embed + '(id, status, target_kind, target_id, conflicts, duplicates)', { count: 'exact' })
+            .neq('kind', 'brochure')   // قراءة البروشور لا تنتج مسودات تُعتمد
             .order('created_at', { ascending: view.status === 'submitted' })
             .range(from, to);
         if (view.status) query = query.eq('agent_drafts.status', view.status);

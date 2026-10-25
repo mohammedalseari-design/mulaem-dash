@@ -24,7 +24,8 @@ import {
 import { fetchUrlSource } from "./fetch.ts";
 import { LinkRetry, openLinks } from "./links.ts";
 import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
-import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, pdfPages, SourceError, type SourceRow } from "./sources.ts";
+import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, MAX_BROCHURE_PAGES, MAX_FILES, pdfPages, SourceError, type SourceRow } from "./sources.ts";
+import { type BrochureResult, evaluateBrochure, pageFromPath } from "./brochure.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
@@ -191,6 +192,7 @@ interface Evaluation {
   outcome: AttemptOutcome;
   drafts: DraftSpec[] | "asked" | null;
   notes: string[]; // ملاحظات المدقق بالعربية: رسالة الإصلاح، وما يبقى لإنسان
+  brochure?: BrochureResult; // طلب «بروشور»: القراءة النظيفة بدل المسودات (brochure.ts)
 }
 
 async function processRequest(db: SupabaseClient, id: string, deadline: number) {
@@ -242,6 +244,12 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       const { data, error } = await db.storage.from("agent-sources").download(path);
       if (error || !data) throw new Stop("تعذّر تحميل ملف من المخزن", true);
       return new Uint8Array(await data.arrayBuffer());
+    }, request.kind === "brochure" ? MAX_BROCHURE_PAGES : MAX_FILES);
+    // «بروشور»: معرّف المصدر («S3») ← رقم صفحته من اسم ملفها («…-p03.jpg»)
+    const pageOf = new Map<string, number>();
+    loaded.srcs.forEach((s, i) => {
+      const page = pageFromPath(rows.find((r) => r.id === s.id)?.storage_path, i + 1);
+      if (page !== null) pageOf.set(s.label, page);
     });
     for (const [sourceId, pages] of loaded.pages) {
       await db.from("agent_sources").update({ pages }).eq("id", sourceId);
@@ -332,11 +340,15 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       spent.cost += result.usage.costUsd ?? 0;
 
       await stage(db, id, "validating");
-      const ev = await evaluate(db, id, request, result, seen, restore, districts);
+      const ev = await evaluate(db, id, request, result, seen, restore, districts, pageOf);
       const failed = isFailure(ev.outcome, MAX_REJECT_RATIO);
       const failure = failed ? classifyFailure(ev.outcome) : null;
       await logCall(db, id, step, tier, effort, result, failed ? "invalid" : "ok", failure);
 
+      if (!failed && ev.brochure) {
+        await finish(db, id, { status: "ready", result: ev.brochure, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: deepNote });
+        return;
+      }
       if (!failed && ev.drafts === "asked") {
         await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null }, true);
         return;
@@ -426,13 +438,14 @@ function shapeOk(kind: string, out: unknown): boolean {
   if (kind === "client") return typeof o.client === "object" && o.client !== null;
   if (kind === "project") return typeof o.project === "object" && o.project !== null && Array.isArray(o.units);
   if (kind === "update") return typeof o.target === "object" && o.target !== null && Array.isArray(o.changes);
+  if (kind === "brochure") return typeof o.project === "object" && o.project !== null && Array.isArray(o.models) && Array.isArray(o.pages);
   return false;
 }
 
 async function evaluate(
   // deno-lint-ignore no-explicit-any
   db: SupabaseClient, id: string, request: any, result: ChatResult, seen: Src[], restore: Restore,
-  districts: () => Promise<KnownDistrict[] | null>,
+  districts: () => Promise<KnownDistrict[] | null>, pageOf: Map<string, number> = new Map(),
 ): Promise<Evaluation> {
   if (result.finishReason === "length") return hard("truncated", "الناتج مقطوع لأنه بلغ سقف الطول — اختصر الناتج ولا تكرر النصوص");
   let out: unknown;
@@ -442,6 +455,13 @@ async function evaluate(
     return hard("parse", "الناتج ليس JSON صالحاً");
   }
   if (!shapeOk(request.kind, out)) return hard("schema", "شكل الناتج لا يطابق المخطط المطلوب");
+
+  // «بروشور»: لا مسودات. قراءة فارغة (لا اسم ولا نموذج بمصدر صفحة) تُعاد وتُصعَّد كغيرها
+  if (request.kind === "brochure") {
+    const { result: brochure, empty } = evaluateBrochure(out, (s) => (typeof s === "string" ? pageOf.get(s) ?? null : null));
+    if (empty) return hard("empty", "لم يُقرأ من البروشور اسم المشروع ولا أي نموذج بمصدر صفحته — اقرأ الصفحات صورةً صورة");
+    return { outcome: { returned: 1, rejected: 0, rejections: [] }, drafts: null, notes: [], brochure };
+  }
 
   const normalizePhone: PhoneNormalizer = async (raw) => {
     const { data } = await db.rpc("normalize_phone", { p: raw });

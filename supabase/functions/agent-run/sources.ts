@@ -8,6 +8,8 @@ import type { ChatPart } from "../_shared/effort-router/client.ts";
 import type { Src, SourceKind } from "./validate.ts";
 
 export const MAX_FILES = 10;
+// طلب «بروشور» (036): صفحات البروشور صوراً، حتى أربعين صفحة (والحد نفسه في حارس agent_sources)
+export const MAX_BROCHURE_PAGES = 40;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_PDF_PAGES = 20;
 export const MAX_TEXT_CHARS = 300_000;
@@ -93,8 +95,8 @@ function wrapText(label: string, kind: string, text: string): string {
   return `<source id="${label}" kind="${kind}">\n${safe}\n</source>`;
 }
 
-export async function loadSources(rows: SourceRow[], download: Download): Promise<Loaded> {
-  if (rows.length > MAX_FILES) throw new SourceError(`حد المرفقات ${MAX_FILES} ملفات للطلب الواحد`);
+export async function loadSources(rows: SourceRow[], download: Download, maxFiles = MAX_FILES): Promise<Loaded> {
+  if (rows.length > maxFiles) throw new SourceError(`حد المرفقات ${maxFiles} ملفات للطلب الواحد`);
   const srcs: Src[] = [];
   const files: LoadedFile[] = [];
   const urls = new Map<string, string>();

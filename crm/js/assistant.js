@@ -79,6 +79,7 @@ export async function renderAssistant(root) {
             .select('id, kind, title, status, stage, candidates, error_ar, created_at, agent_sources(id), agent_drafts(id, status)',
                     { count: 'exact' })
             .eq('requested_by', myId())
+            .neq('kind', 'brochure')   // مكانها «استوديو البروشورات»: لا مسودات لها
             .order('created_at', { ascending: false })
             .range(from, to);
 

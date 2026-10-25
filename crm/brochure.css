@@ -1,0 +1,183 @@
+/* استوديو البروشورات (brochure.js): صفحات عريضة 16:9 بهوية ملائم.
+   التكنيك من بروشورات المطورين (الصورة بطل، النص صغير، فراغ واسع، خط واحد بأوزانه، خطوط رفيعة)، والفكرة لملائم وحدها:
+   «عمود ملائم» شريط رفيع يمين كل صفحة فيه اسم القسم عمودياً ورقمها وخط ذهبي، فيتكرر توقيعاً في كل الصفحات؛ والأرقام كبيرة
+   بوزن خفيف بلا صناديق؛ ومربع الشعار ختمٌ في الزاوية.
+   الصفحة حاوية بعرضها، وكل مقاس بداخلها بـ cqw (1cqw = 1% من عرض الصفحة). الألوان ثابتة في الوضعين: البروشور مطبوعة. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300&display=swap');
+
+.bro-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 14px; }
+.bro-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.bro-pick { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid rgba(15, 23, 42, .12); border-radius: 10px; text-decoration: none; color: inherit; }
+.bro-pick:hover, .bro-pick:focus-visible { border-color: #C0A062; }
+.bro-pages { display: grid; justify-items: center; gap: 26px; padding: 4px 0 40px; }
+/* مراحل الرفع الحقيقية: المنتهية مملوءة ذهبياً، والجارية بحلقة، والآتية باهتة */
+.bro-steps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.bro-steps li { position: relative; padding-inline-start: 22px; opacity: .55; }
+.bro-steps li::before { content: ''; position: absolute; inset-inline-start: 0; top: .6em; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #C0A062; }
+.bro-steps li.done { opacity: 1; }
+.bro-steps li.done::before { background: #C0A062; }
+.bro-steps li.now { opacity: 1; font-weight: 600; }
+.bro-steps li.now::before { box-shadow: 0 0 0 3px rgba(192, 160, 98, .28); }
+.bro-steps > .crm-subtle { margin-top: 10px; }
+.bro-notes { margin-bottom: 14px; }
+
+.bro-page {
+    --navy: #0F172A; --navy-2: #172238; --gold: #C0A062; --paper: #F6F3EE; --text: #334155; --muted: #6B7686;
+    --hair: rgba(15, 23, 42, .14); --hair-light: rgba(255, 255, 255, .22); --spine: 4.6cqw;
+    position: relative; width: min(100%, 1120px); aspect-ratio: 16 / 9; overflow: hidden;
+    container-type: inline-size; direction: rtl; text-align: start; isolation: isolate;
+    background: var(--paper); color: var(--text);
+    font-family: 'IBM Plex Sans Arabic', Tahoma, sans-serif; font-size: 1.05cqw; line-height: 1.8; font-weight: 400;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 14px 36px rgba(15, 23, 42, .12);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.bro-page * { box-sizing: border-box; }
+:where(.bro-page) :where(h1, h2, p, dl, dd, dt, ul, ol, li, figure) { margin: 0; padding: 0; }
+/* الصورة تملأ إطارها (object-fit)، فلا قصّ على الإطار: علامات المناسب (::after) تخرج عنه */
+.bro-img { position: relative; background: #e7e2d9; }
+.bro-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.bro-bleed { position: absolute; inset: 0; z-index: -2; }
+
+/* ---------- عمود ملائم: اسم القسم عمودياً، ورقم الصفحة أسفله، وخط ذهبي يفصله عن الصفحة ---------- */
+.bro-page:not(.bro-cover):not(.bro-back)::after {
+    content: ''; position: absolute; top: 4cqw; bottom: 4cqw; right: var(--spine); width: .09cqw; background: var(--gold); opacity: .85;
+}
+.bro-sec {
+    position: absolute; top: 14cqw; right: 0; width: var(--spine); writing-mode: vertical-rl;
+    display: flex; align-items: center; justify-content: flex-start;
+    font-size: .95cqw; font-weight: 600; letter-spacing: .06em; color: var(--navy);
+}
+.bro-num { position: absolute; bottom: 3.6cqw; right: 0; width: var(--spine); text-align: center; font-size: .82cqw; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- الغلاف ---------- */
+.bro-veil { position: absolute; inset: 0; z-index: -1; background: linear-gradient(to left, rgba(15, 23, 42, .9) 0%, rgba(15, 23, 42, .62) 30%, rgba(15, 23, 42, .08) 62%, rgba(15, 23, 42, 0) 100%); }
+.bro-stamp { display: block; width: 5cqw; height: 5cqw; }
+.bro-stamp-cover { position: absolute; top: 0; right: 7cqw; width: 5.4cqw; height: auto; }
+.bro-cover-words { position: absolute; right: 7cqw; top: 50%; transform: translateY(-46%); max-width: 44cqw; color: #fff; }
+.bro-kicker { font-size: 1.15cqw; font-weight: 500; color: var(--gold); letter-spacing: .04em; }
+.bro-title { margin-top: .8cqw; font-size: 4.9cqw; line-height: 1.12; font-weight: 700; letter-spacing: 0; color: inherit; }
+.bro-latin { margin-top: .6cqw; font-size: 1.9cqw; font-weight: 300; letter-spacing: .32em; direction: ltr; text-align: right; opacity: .92; }
+.bro-tagline { margin-top: 1.6cqw; font-size: 1.6cqw; font-weight: 500; }
+.bro-tag { margin-top: 1.6cqw; display: inline-block; padding: .2cqw 1.2cqw; border: .09cqw solid var(--gold); font-size: .95cqw; }
+.bro-cover-foot { position: absolute; right: 7cqw; bottom: 4cqw; display: flex; gap: 2.4cqw; font-size: .9cqw; color: rgba(255, 255, 255, .78); }
+.bro-v-low .bro-veil { background: linear-gradient(to top, rgba(15, 23, 42, .92) 0%, rgba(15, 23, 42, .5) 34%, rgba(15, 23, 42, 0) 62%); }
+.bro-v-low .bro-cover-words { top: auto; bottom: 8.4cqw; transform: none; max-width: 60cqw; }
+.bro-v-type { background: var(--navy); }
+.bro-v-type .bro-cover-words { max-width: 70cqw; }
+
+/* ---------- عن المشروع ---------- */
+.bro-about-img { position: absolute; top: 0; bottom: 0; left: 0; width: 48%; }
+.bro-about-words { position: absolute; top: 7cqw; right: calc(var(--spine) + 4.4cqw); width: 38cqw; }
+.bro-about .bro-p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 9; overflow: hidden; }
+.bro-v-text .bro-about-words { width: 60cqw; }
+.bro-h { font-size: 2.6cqw; line-height: 1.3; font-weight: 600; color: var(--navy); letter-spacing: 0; }
+.bro-p { margin-top: 1.6cqw; font-size: 1.12cqw; line-height: 2; font-weight: 300; color: var(--text); }
+
+/* ---------- صفحة صورة، ولقطات ---------- */
+.bro-photo .bro-sec, .bro-location.bro-v-map .bro-sec { color: #fff; }
+.bro-photo::after { background: #fff !important; opacity: .5 !important; }
+.bro-photo .bro-num, .bro-location.bro-v-map .bro-num { color: rgba(255, 255, 255, .8); }
+.bro-cap { position: absolute; left: 4cqw; bottom: 3.6cqw; padding: .3cqw 1.2cqw; background: rgba(15, 23, 42, .66); color: #fff; font-size: .85cqw; font-weight: 500; }
+.bro-panels { position: absolute; top: 4cqw; bottom: 4cqw; left: 4cqw; right: calc(var(--spine) + 3cqw); display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4cqw; }
+.bro-panels figure { position: relative; }
+.bro-panels .bro-img { height: 100%; }
+.bro-panels .bro-cap { left: 1.2cqw; bottom: 1.2cqw; }
+.bro-pair-a { position: absolute; top: 4cqw; bottom: 4cqw; right: calc(var(--spine) + 3cqw); width: 52cqw; }
+.bro-pair-b { position: absolute; top: 12cqw; bottom: 9cqw; left: 4cqw; width: 33cqw; }
+
+/* ---------- الموقع ---------- */
+.bro-veil-loc { background: linear-gradient(to left, rgba(15, 23, 42, .92) 0%, rgba(15, 23, 42, .7) 34%, rgba(15, 23, 42, 0) 66%); }
+.bro-loc-words { position: absolute; top: 9cqw; right: calc(var(--spine) + 4.4cqw); width: 34cqw; }
+.bro-location.bro-v-map .bro-loc-words { color: #fff; }
+.bro-location.bro-v-map .bro-h { color: #fff; }
+.bro-location.bro-v-map .bro-p { color: rgba(255, 255, 255, .85); }
+.bro-near { list-style: none; margin-top: 2.4cqw; }
+.bro-near li { padding: .7cqw 0; border-bottom: .09cqw solid var(--hair-light); font-size: 1.05cqw; }
+.bro-location.bro-v-text .bro-near li { border-bottom-color: var(--hair); }
+
+/* ---------- النموذج: المخطط كبيراً يساراً، والأرقام جالسة على الخيط كعلامات قياس، والمكوّنات تحته ---------- */
+.bro-model { background: var(--navy); color: rgba(255, 255, 255, .86); }
+.bro-model .bro-sec { color: #fff; }
+.bro-model .bro-num { color: rgba(255, 255, 255, .6); }
+.bro-model-title { position: absolute; top: 5cqw; right: calc(var(--spine) + 4.4cqw); display: flex; align-items: baseline; gap: 1.2cqw; color: #fff; }
+.bro-letter { font-size: 6.4cqw; line-height: .9; font-weight: 300; color: var(--gold); }
+.bro-kashida { font-size: 2.4cqw; font-weight: 500; }
+.bro-model-name { font-size: 1.3cqw; font-weight: 400; color: rgba(255, 255, 255, .7); }
+.bro-orient { position: absolute; top: 13.2cqw; right: calc(var(--spine) + 4.4cqw); font-size: 1cqw; color: var(--gold); }
+.bro-stats { position: absolute; right: calc(var(--spine) + 4.4cqw); display: grid; grid-auto-flow: column; grid-auto-columns: max-content; gap: 0 2.8cqw; }
+.bro-model .bro-stats { top: 31cqw; }
+.bro-about .bro-stats { top: 33cqw; }
+.bro-stat { position: relative; display: grid; grid-template-rows: 5cqw auto; }
+.bro-stat::before { content: ''; position: absolute; right: 0; top: 4.55cqw; width: .12cqw; height: .9cqw; background: var(--gold); }
+.bro-stat-v { align-self: end; padding: 0 .9cqw .9cqw 0; font-size: 2.2cqw; line-height: 1.1; font-weight: 300; color: var(--navy); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bro-stat-v small { font-size: .85cqw; font-weight: 400; color: var(--muted); }
+.bro-stat-k { padding: .8cqw .9cqw 0 0; font-size: .82cqw; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.bro-model .bro-stat-v { color: #fff; }
+.bro-model .bro-stat-v small { color: rgba(255, 255, 255, .7); }
+.bro-model .bro-stat-k { color: rgba(255, 255, 255, .6); }
+.bro-parts-head { position: absolute; top: 42cqw; right: calc(var(--spine) + 4.4cqw); font-size: .9cqw; font-weight: 600; color: var(--gold); }
+.bro-parts { position: absolute; top: 44.4cqw; right: calc(var(--spine) + 4.4cqw); width: 28cqw; list-style: none; columns: 2; column-gap: 2.4cqw; }
+.bro-parts li { padding: .2cqw 0; font-size: .9cqw; line-height: 1.6; break-inside: avoid; }
+.bro-plan { position: absolute; top: 4cqw; bottom: 6.25cqw; left: 4cqw; width: 52cqw; display: grid; place-items: center; }
+.bro-plan img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.bro-plan-dark { background: var(--paper); padding: 2cqw; }
+/* بلا مخطط: حرف النموذج خطاً ذهبياً مفرّغاً في مكان المخطط، لا مخطط مستعار */
+.bro-ghost { position: absolute; top: 4cqw; bottom: 6.25cqw; left: 4cqw; width: 52cqw; display: grid; place-items: center;
+    font-size: 34cqw; line-height: 1; font-weight: 300; color: transparent; -webkit-text-stroke: .1cqw var(--gold); opacity: .55; }
+
+/* ---------- المميزات ---------- */
+/* العنوان فوق الخيط (13) والقائمة تحته؛ ومع صورة: القائمة في نصف الصفحة الأيمن عمودين */
+.bro-feat-h { position: absolute; top: 6.4cqw; right: calc(var(--spine) + 4.4cqw); max-width: 44cqw; }
+.bro-feats { position: absolute; top: 17cqw; bottom: 6cqw; right: calc(var(--spine) + 4.4cqw); left: 6cqw; list-style: none;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: min-content; gap: 2.6cqw 4cqw; align-content: start; }
+.bro-v-photo .bro-feats { left: 52cqw; grid-template-columns: repeat(2, 1fr); gap: 2.4cqw 3cqw; }
+.bro-feat-img { position: absolute; top: 5cqw; bottom: 5cqw; left: 4cqw; width: 42cqw; }
+.bro-feats li { display: grid; gap: .5cqw; padding-top: 1.2cqw; border-top: .09cqw solid var(--hair); font-size: 1.3cqw; font-weight: 500; color: var(--navy); line-height: 1.5; }
+.bro-feat-n { font-size: .85cqw; font-weight: 600; color: var(--gold); font-variant-numeric: tabular-nums; }
+
+/* ---------- الغلاف الخلفي: مواضع ثابتة، فيصل الخيط إلى منتصف الصفحة تحت «حيث تجد ما يناسبك» وينتهي بنقطة ---------- */
+.bro-back { background: var(--navy); color: #fff; }
+.bro-back-mid { position: absolute; top: 8.4cqw; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.bro-stamp-back { width: 7cqw; height: 7cqw; }
+.bro-brand { margin-top: 2.2cqw; font-size: 2.4cqw; line-height: 1.3; font-weight: 600; }
+.bro-brand-latin { margin-top: .2cqw; font-size: .95cqw; font-weight: 300; letter-spacing: .42em; direction: ltr; opacity: .8; }
+.bro-slogan { position: absolute; top: 21cqw; left: 0; right: 0; text-align: center; font-size: 1.3cqw; line-height: 2; font-weight: 300; color: rgba(255, 255, 255, .9); }
+.bro-back-foot { position: absolute; left: 7cqw; right: 7cqw; bottom: 3.6cqw; display: flex; justify-content: space-between; align-items: flex-end; gap: 4cqw; font-size: .8cqw; color: rgba(255, 255, 255, .62); }
+.bro-phone { font-size: 1.3cqw; font-weight: 500; color: #fff; letter-spacing: .04em; unicode-bidi: isolate; }
+.bro-fine { max-width: 60cqw; line-height: 1.7; }
+
+/* ---------- خيط ملائم وعلامات المناسب ---------- */
+.bro-thread { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.bro-thread span { position: absolute; background: var(--gold); }
+.bro-th-h { height: .12cqw; }
+.bro-th-v { width: .12cqw; }
+.bro-th-dot { width: .8cqw; height: .8cqw; margin: -.34cqw 0 0 -.34cqw; border-radius: 50%; }
+.bro-photo .bro-thread, .bro-location .bro-thread { filter: drop-shadow(0 0 .25cqw rgba(15, 23, 42, .45)); }
+.bro-thread-start { position: relative; width: 93cqw; height: .12cqw; margin-top: 2.2cqw; background: var(--gold); }
+.bro-thread-start::before { content: ''; position: absolute; right: -.34cqw; top: -.34cqw; width: .8cqw; height: .8cqw; border-radius: 50%; background: var(--gold); }
+/* زوايا ذهبية رفيعة خارج الصورة كعلامات القصّ عند المصمم: «ما يناسبك» */
+.bro-marks::after {
+    content: ''; position: absolute; inset: -1.3cqw; pointer-events: none; --m: 2.4cqw; --t: .12cqw;
+    background:
+        linear-gradient(var(--gold), var(--gold)) top left / var(--m) var(--t) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) top left / var(--t) var(--m) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) top right / var(--m) var(--t) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) top right / var(--t) var(--m) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) bottom left / var(--m) var(--t) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) bottom left / var(--t) var(--m) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) bottom right / var(--m) var(--t) no-repeat,
+        linear-gradient(var(--gold), var(--gold)) bottom right / var(--t) var(--m) no-repeat;
+}
+/* صورة «عن المشروع» بعيدة عن حواف الصفحة، فتظهر علاماتها كاملة */
+.bro-about-img { top: 5cqw; bottom: 5cqw; left: 4cqw; width: 44cqw; }
+
+/* ---------- الطباعة: 297 × 167 مم (عرض A4 بنسبة 16:9) ---------- */
+#broPrint { display: none; }
+@media print {
+    @page { size: 297mm 167.06mm; margin: 0; }
+    body.bro-printing { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+    body.bro-printing > *:not(#broPrint) { display: none !important; }
+    body.bro-printing #broPrint { display: block; }
+    #broPrint .bro-page { width: 297mm; height: 167.06mm; aspect-ratio: auto; margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+    #broPrint .bro-page:last-child { break-after: auto; page-break-after: auto; }
+}

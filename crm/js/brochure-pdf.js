@@ -1,0 +1,194 @@
+// قراءة بروشور المطوّر (PDF) في المتصفح بـ pdf.js: كل صفحة صورةً للمساعد، وكل صورة ومخطط فيه ملفاً مستقلاً قائماً
+// (المخطط المرسوم بزاوية يُدار)، بلا تكرار ولا صور فارغة، وأوراق مصغّرات مرقّمة يحكم المساعد على كل صورة فيها.
+// الحساب على البكسل في brochure-media.js (مختبَر وحده)، وهنا الرسم والملفات فقط.
+// الملف لا يغادر المتصفح هنا: الرفع إلى المخزن وإنشاء طلب المساعد في brochure.js.
+
+import { uprightMatrix, pageRotation, multiply, classifyPixels, fingerprint, pixelKey, duplicate, worthKeeping } from './brochure-media.js';
+import { sheetGroups, SHEET_SIZE } from './brochure-read.js';
+
+// نسخة مثبّتة من jsDelivr (كمكتبة supabase-js في الصفحة). العامل من نطاق آخر: pdf.js يلفّه بنفسه
+const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/';
+export const MAX_PAGES = 36;          // + حتى 4 أوراق مصغّرات = 40، حد طلب البروشور (036)
+export const MAX_IMAGES = SHEET_SIZE * 4;
+const PAGE_WIDTH = 1100;              // عرض صورة الصفحة للمساعد: يقرأ نصوص النماذج والأسعار
+const IMAGE_MAX = 2400;               // أطول ضلع لصورة تُطبع في بروشور ملائم
+
+let lib = null;
+async function pdfjs() {
+    if (!lib) {
+        lib = await import(PDFJS + 'pdf.min.mjs');
+        lib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.mjs';
+    }
+    return lib;
+}
+
+function canvasOf(w, h) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w));
+    c.height = Math.max(1, Math.round(h));
+    return c;
+}
+
+function toBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('تعذّر حفظ الصورة'))), type, quality));
+}
+
+// كائن الصورة من pdf.js (ImageBitmap، أو بكسلات خام بأنواعها الثلاثة) ← لوحة رسم
+function imageCanvas(img) {
+    const w = img.width, h = img.height;
+    const c = canvasOf(w, h);
+    const ctx = c.getContext('2d');
+    if (img.bitmap) { ctx.drawImage(img.bitmap, 0, 0); return c; }
+    if (!img.data) return null;
+    const out = ctx.createImageData(w, h);
+    const d = img.data, o = out.data;
+    if (img.kind === 3) o.set(d.subarray(0, o.length));
+    else if (img.kind === 2) {
+        for (let i = 0, j = 0; j < o.length; i += 3, j += 4) { o[j] = d[i]; o[j + 1] = d[i + 1]; o[j + 2] = d[i + 2]; o[j + 3] = 255; }
+    } else {
+        // GRAYSCALE_1BPP: بت لكل بكسل، الصف مقرّب إلى بايت
+        const row = (w + 7) >> 3;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const v = (d[y * row + (x >> 3)] >> (7 - (x & 7))) & 1 ? 255 : 0;
+            const j = (y * w + x) * 4;
+            o[j] = o[j + 1] = o[j + 2] = v; o[j + 3] = 255;
+        }
+    }
+    ctx.putImageData(out, 0, 0);
+    return c;
+}
+
+// الصورة كما تظهر في الصفحة (مُدارة، ومعكوسة إن عكستها الصفحة)، مصغّرة إلى IMAGE_MAX
+function upright(src, ctm) {
+    const scale = Math.min(1, IMAGE_MAX / Math.max(src.width, src.height));
+    const w = Math.round(src.width * scale), h = Math.round(src.height * scale);
+    const { width, height, matrix } = uprightMatrix(ctm, w, h);
+    const c = canvasOf(width, height);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(...matrix);
+    ctx.drawImage(src, 0, 0, w, h);
+    return c;
+}
+
+// نسخة مصغّرة بكسلاتها للحكم على النوع وبصمة التكرار
+function probe(canvas) {
+    const s = 96;
+    const k = Math.min(1, s / Math.max(canvas.width, canvas.height));
+    const c = canvasOf(canvas.width * k, canvas.height * k);
+    c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+    const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const g = canvasOf(8, 8);
+    const gx = g.getContext('2d');
+    gx.fillStyle = '#fff';
+    gx.fillRect(0, 0, 8, 8);
+    gx.drawImage(canvas, 0, 0, 8, 8);
+    const gp = gx.getImageData(0, 0, 8, 8).data;
+    const gray = [];
+    for (let i = 0; i < 64; i++) gray.push(0.299 * gp[i * 4] + 0.587 * gp[i * 4 + 1] + 0.114 * gp[i * 4 + 2]);
+    return { cls: classifyPixels(px, c.width, c.height), print: fingerprint(gray), key: c.width + 'x' + c.height + ':' + pixelKey(px) };
+}
+
+// مراجع الصور في صفحة مع مصفوفة رسم كل منها، من قائمة أوامر الرسم (مع حفظ الحالة واسترجاعها والنماذج المتداخلة)
+async function imageRefs(page, OPS) {
+    const ops = await page.getOperatorList();
+    const refs = [];
+    const base = pageRotation(page.rotate);
+    let ctm = base;
+    const stack = [];
+    for (let i = 0; i < ops.fnArray.length; i++) {
+        const fn = ops.fnArray[i], args = ops.argsArray[i];
+        if (fn === OPS.save) stack.push(ctm);
+        else if (fn === OPS.restore) ctm = stack.pop() || base;
+        else if (fn === OPS.transform) ctm = multiply(ctm, args);
+        else if (fn === OPS.paintFormXObjectBegin) {
+            stack.push(ctm);
+            if (Array.isArray(args[0]) && args[0].length === 6) ctm = multiply(ctm, args[0]);
+        } else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || base;
+        else if (fn === OPS.paintImageXObject || fn === OPS.paintImageXObjectRepeat) refs.push({ name: args[0], ctm });
+    }
+    return refs;
+}
+
+function imageObject(page, name) {
+    const store = String(name).startsWith('g_') ? page.commonObjs : page.objs;
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 8000);
+        try { store.get(name, (img) => { clearTimeout(timer); resolve(img || null); }); } catch (_) { clearTimeout(timer); resolve(null); }
+    });
+}
+
+// file ← { pageCount, pages: [{ n, blob }], images: [{ blob, page, w, h, kind, tone, tall, type }], skipped }
+// onProgress(نص) يصف المرحلة الحقيقية: «صفحة 5 من 32»
+export async function readBrochurePdf(file, onProgress = () => {}) {
+    const pdf = await pdfjs();
+    const doc = await pdf.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pageCount = doc.numPages;
+    const pages = [];
+    const images = [];
+    const known = [];
+    let skipped = 0;
+    for (let n = 1; n <= Math.min(pageCount, MAX_PAGES); n++) {
+        onProgress('قراءة صفحة ' + n + ' من ' + Math.min(pageCount, MAX_PAGES));
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: Math.min(2.5, PAGE_WIDTH / base.width) });
+        const canvas = canvasOf(viewport.width, viewport.height);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        pages.push({ n, blob: await toBlob(canvas, 'image/jpeg', 0.82) });
+
+        for (const ref of await imageRefs(page, pdf.OPS)) {
+            if (images.length >= MAX_IMAGES) { skipped++; continue; }
+            const img = await imageObject(page, ref.name);
+            if (!img || !worthKeeping(img.width, img.height)) continue;
+            const raw = imageCanvas(img);
+            if (!raw) continue;
+            const done = upright(raw, ref.ctm);
+            const { cls, print, key } = probe(done);
+            if (cls.kind === 'blank') continue;
+            const seen = { kind: cls.kind, print, key };
+            if (known.some((k) => duplicate(k, seen))) continue;
+            known.push(seen);
+            const png = cls.alpha;
+            images.push({
+                blob: await toBlob(done, png ? 'image/png' : 'image/jpeg', 0.86), type: png ? 'png' : 'jpg',
+                page: n, w: done.width, h: done.height, kind: cls.kind, tone: cls.tone, tall: done.height > done.width * 1.15
+            });
+        }
+        page.cleanup();
+    }
+    await doc.destroy();
+    return { pageCount, pages, images, skipped };
+}
+
+// أوراق المصغّرات للمساعد: 4 × 4 خانات، كل صورة كاملة داخل خانتها ورقمها (1…) ظاهر في زاويتها
+export async function contactSheets(images) {
+    const sheets = [];
+    const cell = { w: 300, h: 225 }, pad = 10, cols = 4;
+    for (const group of sheetGroups(images.length)) {
+        const rows = Math.ceil(group.length / cols);
+        const c = canvasOf(cols * (cell.w + pad) + pad, rows * (cell.h + pad) + pad);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#808080';
+        ctx.fillRect(0, 0, c.width, c.height);
+        for (const [k, idx] of group.entries()) {
+            const x = pad + (k % cols) * (cell.w + pad), y = pad + Math.floor(k / cols) * (cell.h + pad);
+            const bmp = await createImageBitmap(images[idx].blob);
+            const s = Math.min(cell.w / bmp.width, cell.h / bmp.height);
+            ctx.fillStyle = '#5a5a5a';
+            ctx.fillRect(x, y, cell.w, cell.h);
+            ctx.drawImage(bmp, x + (cell.w - bmp.width * s) / 2, y + (cell.h - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
+            bmp.close();
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x, y, 46, 34);
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 24px Arial, sans-serif';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(idx + 1), x + 6, y + 18);
+        }
+        sheets.push(await toBlob(c, 'image/jpeg', 0.85));
+    }
+    return sheets;
+}

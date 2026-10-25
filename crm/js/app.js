@@ -26,6 +26,7 @@ import { renderHelp } from './help.js';
 import { renderRequests } from './requests.js';
 import { renderMatches } from './matches.js';
 import { renderCommissions } from './commissions.js';
+import { renderStudio, renderBrochure, renderBrochureReading } from './brochure.js';
 import { initPalette, openPalette } from './palette.js';
 
 /* ===================== المسارات ===================== */
@@ -60,7 +61,10 @@ const ROUTES = [
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/admin', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/admin', admin: true },
     { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/admin', admin: true },
-    { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/admin', admin: true }
+    { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/admin', admin: true },
+    { pattern: /^#\/studio\/?$/, view: renderStudio, nav: '#/admin', admin: true },
+    { pattern: /^#\/studio\/b\/([^/]+)$/, view: renderBrochureReading, nav: '#/admin', admin: true },
+    { pattern: /^#\/studio\/([^/]+)$/, view: renderBrochure, nav: '#/admin', admin: true }
 ];
 
 // القائمة (التصميم الخامس «أسهل»، 2026-10-22): خمسة أبواب للموظف بكلمات تقول ما يفعله، و«الإدارة» باب واحد

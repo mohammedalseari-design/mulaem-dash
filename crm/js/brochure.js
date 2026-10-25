@@ -159,8 +159,10 @@ export async function renderBrochureReading(root, requestId, lastStage) {
     ]);
     if (!root.isConnected) return;
     const whatsapp = office && office.data ? office.data.value : null;
+    // صور البروشور من مخزنه هو فقط (media.json في مخزن يرفع إليه الميداني أيضاً)
+    const mediaPrefix = supabase.storage.from(MEDIA_BUCKET).getPublicUrl('brochures/' + requestId + '/').data.publicUrl;
     const build = (variation) => {
-        const b = readingToBrochure(req.result, media || { images: [] }, { id: requestId, variation });
+        const b = readingToBrochure(req.result, media || { images: [] }, { id: requestId, variation, mediaPrefix });
         return b ? { facts: brochureFacts(b.project, { whatsapp }), spec: b.spec, notes: b.notes } : null;
     };
     const first = build(0);
@@ -169,6 +171,8 @@ export async function renderBrochureReading(root, requestId, lastStage) {
             el('p', { class: 'crm-subtle', text: 'ارفع الملف مرة أخرى من الاستوديو، فيُقرأ صفحةً صفحة.' })]);
     }
     if (!media) first.notes.unshift('صور البروشور لم تُقرأ من المخزن — البروشور بالخط وحده.');
+    // ملاحظة الخادم على قراءة اكتملت بما قُرئ (سقف اليوم، أو خطأ في الحساب بعد صفحات قُرئت)
+    if (req.error_ar) first.notes.unshift(req.error_ar);
     showBrochure(root, {
         title: first.facts.name || req.title || 'بروشور',
         sub: 'من بروشور «' + (req.title || '') + '»، ' + pagesWord(first.spec.pages.length) + ' كأصله. راجع الملاحظات والصفحات ثم احفظه PDF.',

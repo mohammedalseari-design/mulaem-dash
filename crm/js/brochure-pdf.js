@@ -199,7 +199,8 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
             const seen = { kind: cls.kind, print, key };
             let index = known.findIndex((k) => duplicate(k, seen));
             if (index < 0) {
-                if (images.length >= MAX_IMAGES) { skipped++; continue; }
+                // صورة جديدة لا مكان لها في مصغّرات الصفحة لا يراها المساعد: لا تُرفع ولا تأخذ من حد الصور
+                if (images.length >= MAX_IMAGES || strip.length >= MAX_PAGE_IMAGES) { skipped++; continue; }
                 index = images.length;
                 known.push(seen);
                 thumbs.push(thumbOf(done));

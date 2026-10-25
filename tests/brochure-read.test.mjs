@@ -78,6 +78,24 @@ const bv = readingToBrochure(vision, { ...media, images: media.images.filter((m)
 t('a short text page without a photo is a statement page with its own text', bv.spec.pages[2].kind === 'statement' && bv.spec.pages[2].variant === 'say' && bv.spec.pages[2].text.title === 'رؤيتنا'
     && bv.spec.pages[1].kind === 'about' && bv.spec.pages[1].stats === true, bv.spec.pages.slice(0, 3));
 
+// ---- ملاحظات المراجعة (2026-10-25) ----
+const swap = (n, pg) => ({ ...reading, pages: reading.pages.map((x) => (x.page === n ? pg : x)) });
+const amen = readingToBrochure(swap(3, page(3, 'amenities', { title: 'الضمانات', body: 'ضمان عشر سنوات على الهيكل.', images: [{ n: 1, role: 'interior', caption: null }] })), media, {});
+t('amenities with a paragraph and no list: an about page, and the brochure stays valid', amen.spec.pages[2].kind === 'about'
+    && validateSpec(amen.spec, brochureFacts(amen.project)).length === 0, amen.spec.pages[2]);
+const site = readingToBrochure(swap(3, page(3, 'location', { title: 'المخطط العام', images: [{ n: 1, role: 'plan', caption: null }] })), { ...media, images: media.images.map((m) => (m.page === 3 ? { ...m, kind: 'plan' } : m)) }, {});
+t('a location page whose only image is a plan stays a location page, no made-up model', site.spec.pages[2].kind === 'location' && site.project.details.models.length === 2);
+const unnamed = readingToBrochure({ ...reading, pages: reading.pages.map((x) => (x.model ? { ...x, title: 'النماذج', model: { ...x.model, name: null } } : x)) }, media, {});
+t('an unnamed model does not take the page heading as its name', unnamed.project.details.models.every((m) => m.name === null));
+const logoTwice = { ...media, images: media.images.map((m, i) => (i === 1 ? { ...m, on: [{ page: 1, n: 2 }, { page: 3, n: 4 }] } : m)) };
+const unreadLogo = readingToBrochure({ ...reading, pages: reading.pages.filter((x) => x.page !== 3), missing: [3] }, logoTwice, {});
+t('an unread page does not reuse an image the assistant called a logo elsewhere', !unreadLogo.project.images.some((i) => i.url === u(2)));
+const twice = readingToBrochure({ ...reading, pages: reading.pages.map((x) => (x.page === 2 ? { ...x, images: [...x.images, { n: 2, role: 'logo', caption: null }] } : x)) },
+    { ...media, images: media.images.map((m, i) => (i === 1 ? { ...m, on: [{ page: 1, n: 2 }, { page: 2, n: 2 }] } : m)) }, {});
+t('the dropped-images note counts each image once', twice.notes.some((n) => /تُركت 1 صورة/.test(n)), twice.notes);
+const foreign = readingToBrochure(reading, { ...media, read: 1e9, images: media.images.map((m, i) => (i === 0 ? { ...m, url: 'https://evil.example/x.jpg' } : m)) }, { mediaPrefix: 'https://img.test/brochures/r1/' });
+t('media.json: images only from this brochure\'s storage, pages capped at 40', !foreign.project.images.some((i) => /evil/.test(i.url)) && foreign.spec.pages.length === 40);
+
 t('areaIn: the area printed in a plan', areaIn('نموذج شقة (3) مساحتها 168م²') === 168 && areaIn('مساحة: ١٠٧') === 107 && areaIn('97 م') === 97 && areaIn('97 مجلس') === null && areaIn(null) === null);
 
 console.log(`passed ${pass}, failed ${fail}`);

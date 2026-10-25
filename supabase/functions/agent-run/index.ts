@@ -81,6 +81,7 @@ const CONFIG_NAMES = [
   "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "AGENT_MODEL_FAST", "AGENT_MODEL_REASON", "AGENT_MODEL_GENERAL",
   "AGENT_FAST_PROVIDERS", "AGENT_GENERAL_PROVIDERS", "AGENT_REASONING_THRESHOLD", "AGENT_MAX_REJECT_RATIO",
   "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE", "AGENT_TIMEOUT_COST_FAST", "AGENT_TIMEOUT_COST_REASON", "AGENT_TIMEOUT_COST_GENERAL",
+  "AGENT_TIMEOUT_COST_BROCHURE",
 ];
 const configured = () => CONFIG_NAMES.filter((name) => (env(name) ?? "").trim() !== "");
 
@@ -387,37 +388,66 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
   }
 }
 
-// «بروشور»: كل مجموعة من BROCHURE_GROUP صفحات نداءٌ على الطبقة العامة (وحدها تقرأ الصور) بلا تفكير مطوّل، والمجموعات
-// متوازية في التشغيل نفسه فيتسع وقت الوظيفة لبروشور كامل؛ القراءة دفعةً واحدة بتفكير مطوّل كانت تنتهي مهلتها وتُعاد.
-// ما قُرئ يُحفظ في result (partial) فتُكمل الدورة التالية الباقي وحده، وفي المحاولة الأخيرة يكتمل البروشور بما قُرئ
+// «بروشور»: كل مجموعة من BROCHURE_GROUP صفحات نداءٌ على الطبقة العامة (وحدها تقرأ الصور) بأقصر تفكير يقبله Opus 5.5 (لا
+// يقبل إطفاءه: 400 «Reasoning is mandatory»، طلب 403ddb19)، والمجموعات متوازية في التشغيل نفسه فيتسع وقت الوظيفة لبروشور
+// كامل؛ القراءة دفعةً واحدة بتفكير 8 آلاف رمز كانت تنتهي مهلتها وتُعاد. ما قُرئ يُحفظ في result (partial) فتُكمل الدورة
+// التالية الباقي وحده، ولا يُرمى ما قُرئ ودُفع ثمنه: سقف اليوم أو آخر محاولة أو خطأ في الحساب يُكمل البروشور بما قُرئ
 // والصفحات الناقصة في result.missing (تُصمَّم من صورها)
 const BROCHURE_GROUP = 4;
 const BROCHURE_MAX_TOKENS = 6_000;
+const BROCHURE_THINKING = 1_024; // أقل ميزانية تفكير يقبلها المزوّد
+// أقصى تكلفة لمجموعة (6 آلاف رمز ناتج و1024 تفكير بـ 20$/مليون، ونحو 20 ألف رمز مدخل بـ 4$/مليون): تُحتسب لمجموعة قُطعت
+// بمهلتنا، وبها يُقدَّر كم مجموعة يتسع لها سقف اليوم قبل الإطلاق
+const BROCHURE_GROUP_COST_USD = numEnv("AGENT_TIMEOUT_COST_BROCHURE", 0.2);
+// أخطاء لا تُصلحها الإعادة (الرصيد، المفتاح، المزوّد، الرفض، طلب مرفوض): تُوقف الطلب برسالتها لا «جرّب نسخة أوضح»
+const BROCHURE_FATAL = new Set(["auth", "credits", "no_route", "refusal", "bad_request", "schema"]);
 
 async function readBrochure(
   // deno-lint-ignore no-explicit-any
   db: SupabaseClient, id: string, request: any, loaded: Loaded, seen: Src[], tail: string, tiers: Tiers, effort: Effort,
   key: string, spent: { tokens: number; cost: number }, deadline: number, pageOf: Map<string, number>,
 ) {
-  const tier = tiers.general;
-  if (!tier?.supportsFiles) throw new Stop("لا طبقة نموذج متاحة تقرأ صفحات البروشور");
-  const step: Step = { attempt: request.attempts ?? 1, tier: "general", reasoning: false, repair: false, escalation: false };
+  const base = tiers.general;
+  if (!base?.supportsFiles) throw new Stop("لا طبقة نموذج متاحة تقرأ صفحات البروشور");
+  const tier: Tier = { ...base, reasoning: { max_tokens: BROCHURE_THINKING } };
+  const step: Step = { attempt: request.attempts ?? 1, tier: "general", reasoning: true, repair: false, escalation: false };
   const saved: BrochureGroup[] = request.result?.partial === true && Array.isArray(request.result.groups) ? request.result.groups : [];
   const expected = [...new Set(pageOf.values())].sort((a, b) => a - b);
+  const last = (request.attempts ?? 1) >= MAX_ATTEMPTS;
+  const complete = async (groups: BrochureGroup[], note: string | null) => {
+    const { result, empty } = evaluatePages(groups, expected);
+    if (empty) throw new Stop(note ?? "لم يُقرأ من صفحات البروشور شيء — جرّب نسخة أوضح من الملف");
+    await finish(db, id, { status: "ready", result, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: note });
+  };
   const done = readPages(saved);
   const todo = loaded.srcs.filter((s) => pageOf.has(s.label) && !done.has(pageOf.get(s.label)!));
-  const groups: Src[][] = [];
+  let groups: Src[][] = [];
   for (let i = 0; i < todo.length; i += BROCHURE_GROUP) groups.push(todo.slice(i, i + BROCHURE_GROUP));
 
   const fresh: BrochureGroup[] = [];
+  let fatal: ChatError | null = null;
   if (groups.length) {
-    await checkBudget(db, step, []);
+    let budget: { spent_usd: number; usd_cap: number };
+    try {
+      budget = await checkBudget(db, step, []);
+    } catch (e) {
+      // سقف اليوم بعد صفحات قُرئت في دورة سابقة: البروشور بما قُرئ، والسقف في رسالته
+      if (saved.length && e instanceof Stop && !e.retry) return await complete(saved, e.message);
+      throw e;
+    }
+    // ما يتسع له سقف اليوم الآن (بأقصى تكلفة للمجموعة)، والباقي للدورة التالية
+    const fits = Math.max(1, Math.floor((Number(budget.usd_cap) - Number(budget.spent_usd)) / BROCHURE_GROUP_COST_USD));
+    if (groups.length > fits) groups = groups.slice(0, fits);
     const windowMs = Math.min(FAST_WINDOW_MS, deadline - Date.now() - 5_000);
-    if (windowMs < MIN_CALL_MS) throw new Stop("انتهى وقت التشغيل قبل قراءة الصفحات", true);
+    if (windowMs < MIN_CALL_MS) {
+      if (last && saved.length) return await complete(saved, null);
+      throw new Stop("انتهى وقت التشغيل قبل قراءة الصفحات", true);
+    }
     await stage(db, id, "extracting");
-    const of = (s: unknown) => (typeof s === "string" ? pageOf.get(s) ?? null : null);
     const read = await Promise.all(groups.map(async (group): Promise<BrochureGroup | null> => {
       const labels = new Set(group.map((s) => s.label));
+      // صفحات هذه المجموعة وحدها: معرّف صفحة لم تُرسل فيها لا يكتب فوق قراءة غيرها
+      const of = (s: unknown) => (typeof s === "string" && labels.has(s) ? pageOf.get(s) ?? null : null);
       const part: Loaded = { ...loaded, srcs: loaded.srcs.filter((s) => labels.has(s.label)), files: loaded.files.filter((f) => labels.has(f.label)) };
       const messages: ChatMessage[] = [
         { role: "system", content: BROCHURE_SYSTEM_PROMPT },
@@ -425,7 +455,7 @@ async function readBrochure(
       ];
       try {
         const result = await chat({
-          tier, apiKey: key, messages, reasoning: false, maxTokens: BROCHURE_MAX_TOKENS,
+          tier, apiKey: key, messages, reasoning: true, maxTokens: BROCHURE_MAX_TOKENS,
           schema: { name: "brochure", schema: BROCHURE_SCHEMA }, timeoutMs: windowMs,
         });
         spent.tokens += result.usage.prompt + result.usage.completion;
@@ -438,15 +468,21 @@ async function readBrochure(
         }
         const g = out ? cleanGroup(out, of) : null;
         const ok = Boolean(g && g.pages.length);
-        await logCall(db, id, step, tier, effort, result, ok ? "ok" : "invalid", ok ? null : result.finishReason === "length" ? "truncated" : "parse");
+        // صنف الفشل من قائمة الجدول (format)، ونوعه الدقيق في عمود الخطأ
+        const hard = result.finishReason === "length" ? "truncated" : "parse";
+        await logCall(db, id, step, tier, effort, result, ok ? "ok" : "invalid", ok ? null : "format", ok ? null : { provider: result.provider, error: hard });
         return ok ? g : null;
       } catch (e) {
         const why = e instanceof ChatError
           ? { provider: e.provider, error: `${e.kind} ${e.status ?? ""} ${e.message}`.slice(0, 500) }
           : { provider: null, error: String((e as Error)?.message ?? e).slice(0, 500) };
         const aborted = e instanceof ChatError && e.kind === "timeout" && e.status === null;
-        const estimate = aborted ? TIMEOUT_COST_USD[tier.id] : null;
-        if (estimate !== null) spent.cost += estimate;
+        const estimate = aborted ? BROCHURE_GROUP_COST_USD : null;
+        if (estimate !== null) {
+          spent.cost += estimate;
+          why.error = (why.error + " — تكلفة تقديرية").slice(0, 500);
+        }
+        if (e instanceof ChatError && BROCHURE_FATAL.has(e.kind)) fatal ??= e;
         await logCall(db, id, step, tier, effort, null, "error", null, why, estimate);
         return null;
       }
@@ -455,15 +491,18 @@ async function readBrochure(
   }
 
   const all = [...saved, ...fresh];
+  // خطأ في الحساب أو المزوّد ولم تُقرأ صفحة في هذا التشغيل: يتوقف الطلب برسالته، وما قُرئ قبله يُكمل البروشور
+  if (fatal && !fresh.length) {
+    if (saved.length) return await complete(saved, describe(fatal).message);
+    throw fatal;
+  }
   const have = readPages(all);
   const left = expected.filter((n) => !have.has(n));
-  if (left.length && (request.attempts ?? 1) < MAX_ATTEMPTS) {
+  if (left.length && !last) {
     await db.from("agent_requests").update({ result: { version: 2, partial: true, groups: all } }).eq("id", id).eq("status", "running");
     throw new Stop(`قُرئت ${have.size} من ${expected.length} صفحة، والباقي في الدورة التالية`, true);
   }
-  const { result, empty } = evaluatePages(all, expected);
-  if (empty) throw new Stop("لم يُقرأ من صفحات البروشور شيء — جرّب نسخة أوضح من الملف");
-  await finish(db, id, { status: "ready", result, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null });
+  await complete(all, null);
 }
 
 // نداء الطلب التالي على طبقة ثقيلة: خطوته المحفوظة (agent_requests.ladder، استئناف بعد مهلة السريعة)،
@@ -615,6 +654,7 @@ function pdfPlugins(tier: Tier, parts: ChatPart[]): unknown[] | undefined {
 
 /* ===================== السقف اليومي والسجل ===================== */
 
+// السقف ورقمه: يرمي إن بلغ الإنفاق سقفه، وإلا يعيد الأرقام (البروشور يقدّر بها كم مجموعة يتسع لها اليوم)
 async function checkBudget(db: SupabaseClient, step: Step, notes: string[]) {
   const { data, error } = await db.rpc("agent_router_budget");
   if (error || !data) throw new Stop("تعذّر قراءة سقف الإنفاق اليومي", true);
@@ -626,6 +666,7 @@ async function checkBudget(db: SupabaseClient, step: Step, notes: string[]) {
   if (step.escalation && Number(b.escalations) >= Number(b.escalation_cap)) {
     throw new Stop(`بلغ التصعيد إلى النماذج الأغلى اليوم سقفه (${b.escalations} من ${b.escalation_cap}) — يُستأنف غداً أو يرفع المدير السقف${tail}`);
   }
+  return b;
 }
 
 function reasoningLabel(tier: Tier, step: Step): string {

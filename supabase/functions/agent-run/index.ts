@@ -19,13 +19,13 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import {
   afterTimeout, type AttemptOutcome, chat, ChatError, type ChatMessage, type ChatPart, type ChatResult, CODE_CLASS, classifyFailure,
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, deepStart, defaultTiers, type Effort, firstStep, isFailure, nextStep,
-  parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId,
+  parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId, type Tiers,
 } from "../_shared/effort-router/mod.ts";
 import { fetchUrlSource } from "./fetch.ts";
 import { LinkRetry, openLinks } from "./links.ts";
-import { kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
-import { allUnread, buildParts, estimateTokens, hasFiles, loadSources, MAX_BROCHURE_PAGES, MAX_FILES, pdfPages, SourceError, type SourceRow } from "./sources.ts";
-import { type BrochureResult, evaluateBrochure, pageFromPath } from "./brochure.ts";
+import { BROCHURE_SCHEMA, BROCHURE_SYSTEM_PROMPT, kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
+import { allUnread, buildParts, estimateTokens, hasFiles, type Loaded, loadSources, MAX_BROCHURE_PAGES, MAX_FILES, pdfPages, SourceError, type SourceRow } from "./sources.ts";
+import { type BrochureGroup, cleanGroup, evaluatePages, pageFromPath, readPages } from "./brochure.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
@@ -192,7 +192,6 @@ interface Evaluation {
   outcome: AttemptOutcome;
   drafts: DraftSpec[] | "asked" | null;
   notes: string[]; // ملاحظات المدقق بالعربية: رسالة الإصلاح، وما يبقى لإنسان
-  brochure?: BrochureResult; // طلب «بروشور»: القراءة النظيفة بدل المسودات (brochure.ts)
 }
 
 async function processRequest(db: SupabaseClient, id: string, deadline: number) {
@@ -270,6 +269,10 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
     const tiers = defaultTiers(env);
     const available = Object.keys(tiers) as TierId[];
     const effort = scoreEffort({ kind: request.kind, sources: loaded.srcs });
+    if (request.kind === "brochure") {
+      await readBrochure(db, id, request, loaded, seen, tail, tiers, effort, key, spent, deadline, pageOf);
+      return;
+    }
     const resumed = resumeLadder(request.ladder, { available, hasFiles: hasFiles(loaded) });
     // «تفكير عميق» يُصعَّد إن بقي في سقف اليوم متسع، وإلا يبدأ بالمسار العادي (deepStart)
     const wantsDeep = request.effort_hint === "deep";
@@ -340,15 +343,11 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       spent.cost += result.usage.costUsd ?? 0;
 
       await stage(db, id, "validating");
-      const ev = await evaluate(db, id, request, result, seen, restore, districts, pageOf);
+      const ev = await evaluate(db, id, request, result, seen, restore, districts);
       const failed = isFailure(ev.outcome, MAX_REJECT_RATIO);
       const failure = failed ? classifyFailure(ev.outcome) : null;
       await logCall(db, id, step, tier, effort, result, failed ? "invalid" : "ok", failure);
 
-      if (!failed && ev.brochure) {
-        await finish(db, id, { status: "ready", result: ev.brochure, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: deepNote });
-        return;
-      }
       if (!failed && ev.drafts === "asked") {
         await finish(db, id, { status: "ready", tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null }, true);
         return;
@@ -386,6 +385,85 @@ async function processRequest(db: SupabaseClient, id: string, deadline: number) 
       error_ar: again ? message + " — ستُعاد المحاولة تلقائياً" : message,
     });
   }
+}
+
+// «بروشور»: كل مجموعة من BROCHURE_GROUP صفحات نداءٌ على الطبقة العامة (وحدها تقرأ الصور) بلا تفكير مطوّل، والمجموعات
+// متوازية في التشغيل نفسه فيتسع وقت الوظيفة لبروشور كامل؛ القراءة دفعةً واحدة بتفكير مطوّل كانت تنتهي مهلتها وتُعاد.
+// ما قُرئ يُحفظ في result (partial) فتُكمل الدورة التالية الباقي وحده، وفي المحاولة الأخيرة يكتمل البروشور بما قُرئ
+// والصفحات الناقصة في result.missing (تُصمَّم من صورها)
+const BROCHURE_GROUP = 4;
+const BROCHURE_MAX_TOKENS = 6_000;
+
+async function readBrochure(
+  // deno-lint-ignore no-explicit-any
+  db: SupabaseClient, id: string, request: any, loaded: Loaded, seen: Src[], tail: string, tiers: Tiers, effort: Effort,
+  key: string, spent: { tokens: number; cost: number }, deadline: number, pageOf: Map<string, number>,
+) {
+  const tier = tiers.general;
+  if (!tier?.supportsFiles) throw new Stop("لا طبقة نموذج متاحة تقرأ صفحات البروشور");
+  const step: Step = { attempt: request.attempts ?? 1, tier: "general", reasoning: false, repair: false, escalation: false };
+  const saved: BrochureGroup[] = request.result?.partial === true && Array.isArray(request.result.groups) ? request.result.groups : [];
+  const expected = [...new Set(pageOf.values())].sort((a, b) => a - b);
+  const done = readPages(saved);
+  const todo = loaded.srcs.filter((s) => pageOf.has(s.label) && !done.has(pageOf.get(s.label)!));
+  const groups: Src[][] = [];
+  for (let i = 0; i < todo.length; i += BROCHURE_GROUP) groups.push(todo.slice(i, i + BROCHURE_GROUP));
+
+  const fresh: BrochureGroup[] = [];
+  if (groups.length) {
+    await checkBudget(db, step, []);
+    const windowMs = Math.min(FAST_WINDOW_MS, deadline - Date.now() - 5_000);
+    if (windowMs < MIN_CALL_MS) throw new Stop("انتهى وقت التشغيل قبل قراءة الصفحات", true);
+    await stage(db, id, "extracting");
+    const of = (s: unknown) => (typeof s === "string" ? pageOf.get(s) ?? null : null);
+    const read = await Promise.all(groups.map(async (group): Promise<BrochureGroup | null> => {
+      const labels = new Set(group.map((s) => s.label));
+      const part: Loaded = { ...loaded, srcs: loaded.srcs.filter((s) => labels.has(s.label)), files: loaded.files.filter((f) => labels.has(f.label)) };
+      const messages: ChatMessage[] = [
+        { role: "system", content: BROCHURE_SYSTEM_PROMPT },
+        { role: "user", content: [...buildParts(part, seen, true), { type: "text", text: tail }] },
+      ];
+      try {
+        const result = await chat({
+          tier, apiKey: key, messages, reasoning: false, maxTokens: BROCHURE_MAX_TOKENS,
+          schema: { name: "brochure", schema: BROCHURE_SCHEMA }, timeoutMs: windowMs,
+        });
+        spent.tokens += result.usage.prompt + result.usage.completion;
+        spent.cost += result.usage.costUsd ?? 0;
+        let out: unknown = null;
+        try {
+          out = result.finishReason === "length" ? null : parseJson(result.text);
+        } catch {
+          out = null;
+        }
+        const g = out ? cleanGroup(out, of) : null;
+        const ok = Boolean(g && g.pages.length);
+        await logCall(db, id, step, tier, effort, result, ok ? "ok" : "invalid", ok ? null : result.finishReason === "length" ? "truncated" : "parse");
+        return ok ? g : null;
+      } catch (e) {
+        const why = e instanceof ChatError
+          ? { provider: e.provider, error: `${e.kind} ${e.status ?? ""} ${e.message}`.slice(0, 500) }
+          : { provider: null, error: String((e as Error)?.message ?? e).slice(0, 500) };
+        const aborted = e instanceof ChatError && e.kind === "timeout" && e.status === null;
+        const estimate = aborted ? TIMEOUT_COST_USD[tier.id] : null;
+        if (estimate !== null) spent.cost += estimate;
+        await logCall(db, id, step, tier, effort, null, "error", null, why, estimate);
+        return null;
+      }
+    }));
+    for (const g of read) if (g) fresh.push(g);
+  }
+
+  const all = [...saved, ...fresh];
+  const have = readPages(all);
+  const left = expected.filter((n) => !have.has(n));
+  if (left.length && (request.attempts ?? 1) < MAX_ATTEMPTS) {
+    await db.from("agent_requests").update({ result: { version: 2, partial: true, groups: all } }).eq("id", id).eq("status", "running");
+    throw new Stop(`قُرئت ${have.size} من ${expected.length} صفحة، والباقي في الدورة التالية`, true);
+  }
+  const { result, empty } = evaluatePages(all, expected);
+  if (empty) throw new Stop("لم يُقرأ من صفحات البروشور شيء — جرّب نسخة أوضح من الملف");
+  await finish(db, id, { status: "ready", result, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: null });
 }
 
 // نداء الطلب التالي على طبقة ثقيلة: خطوته المحفوظة (agent_requests.ladder، استئناف بعد مهلة السريعة)،
@@ -438,14 +516,13 @@ function shapeOk(kind: string, out: unknown): boolean {
   if (kind === "client") return typeof o.client === "object" && o.client !== null;
   if (kind === "project") return typeof o.project === "object" && o.project !== null && Array.isArray(o.units);
   if (kind === "update") return typeof o.target === "object" && o.target !== null && Array.isArray(o.changes);
-  if (kind === "brochure") return typeof o.project === "object" && o.project !== null && Array.isArray(o.models) && Array.isArray(o.pages);
   return false;
 }
 
 async function evaluate(
   // deno-lint-ignore no-explicit-any
   db: SupabaseClient, id: string, request: any, result: ChatResult, seen: Src[], restore: Restore,
-  districts: () => Promise<KnownDistrict[] | null>, pageOf: Map<string, number> = new Map(),
+  districts: () => Promise<KnownDistrict[] | null>,
 ): Promise<Evaluation> {
   if (result.finishReason === "length") return hard("truncated", "الناتج مقطوع لأنه بلغ سقف الطول — اختصر الناتج ولا تكرر النصوص");
   let out: unknown;
@@ -455,13 +532,6 @@ async function evaluate(
     return hard("parse", "الناتج ليس JSON صالحاً");
   }
   if (!shapeOk(request.kind, out)) return hard("schema", "شكل الناتج لا يطابق المخطط المطلوب");
-
-  // «بروشور»: لا مسودات. قراءة فارغة (لا اسم ولا نموذج بمصدر صفحة) تُعاد وتُصعَّد كغيرها
-  if (request.kind === "brochure") {
-    const { result: brochure, empty } = evaluateBrochure(out, (s) => (typeof s === "string" ? pageOf.get(s) ?? null : null));
-    if (empty) return hard("empty", "لم يُقرأ من البروشور اسم المشروع ولا أي نموذج بمصدر صفحته — اقرأ الصفحات صورةً صورة");
-    return { outcome: { returned: 1, rejected: 0, rejections: [] }, drafts: null, notes: [], brochure };
-  }
 
   const normalizePhone: PhoneNormalizer = async (raw) => {
     const { data } = await db.rpc("normalize_phone", { p: raw });

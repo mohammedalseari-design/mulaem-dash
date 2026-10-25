@@ -1,28 +1,14 @@
-// قراءة المساعد لبروشور المطوّر (agent_requests.result، 036) + صوره المستخرجة (media.json) ← صف «مشروع» يقبله brochureFacts،
-// وملاحظات للمدير — بلا DOM وبلا شبكة، فيُختبر وحده.
+// قراءة المساعد لبروشور المطوّر صفحةً صفحة (agent_requests.result، الإصدار 2) + صوره المستخرجة (media.json) ← بروشور ملائم
+// بعدد الصفحات نفسه: صف «مشروع» يقبله brochureFacts، ومخطط صفحات (صفحة لكل صفحة)، وملاحظات للمدير — بلا DOM وبلا شبكة،
+// فيُختبر وحده.
 //
-// لا يدخل البروشورَ إلا ما قرأه المساعد بمصدر صفحته (brochure.ts يُسقط الباقي). والصور: يُترك ما قال المساعد إنه شعار أو خلفية
-// أو صورة بشر جاهزة، ويُنسب المخطط إلى نموذجه بما قاله المساعد أو بصفحته، ولا يُعرض مخطط بلا نموذج معروف ولا مخطط يناقض
-// نموذجه (مخطط «شقة 3، 168م²» على صفحة «ملحق 3، 225م²» في بروشور لامير سيرين): الأرقام وحدها أصدق من مخطط مستعار.
+// كل صفحة تأخذ شكلها من دورها كما قرأه المساعد (غلاف، عن المشروع، صور، نموذج، موقع، مزايا، تواصل) ونصوصها كما طُبعت،
+// وصورها من صور الصفحة نفسها (المصغّرات المرقّمة تحت كل صفحة). يُترك ما قال المساعد إنه شعار أو خلفية أو صورة بشر جاهزة،
+// ولا يُعرض مخطط يناقض نموذجه (مخطط «شقة 3، 168م²» على صفحة «ملحق 3، 225م²» في بروشور لامير سيرين): الأرقام وحدها أصدق.
+// صفحة لم تُقرأ تُصمَّم من صورها وحدها، فلا ينقص العدد.
 
-// المصغّرات في كل ورقة ترسل إلى المساعد (4 × 4)
-export const SHEET_SIZE = 16;
+const PHOTO_ROLES = new Set(['exterior', 'interior', 'aerial', 'map', 'plan3d']);
 const DROPPED_ROLES = new Set(['logo', 'texture', 'people', 'other']);
-
-// عدد الصور ← مجموعات فهارسها، ورقة لكل SHEET_SIZE
-export function sheetGroups(count) {
-    const groups = [];
-    for (let i = 0; i < count; i += SHEET_SIZE) groups.push(Array.from({ length: Math.min(SHEET_SIZE, count - i) }, (_, k) => i + k));
-    return groups;
-}
-
-// الاسم للمقارنة: الأرقام العربية لاتينية، وبلا همزات ولا تشكيل ولا مسافات ولا أقواس، و«نموذج» محذوفة
-function key(value) {
-    return String(value ?? '').toLowerCase()
-        .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-        .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[ً-ْـ]/g, '')
-        .replace(/نموذج/g, '').replace(/[^a-z0-9ء-ي]+/g, '');
-}
 
 // أول مساحة في نص مطبوع داخل المخطط: «مساحتها 168م²»، «168 م2»، «مساحة: ١٠٧»
 export function areaIn(label) {
@@ -32,90 +18,141 @@ export function areaIn(label) {
     return m ? Number(m[1]) : null;
 }
 
-function modelByName(name, models) {
-    const k = key(name);
-    if (!k) return null;
-    const hits = models.map((m, i) => (key(m.name) === k ? i : -1)).filter((i) => i >= 0);
-    return hits.length === 1 ? hits[0] : null;
+function str(value, max) {
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
 }
 
-function modelOnPage(page, models) {
-    const hits = models.map((m, i) => (m.page === page ? i : -1)).filter((i) => i >= 0);
-    return hits.length === 1 ? hits[0] : null;
-}
-
-// بلا دور من المساعد: تقدير الاستخراج (مخطط) ودور الصفحة التي جاءت منها الصورة
-function fallbackKind(m, role) {
-    if (m.kind === 'plan') return 'plan';
-    if (role === 'interior' || role === 'aerial' || role === 'map' || role === 'exterior') return role;
-    if (role === 'plan' || role === 'model') return 'plan3d';
-    return 'photo';
-}
-
-// result: قراءة المساعد؛ media: { images: [{ url, page, kind, tone, tall }] } بترتيب أرقام المصغّرات؛ meta: { id }
-export function factsFromReading(result, media, meta = {}) {
+// result: القراءة (الإصدار 2)؛ media: { pages, read, images: [{ url, page, w, h, kind, tone, tall, on: [{ page, n }] }] }؛
+// meta: { id, variation }. ← { project, spec: { version, pages }, notes } أو null لقراءة من إصدار آخر
+export function readingToBrochure(result, media, meta = {}) {
     const r = result && typeof result === 'object' ? result : {};
+    if (r.version !== 2 || !Array.isArray(r.pages)) return null;
     const p = r.project && typeof r.project === 'object' ? r.project : {};
-    const models = Array.isArray(r.models) ? r.models : [];
+    const all = media && Array.isArray(media.images) ? media.images : [];
     const notes = [];
-    const aiRole = new Map((Array.isArray(r.images) ? r.images : []).map((x) => [x.n, x]));
-    const pageRole = new Map((Array.isArray(r.pages) ? r.pages : []).map((x) => [x.page, x.role]));
+    const variation = meta.variation || 0;
 
+    // صورة الصفحة برقم مصغّرتها ← فهرسها في media
+    const at = new Map();
+    all.forEach((m, i) => (Array.isArray(m && m.on) ? m.on : []).forEach((o) => at.set(o.page + ':' + o.n, i)));
+    const read = new Map(r.pages.map((x) => [x.page, x]));
+    const count = Math.max(Number(media && media.read) || 0, ...r.pages.map((x) => x.page), ...(Array.isArray(r.missing) ? r.missing : []), 1);
+
+    // صور البروشور التي تُطبع: فهرس media ← فهرس في project.images
     const images = [];
-    const plans = new Map();
+    const factIndex = new Map();
+    const use = (i, kind, caption) => {
+        if (!factIndex.has(i)) {
+            factIndex.set(i, images.length);
+            images.push({ url: all[i].url, kind: kind === 'plan3d' ? 'plan3d' : kind, caption: caption || null, tall: all[i].tall === true });
+        }
+        return factIndex.get(i);
+    };
     let dropped = 0;
-    (media && Array.isArray(media.images) ? media.images : []).forEach((m, i) => {
-        if (!m || !m.url) return;
-        const ai = aiRole.get(i + 1);
-        const kind = ai ? ai.role : fallbackKind(m, pageRole.get(m.page));
-        if (DROPPED_ROLES.has(kind)) { dropped++; return; }
-        if (kind === 'plan') {
-            // قال المساعد إنه لا يعرف نموذجه: يُترك، فحذره أصدق من الصفحة (مخطط ملحق في بروشور لامير وُضع على صفحة نموذج آخر).
-            // الصفحة تُعتمد فقط حين لا دور من المساعد للصورة أصلاً
-            const owner = ai ? (ai.model ? modelByName(ai.model, models) : null) : modelOnPage(m.page, models);
-            if (owner !== null && !plans.has(owner)) plans.set(owner, m);
-            return;
+    // صور الصفحة بأدوارها: من المساعد، وإلا من تقدير الاستخراج (مخطط أو صورة) لصفحة لم تُقرأ
+    const picsOf = (n, page) => {
+        if (page) {
+            return page.images.map((im) => ({ i: at.get(n + ':' + im.n), role: im.role, caption: im.caption }))
+                .filter((x) => x.i !== undefined && all[x.i] && all[x.i].url)
+                .filter((x) => !DROPPED_ROLES.has(x.role) || (dropped++, false));
         }
-        images.push({ url: m.url, kind, caption: ai && ai.caption ? ai.caption : null, tall: m.tall === true });
-    });
+        return all.map((m, i) => ({ m, i })).filter(({ m }) => (m.on || []).some((o) => o.page === n))
+            .map(({ m, i }) => ({ i, role: m.kind === 'plan' ? 'plan' : 'exterior', caption: null }));
+    };
+
+    const models = [];
+    const pages = [];
+    let statsShown = false;
+    // الغلاف الخلفي (تواصل ملائم) مكان آخر صفحة تواصل، وإلا مكان آخر صفحة ما لم تكن نموذجاً: العدد نفسه وخاتمة ملائم
+    const contactPages = r.pages.filter((x) => x.role === 'contact').map((x) => x.page);
+    const lastContact = contactPages.length ? Math.max(...contactPages)
+        : count > 1 && !(read.get(count) && read.get(count).role === 'model') ? count : null;
+    const firstExterior = () => {
+        for (const x of r.pages) for (const im of x.images) if (im.role === 'exterior' && at.has(x.page + ':' + im.n)) return at.get(x.page + ':' + im.n);
+        return null;
+    };
+
+    for (let n = 1; n <= count; n++) {
+        const page = read.get(n) || null;
+        const role = page ? page.role : 'other';
+        const pics = picsOf(n, page);
+        const photos = pics.filter((x) => PHOTO_ROLES.has(x.role) && x.role !== 'map');
+        const plans = pics.filter((x) => x.role === 'plan');
+        const text = page ? { title: str(page.title, 120), subtitle: str(page.subtitle, 120), body: str(page.body, 600), bullets: (page.bullets || []).slice(0, 8) } : null;
+        const hasText = Boolean(text && (text.title || text.body || text.bullets.length));
+        const photo = (x) => use(x.i, x.role, x.caption);
+
+        if (n === 1) {
+            const wide = photos.find((x) => !all[x.i].tall) || photos[0];
+            const hero = wide ? photo(wide) : firstExterior() !== null ? use(firstExterior(), 'exterior', null) : null;
+            pages.push(hero !== null ? { kind: 'cover', variant: ['side', 'low'][variation % 2], images: [hero] } : { kind: 'cover', variant: 'type' });
+            continue;
+        }
+        if (n === lastContact) {
+            pages.push({ kind: 'back', variant: 'brand' });
+            continue;
+        }
+        const m = page && page.model ? page.model : {};
+        const modelish = Boolean(m.name || m.area || m.price || m.rooms || (m.parts || []).length);
+        if ((role === 'model' && (modelish || plans.length)) || (!photos.length && plans.length)) {
+            let plan = plans[0] ? all[plans[0].i] : null;
+            const printed = areaIn(m.plan_label);
+            if (plan && printed && m.area && Math.abs(printed - m.area) > 1) {
+                notes.push('صفحة ' + n + ': مخطط ' + (m.name || 'النموذج') + ' مكتوب عليه ' + printed + 'م² والنموذج ' + m.area + 'م² — لم يُعرض المخطط، وتُعرض الأرقام وحدها.');
+                plan = null;
+            }
+            models.push({
+                name: m.name || (text && text.title) || null, type: m.type || null, orientation: m.orientation || null,
+                rooms: m.rooms ?? null, bathrooms: m.bathrooms ?? null, area: m.area ?? null, price: m.price ?? null,
+                status: m.sold ? 'sold' : 'available', parts: Array.isArray(m.parts) ? m.parts : [],
+                plan: plan ? plan.url : null, plan_tone: plan && plan.tone === 'light' ? 'light' : 'dark'
+            });
+            pages.push({ kind: 'model', variant: plan ? 'plan' : 'facts', model: models.length - 1, text });
+            continue;
+        }
+        if (role === 'location') {
+            const where = pics.find((x) => x.role === 'map') || pics.find((x) => x.role === 'aerial');
+            pages.push(where ? { kind: 'location', variant: 'map', images: [photo(where)], text } : { kind: 'location', variant: 'text', text });
+            continue;
+        }
+        if (role === 'amenities' && text && (text.bullets.length || text.body)) {
+            pages.push(photos.length ? { kind: 'features', variant: 'photo', images: [photo(photos[0])], text } : { kind: 'features', variant: 'list', text });
+            continue;
+        }
+        if (role === 'about' || role === 'contact' || (!photos.length && hasText)) {
+            // أول صفحة «عن المشروع» تحمل أرقامه؛ وصفحة نص قصير بلا صورة (عنوان وسطر أو سطران) صفحة فاصلة بنصها، لا صفحة شبه فارغة
+            const stats = role === 'about' && !statsShown;
+            const short = !photos.length && !stats && text.title && !text.bullets.length && (!text.body || text.body.length <= 220);
+            if (short) {
+                pages.push({ kind: 'statement', variant: 'say', text });
+                continue;
+            }
+            if (stats) statsShown = true;
+            pages.push(photos.length ? { kind: 'about', variant: 'split', images: [photo(photos[0])], text, stats } : { kind: 'about', variant: 'text', text, stats });
+            continue;
+        }
+        // صور: ثلاث فأكثر لوحات (الداخلية أولاً)، واثنتان متجاورتان، وواحدة كاملة؛ وصفحة بلا صورة ولا نص فاصلٌ باسم المشروع
+        const order = photos.filter((x) => x.role === 'interior').concat(photos.filter((x) => x.role !== 'interior'));
+        if (order.length >= 3) pages.push({ kind: 'trio', variant: 'panels', images: order.slice(0, 3).map(photo), text });
+        else if (order.length === 2) pages.push({ kind: 'pair', variant: 'offset', images: order.map(photo), text });
+        else if (order.length === 1) pages.push({ kind: 'photo', variant: 'full', images: [photo(order[0])], text });
+        else pages.push({ kind: 'statement', variant: 'say' });
+    }
+
     if (dropped) notes.push('تُركت ' + dropped + ' صورة لأنها شعار المطوّر أو خلفية أو صورة جاهزة لا تخص المشروع.');
-
-    const outModels = models.map((m, i) => {
-        let plan = plans.get(i) || null;
-        const printed = areaIn(m.plan_label);
-        if (plan && printed && m.area && Math.abs(printed - m.area) > 1) {
-            notes.push('مخطط ' + (m.name || 'النموذج') + ' في البروشور مكتوب عليه ' + printed + 'م² والنموذج ' + m.area + 'م² — لم يُعرض المخطط، وتُعرض الأرقام وحدها.');
-            plan = null;
-        }
-        return {
-            name: m.name, type: m.type, orientation: m.orientation, rooms: m.rooms, bathrooms: m.bathrooms, area: m.area, price: m.price,
-            status: m.sold ? 'sold' : 'available', parts: Array.isArray(m.parts) ? m.parts : [],
-            plan: plan ? plan.url : null, plan_tone: plan && plan.tone === 'light' ? 'light' : 'dark'
-        };
-    });
-
+    const missing = Array.isArray(r.missing) ? r.missing : [];
+    if (missing.length) notes.push('لم يقرأ المساعد الصفحات ' + missing.join('، ') + '، فصُمّمت من صورها وحدها.');
     for (const c of Array.isArray(r.conflicts) ? r.conflicts : []) {
-        const pages = Array.isArray(c.pages) && c.pages.length ? ' (صفحة ' + c.pages.join('، ') + ')' : '';
-        notes.push('تناقض في البروشور' + pages + ': ' + (c.note || (c.values || []).join(' / ')));
+        const where = Array.isArray(c.pages) && c.pages.length ? ' (صفحة ' + c.pages.join('، ') + ')' : '';
+        notes.push('تناقض في البروشور' + where + ': ' + (c.note || (c.values || []).join(' / ')));
     }
-    for (const s of Array.isArray(r.suspicious) ? r.suspicious : []) {
-        notes.push('نص في البروشور يحاول توجيه المساعد ولم يُنفَّذ: «' + s.quote + '»');
-    }
-    if (r.dropped) notes.push(r.dropped + ' قيمة لم تُقرأ بمصدر واضح فلم تُكتب.');
+    if (r.dropped) notes.push(r.dropped + ' قيمة خارج المعقول أو بلا صفحة واضحة فلم تُكتب.');
 
     const project = {
         id: meta.id ?? null,
-        name: p.name ?? null, type: p.type ?? null, purpose: p.purpose ?? null,
-        city: p.city ?? null, district: p.district ?? null, address: p.address ?? null,
-        delivery_date: p.delivery_date ?? null, availability: 'available',
+        name: p.name ?? null, city: p.city ?? null, district: p.district ?? null, availability: 'available',
         images,
-        details: {
-            developer: p.developer ?? null, name_en: p.name_latin ?? null, tagline: p.tagline ?? null,
-            description: p.description ?? null, construction_status: p.construction_status ?? null,
-            units_count: p.units_count ?? null, license: p.license ?? null,
-            landmarks: Array.isArray(p.landmarks) ? p.landmarks : [], amenities: Array.isArray(p.amenities) ? p.amenities : [],
-            models: outModels
-        }
+        details: { developer: p.developer ?? null, name_en: p.name_latin ?? null, tagline: p.tagline ?? null, license: p.license ?? null, models }
     };
-    return { project, notes };
+    return { project, spec: { version: 3, pages }, notes };
 }

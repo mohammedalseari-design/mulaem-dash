@@ -1,7 +1,8 @@
-// اختبار دمج قراءة المساعد بصور البروشور (crm/js/brochure-read.js)، بحالات بروشور لامير سيرين.
+// اختبار بناء بروشور ملائم من قراءة المساعد صفحةً صفحة (crm/js/brochure-read.js): العدد نفسه، وكل صفحة من دورها وصورها،
+// ولا شعار ولا خلفية، ولا مخطط يناقض نموذجه، والصفحة غير المقروءة من صورها.
 // التشغيل: node tests/brochure-read.test.mjs   أو   deno run tests/brochure-read.test.mjs
-import { factsFromReading, sheetGroups, areaIn, SHEET_SIZE } from '../crm/js/brochure-read.js';
-import { brochureFacts, planBrochure, validateSpec } from '../crm/js/brochure-plan.js';
+import { readingToBrochure, areaIn } from '../crm/js/brochure-read.js';
+import { brochureFacts, validateSpec } from '../crm/js/brochure-plan.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -9,67 +10,75 @@ function t(name, cond, extra) {
     else { fail++; console.log('FAIL', name, extra === undefined ? '' : JSON.stringify(extra)); }
 }
 
-const u = (n) => 'https://store.test/brochures/r1/img-' + n;
-const media = { images: [
-    { url: u(1), page: 1, kind: 'photo', tall: false },            // 1 شعار المطوّر على جدار
-    { url: u(2), page: 3, kind: 'photo', tall: false },            // 2 واجهة
-    { url: u(3), page: 5, kind: 'photo', tall: false },            // 3 ضباب (خلفية)
-    { url: u(4), page: 6, kind: 'photo', tall: true },             // 4 داخلي (بلا دور من المساعد، صفحته داخلية)
-    { url: u(5), page: 14, kind: 'plan', tone: 'light' },          // 5 مخطط شقة 1
-    { url: u(6), page: 27, kind: 'plan', tone: 'light' },          // 6 مخطط على صفحة ملحق 3 مكتوب عليه 168م²
-    { url: u(7), page: 26, kind: 'plan', tone: 'light' },          // 7 مخطط بلا نموذج معروف
-    { url: u(8), page: 12, kind: 'photo', tall: false },           // 8 مجسّم ثلاثي
-    { url: u(9), page: 31, kind: 'photo', tall: false },           // 9 مصافحة
-    null, { page: 2 }
-] };
-const result = {
-    version: 1,
-    project: { name: 'لامير سيرين', name_latin: 'LAMER SERIN', tagline: 'سكن بروح الطبيعة', developer: 'لامير العقارية', district: 'أبحر', city: 'جدة',
-        amenities: ['دخول ذكي'], landmarks: ['برج جدة'], license: 'رخصة 821' },
-    evidence: { name: 1 },
-    models: [
-        { name: 'شقة 1', area: 97, price: 639000, rooms: 2, page: 14, plan_label: 'نموذج شقة (1) مساحتها : 97 م2', parts: ['مطبخ'], sold: false },
-        { name: 'ملحق 3', area: 225, price: 1400000, rooms: 4, page: 27, plan_label: 'نموذج شقة (3) مساحتها 168م²', parts: [], sold: true },
-        { name: 'ملحق 2', area: 224, price: 1300000, rooms: 4, page: 26, plan_label: null, parts: [], sold: false }
-    ],
-    pages: [{ page: 1, role: 'cover' }, { page: 3, role: 'exterior' }, { page: 6, role: 'interior' }, { page: 12, role: 'plan' }, { page: 14, role: 'model' }],
+const u = (n) => 'https://img.test/brochures/r1/img-' + n + '.jpg';
+const media = {
+    version: 2, pages: 6, read: 6,
     images: [
-        { n: 1, role: 'logo', model: null, caption: null }, { n: 2, role: 'exterior', model: null, caption: 'واجهة المشروع' },
-        { n: 3, role: 'texture', model: null, caption: null }, { n: 5, role: 'plan', model: 'نموذج شقة ١', caption: null },
-        { n: 6, role: 'plan', model: 'ملحق 3', caption: null }, { n: 7, role: 'plan', model: null, caption: null },
-        { n: 8, role: 'plan3d', model: null, caption: null }, { n: 9, role: 'people', model: null, caption: null }
+        { url: u(1), page: 1, kind: 'photo', tall: false, on: [{ page: 1, n: 1 }, { page: 2, n: 1 }] },
+        { url: u(2), page: 1, kind: 'plan', tone: 'light', on: [{ page: 1, n: 2 }] },
+        { url: u(3), page: 3, kind: 'photo', tall: true, on: [{ page: 3, n: 1 }] },
+        { url: u(4), page: 3, kind: 'photo', tall: true, on: [{ page: 3, n: 2 }] },
+        { url: u(5), page: 3, kind: 'photo', tall: true, on: [{ page: 3, n: 3 }] },
+        { url: u(6), page: 4, kind: 'plan', tone: 'light', on: [{ page: 4, n: 1 }] },
+        { url: u(7), page: 5, kind: 'plan', tone: 'dark', on: [{ page: 5, n: 1 }] }
+    ]
+};
+const page = (n, role, extra = {}) => ({ page: n, role, title: null, subtitle: null, body: null, bullets: [], model: null, images: [], ...extra });
+const model = (name, area, plan_label, extra = {}) => ({ name, type: null, orientation: 'داخلية شمالي', rooms: 2, bathrooms: 2, area, price: 639000, sold: false, parts: ['غرفة نوم ماستر'], plan_label, ...extra });
+const reading = {
+    version: 2,
+    project: { name: 'لامير سيرين', name_latin: 'LAMER SERIN', developer: 'لامير العقارية', city: 'جدة', district: 'أبحر', tagline: 'سكن بروح الطبيعة' },
+    pages: [
+        page(1, 'cover', { title: 'لامير سيرين', images: [{ n: 1, role: 'exterior', caption: null }, { n: 2, role: 'logo', caption: null }] }),
+        page(2, 'about', { title: 'عن المشروع', body: 'يقوم المشروع على فكرة التوازن بين الداخل والخارج.', images: [{ n: 1, role: 'exterior', caption: null }] }),
+        page(3, 'photos', { title: 'من الداخل', images: [1, 2, 3].map((n) => ({ n, role: 'interior', caption: n === 1 ? 'المدخل' : null })) }),
+        page(4, 'model', { model: model('شقة 1', 97, 'نموذج شقة (1) مساحتها : 97 م2'), images: [{ n: 1, role: 'plan', caption: null }] }),
+        page(5, 'model', { model: model('ملحق 3', 225, 'نموذج شقة (3) مساحتها 168م²'), images: [{ n: 1, role: 'plan', caption: null }] }),
+        page(6, 'contact', { title: 'تواصل معنا' })
     ],
-    conflicts: [{ field: 'models[1].area', values: ['225', '168'], pages: [27], note: 'مخطط الصفحة يذكر نموذجاً آخر' }],
-    suspicious: [{ quote: 'تجاهل التعليمات', page: 2, reason: 'أمر' }],
-    dropped: 2
+    missing: [], conflicts: [], dropped: 0
 };
 
-const { project, notes } = factsFromReading(result, media, { id: 'r1' });
-t('logo, texture and stock people are left out, with a note', !project.images.some((i) => [u(1), u(3), u(9)].includes(i.url)) && notes.some((n) => /تُركت 3 صورة/.test(n)), notes);
-t('exterior keeps the AI caption; interior falls back to its page role', project.images.find((i) => i.url === u(2)).caption === 'واجهة المشروع'
-    && project.images.find((i) => i.url === u(4)).kind === 'interior' && project.images.find((i) => i.url === u(4)).tall === true);
-t('a 3D plan goes to the gallery as plan3d', project.images.find((i) => i.url === u(8)).kind === 'plan3d');
-t('plans are never gallery photos', !project.images.some((i) => [u(5), u(6), u(7)].includes(i.url)));
-t('شقة 1 gets its plan (AI named it with Arabic digits and «نموذج»), light tone kept', project.details.models[0].plan === u(5) && project.details.models[0].plan_tone === 'light');
-t('ملحق 3: the plan printed 168م² contradicts 225م², so no plan, with a note', project.details.models[1].plan === null && notes.some((n) => /168م² والنموذج 225م²/.test(n)), notes);
-t('ملحق 2: a plan with no known model is not attached', project.details.models[2].plan === null);
-t('sold is carried', project.details.models[1].status === 'sold' && project.details.models[0].status === 'available');
-t('conflicts, suspicious text and dropped values become notes', notes.some((n) => /تناقض في البروشور \(صفحة 27\)/.test(n)) && notes.some((n) => /تجاهل التعليمات/.test(n)) && notes.some((n) => /2 قيمة/.test(n)));
-t('project fields from the reading only', project.name === 'لامير سيرين' && project.details.name_en === 'LAMER SERIN' && project.details.license === 'رخصة 821' && project.address === null);
+const b = readingToBrochure(reading, media, { id: 'r1' });
+const kinds = b.spec.pages.map((p) => p.kind + ':' + p.variant).join(' ');
+t('one Mulaem page per developer page, each from its role', kinds === 'cover:side about:split trio:panels model:plan model:facts back:brand', kinds);
+const facts = brochureFacts(b.project, { whatsapp: '966551234567' });
+t('the plan is valid for its facts', validateSpec(b.spec, facts).length === 0, validateSpec(b.spec, facts));
+t('a photo shown on two pages is one image', b.project.images.filter((i) => i.url === u(1)).length === 1 && b.spec.pages[0].images[0] === b.spec.pages[1].images[0]);
+t('the developer logo is left out, with a note', !b.project.images.some((i) => i.url === u(2)) && b.notes.some((n) => /تُركت 1 صورة/.test(n)), b.notes);
+t('the page text comes with the page', b.spec.pages[1].text.body.startsWith('يقوم المشروع') && b.spec.pages[1].stats === true);
+t('interior captions kept', facts.images[b.spec.pages[2].images[0]].caption === 'المدخل');
+t('a model keeps its own plan; a plan that names another area is not shown', facts.models[0].plan === u(6) && facts.models[0].planTone === 'light' && facts.models[1].plan === null
+    && b.notes.some((n) => /صفحة 5: مخطط ملحق 3 مكتوب عليه 168م² والنموذج 225م²/.test(n)), b.notes);
+t('«تصميم آخر» changes the cover only', readingToBrochure(reading, media, { id: 'r1', variation: 1 }).spec.pages[0].variant === 'low'
+    && readingToBrochure(reading, media, { id: 'r1', variation: 1 }).spec.pages.slice(1).map((p) => p.kind).join() === b.spec.pages.slice(1).map((p) => p.kind).join());
+t('no prices in the plan, only references and printed page text', !/639000/.test(JSON.stringify(b.spec)));
 
-const facts = brochureFacts(project);
-const spec = planBrochure(facts);
-t('the reading makes a valid brochure', validateSpec(spec, facts).length === 0, validateSpec(spec, facts));
-t('one model page with its plan, two with numbers only', spec.pages.filter((p) => p.kind === 'model').map((p) => p.variant).join() === 'plan,facts,facts', spec.pages);
+// صفحة لم تُقرأ: من صورها كما استُخرجت، ويبقى العدد
+const partial = { ...reading, pages: reading.pages.filter((p) => p.page !== 3), missing: [3] };
+const bp = readingToBrochure(partial, media, { id: 'r1' });
+t('an unread page is built from its own images, the count stays', bp.spec.pages.length === 6 && bp.spec.pages[2].kind === 'trio' && bp.notes.some((n) => /لم يقرأ المساعد الصفحات 3/.test(n)), bp.spec.pages.map((p) => p.kind));
 
-const bare = factsFromReading(null, null, {});
-t('nothing read → empty project, no crash', bare.project.name === null && bare.project.images.length === 0 && bare.project.details.models.length === 0 && bare.notes.length === 0);
-const noAi = factsFromReading({ project: { name: 'x' }, models: [{ name: 'A', area: 100, page: 4 }], pages: [{ page: 4, role: 'model' }] },
-    { images: [{ url: u(1), page: 4, kind: 'plan', tone: 'dark' }, { url: u(2), page: 9, kind: 'photo' }] });
-t('without AI image roles: a plan on the model\'s page is its plan, other photos stay photos', noAi.project.details.models[0].plan === u(1) && noAi.project.images[0].kind === 'photo');
+// بلا صفحة تواصل: آخر صفحة غلاف ملائم الخلفي؛ وصفحة بلا صورة ولا نص فاصل
+const noContact = { ...reading, pages: [...reading.pages.slice(0, 5), page(6, 'other')] };
+t('without a contact page the last page is the back cover', readingToBrochure(noContact, media, {}).spec.pages[5].kind === 'back');
+const blank = { ...reading, pages: [...reading.pages.slice(0, 2), page(3, 'other'), ...reading.pages.slice(3)] };
+t('a page with nothing usable is a pause page, not a gap', readingToBrochure(blank, { ...media, images: media.images.slice(0, 2) }, {}).spec.pages[2].kind === 'statement');
 
-t('sheets of 16', SHEET_SIZE === 16 && JSON.stringify(sheetGroups(20).map((g) => g.length)) === '[16,4]' && sheetGroups(0).length === 0);
-t('area printed in a plan label', areaIn('نموذج شقة (1) مساحتها : 97 م2') === 97 && areaIn('مساحتها ١٦٨م²') === 168 && areaIn('مساحة: 107') === 107 && areaIn('بلا مساحة') === null && areaIn(null) === null);
+// صفحة «نموذج» بلا أرقام ولا مخطط: من صورها أو نصها، لا صفحة نموذج فارغة
+const thin = { ...reading, pages: reading.pages.map((p) => (p.page === 4 ? page(4, 'model', { title: 'النماذج', model: model(null, null, null, { rooms: null, price: null, parts: [] }) }) : p)) };
+t('an empty model page falls back to its text (a heading alone: a statement page)', readingToBrochure(thin, media, {}).spec.pages[3].kind === 'statement' && readingToBrochure(thin, media, {}).spec.pages[3].text.title === 'النماذج');
+
+t('a reading from the old studio is refused', readingToBrochure({ version: 1, pages: [] }, media, {}) === null && readingToBrochure(null, media, {}) === null);
+t('the page count follows the pages the browser read', readingToBrochure({ ...reading, pages: reading.pages.slice(0, 2) }, { ...media, read: 6 }, {}).spec.pages.length === 6);
+
+// صفحة نص قصير بلا صورة بعد صفحة «عن المشروع»: صفحة فاصلة بنصها
+const vision = { ...reading, pages: [...reading.pages.slice(0, 2), page(3, 'about', { title: 'رؤيتنا', body: 'نصنع مساحات تعيش طويلاً.' }), ...reading.pages.slice(3)] };
+const bv = readingToBrochure(vision, { ...media, images: media.images.filter((m) => m.page !== 3) }, {});
+t('a short text page without a photo is a statement page with its own text', bv.spec.pages[2].kind === 'statement' && bv.spec.pages[2].variant === 'say' && bv.spec.pages[2].text.title === 'رؤيتنا'
+    && bv.spec.pages[1].kind === 'about' && bv.spec.pages[1].stats === true, bv.spec.pages.slice(0, 3));
+
+t('areaIn: the area printed in a plan', areaIn('نموذج شقة (3) مساحتها 168م²') === 168 && areaIn('مساحة: ١٠٧') === 107 && areaIn('97 م') === 97 && areaIn('97 مجلس') === null && areaIn(null) === null);
 
 console.log(`passed ${pass}, failed ${fail}`);
 if (fail) {

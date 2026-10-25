@@ -1,6 +1,6 @@
-// اختبار مخطط البروشور (crm/js/brochure-plan.js): الحقائق من البيانات فقط، والصفحات حسب المادة، ولا مخطط مستعار، والتحقق.
+// اختبار حقائق البروشور والتحقق من مخطط الصفحات (crm/js/brochure-plan.js): الحقائق من البيانات فقط، والمخطط فهارس موجودة.
 // التشغيل: node tests/brochure-plan.test.mjs   أو   deno run tests/brochure-plan.test.mjs
-import { brochureFacts, planBrochure, validateSpec, MAX_MODELS } from '../crm/js/brochure-plan.js';
+import { brochureFacts, validateSpec, MAX_MODELS, MAX_PAGES } from '../crm/js/brochure-plan.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -33,31 +33,22 @@ const base = {
 const f = brochureFacts(base, { whatsapp: '966551234567' });
 t('images: https only, no duplicates, kinds kept', f.images.length === 10 && f.images[2].caption === 'واجهة المشروع' && f.images[3].tall === true && f.images[9].kind === 'plan3d', f.images.map((i) => i.kind));
 t('a plain URL (inventory image) is a photo of unknown kind', brochureFacts({ images: [u(1)] }).images[0].kind === 'photo');
-t('models: broken rows dropped, Arabic digits read, insecure plan dropped', f.models.length === 3 && f.models[1].price === 689000 && f.models[1].rooms === 3 && f.models[1].plan === null && f.models[0].planTone === 'light', f.models);
+t('models: kept in order (pages point at them by index), Arabic digits read, insecure plan dropped', f.models.length === 4 && f.models[1].price === 689000 && f.models[1].rooms === 3 && f.models[1].plan === null && f.models[0].planTone === 'light', f.models);
 t('price: lowest unsold; the sold annex is not counted', f.price === 639000 && f.priceFrom === true);
 t('area range from the units', JSON.stringify(f.areaRange) === '[97,224]');
 t('lists keep text only', f.landmarks.join() === 'برج جدة' && f.amenities.length === 2);
 t('nothing the record does not hold: no developer phone', !('contact_phone' in f) && f.office.whatsapp === '966551234567');
-t('models capped', brochureFacts({ details: { models: Array.from({ length: 20 }, (_, i) => ({ name: 'N' + i, area: 100 + i })) } }).models.length === MAX_MODELS);
+t('models capped', brochureFacts({ details: { models: Array.from({ length: 50 }, (_, i) => ({ name: 'N' + i, area: 100 + i })) } }).models.length === MAX_MODELS);
 t('empty record → empty facts, no crash', brochureFacts(null).name === null && brochureFacts({ details: 'x' }).models.length === 0);
 
-const spec = planBrochure(f);
-const kinds = spec.pages.map((p) => p.kind + ':' + p.variant).join(' ');
-t('pages follow the material', /^cover:(side|low) about:split photo:full trio:panels pair:offset location:map model:plan model:facts model:facts features:photo back:brand$/.test(kinds), kinds);
-t('a model without its own plan gets the numbers page, never another image', spec.pages.filter((p) => p.kind === 'model' && p.variant === 'facts').every((p) => !p.images));
-t('every image used at most once', (() => { const all = spec.pages.flatMap((p) => p.images || []); return all.length === new Set(all).size; })());
-t('the plan carries no prices or names, only references', !/639|لامير|ريال/.test(JSON.stringify(spec)), spec);
-t('valid', validateSpec(spec, f).length === 0, validateSpec(spec, f));
-t('same project, same design; a variation may change the cover', JSON.stringify(planBrochure(f)) === JSON.stringify(spec)
-  && [0, 1, 2, 3].map((v) => JSON.stringify(planBrochure(f, { variation: v }).pages[0])).some((c) => c !== JSON.stringify(spec.pages[0])));
-
-const bare = brochureFacts({ id: 9, name: 'أرض الفيصلية' });
-t('no photos, no units, no facts: typographic cover and back only', planBrochure(bare).pages.map((p) => p.kind + ':' + p.variant).join() === 'cover:type,back:brand');
-const inventory = brochureFacts({ id: 5, name: 'مشروع', price: 500000, images: [u(1)] });
-t('one inventory photo: cover only uses it, about without photo', planBrochure(inventory).pages.map((p) => p.kind + ':' + p.variant).join() === 'cover:side,about:text,back:brand'
-  || planBrochure(inventory).pages.map((p) => p.kind + ':' + p.variant).join() === 'cover:low,about:text,back:brand', planBrochure(inventory).pages);
-
-t('validate: a model page pointing at a missing model or a plan it does not have', validateSpec({ pages: [spec.pages[0], { kind: 'model', variant: 'plan', model: 1 }, { kind: 'model', variant: 'facts', model: 9 }] }, f).length === 2);
+const cover = { kind: 'cover', variant: 'side', images: [0] };
+t('validate: a page-by-page plan with its own texts is valid', validateSpec({ pages: [cover, { kind: 'about', variant: 'split', images: [3], text: { title: 'عن المشروع', body: 'وصف.', bullets: [] }, stats: true },
+  { kind: 'trio', variant: 'panels', images: [3, 4, 5] }, { kind: 'model', variant: 'plan', model: 0 }, { kind: 'model', variant: 'facts', model: 3 }, { kind: 'back', variant: 'brand' }] }, f).length === 0);
+t('validate: a features page needs its own list or the project amenities', validateSpec({ pages: [cover, { kind: 'features', variant: 'list', text: { bullets: ['دخول ذكي'] } }] }, brochureFacts({ images: [u(1)] })).length === 0
+  && validateSpec({ pages: [cover, { kind: 'features', variant: 'list', text: { bullets: [] } }] }, brochureFacts({ images: [u(1)] })).length === 1);
+t('validate: at most MAX_PAGES pages', validateSpec({ pages: Array.from({ length: MAX_PAGES + 1 }, () => cover) }, f).length === 1
+  && validateSpec({ pages: Array.from({ length: MAX_PAGES }, () => cover) }, f).length === 0);
+t('validate: a model page pointing at a missing model or a plan it does not have', validateSpec({ pages: [cover, { kind: 'model', variant: 'plan', model: 1 }, { kind: 'model', variant: 'facts', model: 9 }] }, f).length === 2);
 t('validate: missing image, unknown kind, no cover first', validateSpec({ pages: [{ kind: 'trio', variant: 'panels', images: [0, 1, 40] }, { kind: 'poster', variant: 'x' }] }, f).length >= 3);
 t('validate: garbage', validateSpec(null, f).length === 1 && validateSpec({ pages: [] }, f).length === 1);
 

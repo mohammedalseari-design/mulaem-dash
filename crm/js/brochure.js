@@ -1,19 +1,19 @@
-// ‎#/studio‎ — «استوديو البروشورات» (للمدير): بروشور ملائم من صفحات عريضة 16:9، من بروشور مطوّر يُرفع أو من مشروع في المخزون.
+// ‎#/studio‎ — «استوديو البروشورات» (للمدير): الموظف يرفع بروشور المطوّر، فيخرج بروشور ملائم بعدد صفحاته نفسه، صفحة لكل صفحة.
 //
-// من بروشور المطوّر: brochure-pdf.js يقرأ الملف في المتصفح (كل صفحة صورةً، وكل صورة ومخطط ملفاً قائماً)، فتُرسل الصفحات
-// وأوراق المصغّرات طلبَ «بروشور» للمساعد (036، agent-run)، وتُرفع الصور إلى المخزن العام ومعها media.json. المساعد يكتب قراءته
-// في agent_requests.result، وbrochure-read.js يجمعها بالصور، ثم يُرسم البروشور هنا. لا يدخل البروشور إلا ما قرأه المساعد بمصدره.
-// المخطط من brochure-plan.js، والرسم هنا: عناصر DOM بـ el() لا HTML، فكل نص من قاعدة البيانات أو من البروشور يمرّ نصاً. الصفحة
-// حاوية (container-type) وكل المقاسات بوحدة cqw، فالتصميم نفسه يصغر في المعاينة ويُطبع بمقاسه.
-// الطباعة: نسخة من الصفحات في #broPrint، وbrochure.css يخفي ما سواها، ثم «حفظ كـ PDF» من نافذة المتصفح.
-// الشعار ملف الشعار الرسمي نفسه (images/logo.jpg، مربع بلونه) كما هو، لا يُعاد رسمه.
+// brochure-pdf.js يقرأ الملف في المتصفح: كل صورة ومخطط ملفاً قائماً كما يظهر في الصفحة، وكل صفحة صورةً وتحتها صورها مرقّمة،
+// فتُرسل الصفحات طلبَ «بروشور» للمساعد (036، agent-run يقرؤها مجموعاتٍ متوازية) وتُرفع الصور إلى المخزن العام ومعها media.json.
+// المساعد يكتب لكل صفحة دورها ونصوصها كما طُبعت وأدوار صورها في agent_requests.result، وbrochure-read.js يبني منها مخطط
+// الصفحات، ثم يُرسم البروشور هنا. لا يدخل البروشور إلا ما في بروشور المطوّر نفسه.
+// الرسم: عناصر DOM بـ el() لا HTML، فكل نص من البروشور يمرّ نصاً. الصفحة حاوية (container-type) وكل المقاسات بوحدة cqw،
+// فالتصميم نفسه يصغر في المعاينة ويُطبع بمقاسه. الطباعة: نسخة من الصفحات في #broPrint، وbrochure.css يخفي ما سواها،
+// ثم «حفظ كـ PDF» من نافذة المتصفح. الشعار ملف الشعار الرسمي نفسه (images/logo.jpg) كما هو، لا يُعاد رسمه.
 
-import { supabase, fetchAll } from './supabase.js';
-import { brochureFacts, planBrochure, validateSpec } from './brochure-plan.js';
-import { factsFromReading } from './brochure-read.js';
-import { readBrochurePdf, contactSheets, MAX_PAGES } from './brochure-pdf.js';
+import { supabase } from './supabase.js';
+import { brochureFacts, validateSpec } from './brochure-plan.js';
+import { readingToBrochure } from './brochure-read.js';
+import { readBrochurePdf, MAX_PAGES } from './brochure-pdf.js';
 import { createRequest, startExtraction } from './agent.js';
-import { el, replace, loading, empty, errorBox, errorText, pageHead, notify, money, fmtDate, fmtDateTime, input, badge } from './ui.js';
+import { el, replace, loading, empty, errorBox, errorText, pageHead, notify, money, fmtDate, fmtDateTime, badge } from './ui.js';
 
 const LOGO = '../images/logo.jpg';
 const SLOGAN = 'ملائم العقارية.. حيث تجد ما يناسبك';
@@ -29,49 +29,20 @@ export async function renderStudio(root) {
     const file = el('input', { type: 'file', accept: 'application/pdf,.pdf', class: 'crm-hidden', 'aria-label': 'بروشور المطوّر PDF' });
     const status = el('div');
     const recent = el('div');
-    const list = el('div', { class: 'bro-picker' });
-    const search = input({ type: 'search', placeholder: 'ابحث باسم المشروع أو الحي', 'aria-label': 'بحث في المشاريع' });
     file.addEventListener('change', () => {
         const f = file.files && file.files[0];
         file.value = '';
         if (f) startBrochure(f, status);
     });
     replace(root, [
-        pageHead('استوديو البروشورات', 'ارفع بروشور المطوّر، فيقرؤه المساعد ويصمّم منه بروشور ملائم. لا يُكتب فيه إلا ما قرأه من البروشور نفسه.', [
+        pageHead('استوديو البروشورات', 'ارفع بروشور المطوّر، فيقرؤه المساعد صفحةً صفحة ويخرج منه بروشور ملائم بعدد صفحاته نفسه. لا يُكتب فيه إلا ما في البروشور نفسه.', [
             el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'ارفع بروشور مطوّر', onclick: () => file.click() })
         ]),
         file,
         status,
-        recent,
-        el('div', { class: 'crm-card' }, [
-            el('h3', { class: 'crm-section-title', text: 'أو من مشروع في المخزون' }),
-            el('div', { class: 'crm-toolbar' }, [search]), list
-        ])
+        recent
     ]);
     drawRecent(recent);
-
-    replace(list, loading());
-    const { data, error } = await fetchAll(() => supabase.from('projects')
-        .select('id, name, type, district, city, images, status').is('deleted_at', null).eq('status', 'approved')
-        .order('id', { ascending: false }));
-    if (!list.isConnected) return;
-    if (error) return void replace(list, errorBox(error, 'تعذّر تحميل المشاريع'));
-    const rows = data || [];
-    const draw = () => {
-        const q = search.value.trim();
-        const shown = rows.filter((p) => !q || [p.name, p.district, p.city, String(p.id)].some((v) => String(v || '').includes(q))).slice(0, 60);
-        if (!shown.length) return void replace(list, empty(q ? 'لا مشروع بهذا البحث' : 'لا مشاريع معتمدة بعد'));
-        replace(list, shown.map((p) => {
-            const photos = (Array.isArray(p.images) ? p.images : []).filter((u) => /^https:\/\//i.test(String(u && u.url ? u.url : u))).length;
-            return el('a', { class: 'bro-pick', href: '#/studio/' + p.id }, [
-                el('strong', { text: p.name || 'مشروع بلا اسم' }),
-                el('span', { class: 'crm-subtle', text: [p.type, p.district, p.city].filter(Boolean).join(' · ') || '—' }),
-                el('span', { class: 'crm-subtle', text: photos ? photos + ' صورة' : 'بلا صور — غلاف بالخط' })
-            ]);
-        }));
-    };
-    search.addEventListener('input', draw);
-    draw();
 }
 
 // آخر البروشورات المقروءة (طلبات «بروشور» للمدير)، لفتحها ثانية
@@ -110,11 +81,7 @@ async function startBrochure(file, status) {
         show(0, 'فتح الملف');
         const read = await readBrochurePdf(file, (t) => show(0, t));
         if (!read.pages.length) throw new Error('لم تُقرأ أي صفحة من الملف');
-        const sheets = await contactSheets(read.images);
-        const files = [
-            ...read.pages.map((p) => new File([p.blob], 'p' + String(p.n).padStart(2, '0') + '.jpg', { type: 'image/jpeg' })),
-            ...sheets.map((b, i) => new File([b], 'sheet' + String(i + 1).padStart(2, '0') + '.jpg', { type: 'image/jpeg' }))
-        ];
+        const files = read.pages.map((p) => new File([p.blob], 'p' + String(p.n).padStart(2, '0') + '.jpg', { type: 'image/jpeg' }));
         show(1, read.pageCount > MAX_PAGES ? 'البروشور ' + read.pageCount + ' صفحة، يُقرأ أول ' + MAX_PAGES + ' منها' : read.pages.length + ' صفحة');
         const id = await createRequest('brochure', {
             title: file.name.replace(/\.pdf$/i, '').replace(/[‎‏‪-‮]/g, '').trim().slice(0, 80) || 'بروشور',
@@ -123,14 +90,14 @@ async function startBrochure(file, status) {
             progress: (t) => show(1, t)
         });
         show(2, read.images.length + ' صورة ومخطط');
-        const media = { version: 1, file: file.name, pages: read.pageCount, images: [] };
+        const media = { version: 2, file: file.name, pages: read.pageCount, read: read.pages.length, images: [] };
         for (const [i, img] of read.images.entries()) {
             show(2, 'رفع صورة ' + (i + 1) + ' من ' + read.images.length);
             const path = 'brochures/' + id + '/img-' + String(i + 1).padStart(2, '0') + '.' + img.type;
             const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, img.blob, { contentType: img.type === 'png' ? 'image/png' : 'image/jpeg', upsert: false });
             if (error) throw error;
             media.images.push({ url: supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
-                page: img.page, w: img.w, h: img.h, kind: img.kind, tone: img.tone, tall: img.tall });
+                page: img.page, w: img.w, h: img.h, kind: img.kind, tone: img.tone, tall: img.tall, on: img.on });
         }
         const manifest = new Blob([JSON.stringify(media)], { type: 'application/json' });
         const { error: mediaError } = await supabase.storage.from(MEDIA_BUCKET).upload('brochures/' + id + '/media.json', manifest, { contentType: 'application/json', upsert: true });
@@ -171,10 +138,13 @@ export async function renderBrochureReading(root, requestId, lastStage) {
     ]);
 
     if (req.status === 'queued' || req.status === 'running') {
-        const detail = req.stage === 'validating' ? 'مراجعة القراءة' : req.stage === 'extracting' ? 'يقرأ الصفحات والنماذج والصور' : 'في الطابور';
-        if (lastStage !== req.status + req.stage) replace(root, [head, stepsView(3, detail + ' — تبقى الصفحة مفتوحة وتتحدث وحدها')]);
+        const detail = req.status === 'running' && req.stage === 'extracting' ? 'يقرأ الصفحات الآن، كل أربع صفحات معاً'
+            : req.error_ar ? req.error_ar : 'في الطابور';
+        // تُعاد الرسمة حين يتغير ما يُعرض: الحالة أو المرحلة أو رسالة المحاولة المعادة (تبقى «في الانتظار» والرسالة تتغير)
+        const mark = req.status + '|' + req.stage + '|' + (req.error_ar || '');
+        if (lastStage !== mark) replace(root, [head, stepsView(3, detail + ' — تبقى الصفحة مفتوحة وتتحدث وحدها')]);
         setTimeout(() => {
-            if (root.isConnected && location.hash === '#/studio/b/' + requestId) renderBrochureReading(root, requestId, req.status + req.stage);
+            if (root.isConnected && location.hash === '#/studio/b/' + requestId) renderBrochureReading(root, requestId, mark);
         }, POLL_MS);
         return;
     }
@@ -188,44 +158,35 @@ export async function renderBrochureReading(root, requestId, lastStage) {
         supabase.from('crm_settings').select('value').eq('key', 'office_whatsapp').maybeSingle()
     ]);
     if (!root.isConnected) return;
-    const { project, notes } = factsFromReading(req.result, media || { images: [] }, { id: requestId });
-    if (!media) notes.unshift('صور البروشور لم تُقرأ من المخزن — البروشور بالخط وحده.');
-    const facts = brochureFacts(project, { whatsapp: office && office.data ? office.data.value : null });
-    showBrochure(root, facts, {
-        title: facts.name || req.title || 'بروشور',
-        sub: 'من بروشور «' + (req.title || '') + '». راجع الملاحظات والصفحات ثم احفظه PDF.',
-        notes
+    const whatsapp = office && office.data ? office.data.value : null;
+    const build = (variation) => {
+        const b = readingToBrochure(req.result, media || { images: [] }, { id: requestId, variation });
+        return b ? { facts: brochureFacts(b.project, { whatsapp }), spec: b.spec, notes: b.notes } : null;
+    };
+    const first = build(0);
+    if (!first) {
+        return void replace(root, [head, el('div', { class: 'crm-error', text: 'هذه القراءة من نسخة سابقة من الاستوديو.' }),
+            el('p', { class: 'crm-subtle', text: 'ارفع الملف مرة أخرى من الاستوديو، فيُقرأ صفحةً صفحة.' })]);
+    }
+    if (!media) first.notes.unshift('صور البروشور لم تُقرأ من المخزن — البروشور بالخط وحده.');
+    showBrochure(root, {
+        title: first.facts.name || req.title || 'بروشور',
+        sub: 'من بروشور «' + (req.title || '') + '»، ' + pagesWord(first.spec.pages.length) + ' كأصله. راجع الملاحظات والصفحات ثم احفظه PDF.',
+        notes: first.notes,
+        build
     });
 }
 
-/* ===================== البروشور من المخزون ===================== */
-
-export async function renderBrochure(root, projectId) {
-    replace(root, loading('جارٍ تجهيز البروشور'));
-    const id = Number(projectId);
-    if (!Number.isInteger(id)) return void replace(root, empty('المشروع غير موجود'));
-    const [{ data: project, error }, office] = await Promise.all([
-        supabase.from('projects').select('id, name, type, purpose, city, district, address, price, area, rooms, images, details, delivery_date, availability, status')
-            .eq('id', id).is('deleted_at', null).maybeSingle(),
-        supabase.from('crm_settings').select('value').eq('key', 'office_whatsapp').maybeSingle()
-    ]);
-    if (!root.isConnected) return;
-    if (error) return void replace(root, errorBox(error, 'تعذّر تحميل المشروع'));
-    if (!project) return void replace(root, empty('المشروع غير موجود أو محذوف'));
-    const facts = brochureFacts(project, { whatsapp: office && office.data ? office.data.value : null });
-    showBrochure(root, facts, { title: facts.name || 'بروشور', sub: 'بروشور ملائم من بيانات المشروع رقم ' + facts.id + '. راجع الصفحات ثم احفظه PDF.', notes: [] });
-}
-
 // عرض البروشور: زر PDF واحد في الرأس، و«تصميم آخر» رابطاً، وملاحظات القراءة إن وُجدت فوق الصفحات
-function showBrochure(root, facts, opts) {
+function showBrochure(root, opts) {
     let variation = 0;
     const pagesBox = el('div', { class: 'bro-pages' });
     const note = el('span', { class: 'crm-subtle' });
     const draw = () => {
-        const spec = planBrochure(facts, { variation });
+        const { facts, spec } = opts.build(variation);
         const errors = validateSpec(spec, facts);
         if (errors.length) return void replace(pagesBox, el('div', { class: 'crm-error', text: 'المخطط غير صالح: ' + errors.join('، ') }));
-        note.textContent = spec.pages.length + ' صفحات' + (facts.images.length ? '' : ' · بلا صور، فالغلاف بالخط وحده');
+        note.textContent = pagesWord(spec.pages.length) + (facts.images.length ? '' : ' · بلا صور، فالغلاف بالخط وحده');
         replace(pagesBox, renderPages(spec, facts));
     };
     replace(root, [
@@ -234,7 +195,7 @@ function showBrochure(root, facts, opts) {
         ]),
         el('div', { class: 'bro-bar' }, [
             el('a', { class: 'link-btn', href: '#/studio', text: 'الاستوديو' }),
-            el('button', { type: 'button', class: 'link-btn', text: 'تصميم آخر', title: 'غلاف وتوزيع آخر بالبيانات نفسها',
+            el('button', { type: 'button', class: 'link-btn', text: 'تصميم آخر', title: 'غلاف آخر بالقراءة نفسها',
                 onclick: () => { variation += 1; draw(); } }),
             note
         ]),
@@ -245,6 +206,11 @@ function showBrochure(root, facts, opts) {
         pagesBox
     ]);
     draw();
+}
+
+// «12 صفحة»، «5 صفحات»
+function pagesWord(n) {
+    return n + (n >= 3 && n <= 10 ? ' صفحات' : ' صفحة');
 }
 
 // الطباعة: الصفحات وحدها بمقاسها بلا هوامش. تنتظر الخطوط والصور حتى لا تُطبع صفحة ناقصة. التنظيف بعد afterprint لا بعد
@@ -269,10 +235,17 @@ async function printPages(pagesBox) {
 
 export function renderPages(spec, facts) {
     const total = spec.pages.length;
-    let models = 0;
+    const letters = new Map();
+    const letterOf = (m, i) => {
+        const key = m && m.name ? m.name.replace(/\s+/g, '') : '#' + i;
+        if (!letters.has(key)) letters.set(key, letters.size < 26 ? String.fromCharCode(65 + letters.size) : String(letters.size + 1));
+        return letters.get(key);
+    };
     let y = COVER_THREAD_Y;
+    let says = 0;
     return spec.pages.map((page, i) => {
-        const ctx = { n: i + 1, total, letter: page.kind === 'model' ? String.fromCharCode(65 + models++) : null };
+        const ctx = { n: i + 1, total, letter: page.kind === 'model' ? letterOf(facts.models[page.model], page.model) : null,
+            say: page.kind === 'statement' ? says++ : 0 };
         const node = el('section', { class: 'bro-page bro-' + page.kind + ' bro-v-' + page.variant, 'aria-label': 'صفحة ' + (i + 1) });
         append(node, PAGES[page.kind](page, facts, ctx));
         if (page.kind !== 'cover') {
@@ -305,6 +278,7 @@ function threadPath(page, yin) {
     else if (k === 'model') pts = [[100, yin], [SPINE_X, yin], [SPINE_X, 36], [60, 36], [60, 53.4], [0, 53.4]];
     else if (k === 'features') pts = [[100, yin], [SPINE_X, yin], [SPINE_X, 13], [0, 13]];
     else if (k === 'back') pts = [[100, yin], [SPINE_X, yin], [SPINE_X, 33.6], [50, 33.6]];
+    else if (k === 'statement') pts = [[100, yin], [SPINE_X, yin], [SPINE_X, 36], [0, 36]];
     else pts = [[100, yin], [0, yin]];
     // دخولٌ وخروجٌ على الارتفاع نفسه لا يحتاجان كسرة
     pts = pts.filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
@@ -333,16 +307,25 @@ function append(node, children) {
     for (const c of children) if (c) node.appendChild(c);
 }
 
-const PAGES = { cover, about, photo: photoPage, trio, pair, location: locationPage, model, features, back };
+const PAGES = { cover, about, photo: photoPage, trio, pair, location: locationPage, model, features, back, statement };
 
 function img(facts, index, cls) {
     const it = facts.images[index];
     return it ? el('div', { class: 'bro-img ' + (cls || '') }, el('img', { src: it.url, alt: it.caption || facts.name || 'صورة المشروع', loading: 'eager' })) : null;
 }
 
-function caption(facts, index) {
+function caption(facts, index, page) {
     const it = facts.images[index];
-    return it && it.caption ? el('span', { class: 'bro-cap', text: it.caption }) : null;
+    const t = it && it.caption ? it.caption : page && page.text && page.text.title;
+    return t ? el('span', { class: 'bro-cap', text: t }) : null;
+}
+
+// نص الصفحة كما قرأه المساعد
+function words(page, key) {
+    return page.text && page.text[key] ? page.text[key] : null;
+}
+function items(page) {
+    return page.text && Array.isArray(page.text.bullets) ? page.text.bullets : [];
 }
 
 function stamp(cls) {
@@ -384,9 +367,13 @@ function areaValue(facts) {
 
 // أرقام المشروع جالسة على الخيط كما في صفحة النموذج: لغة واحدة للأرقام في البروشور كله
 function about(page, facts) {
-    const words = el('div', { class: 'bro-about-words' }, [
-        el('h2', { class: 'bro-h', text: facts.tagline || facts.name || '' }),
-        facts.description ? el('p', { class: 'bro-p', text: facts.description }) : null
+    const body = page.text ? words(page, 'body') : facts.description;
+    const list = body ? [] : items(page).slice(0, 6);
+    const box = el('div', { class: 'bro-about-words' }, [
+        el('h2', { class: 'bro-h', text: words(page, 'title') || facts.tagline || facts.name || '' }),
+        words(page, 'subtitle') ? el('p', { class: 'bro-p bro-lead', text: words(page, 'subtitle') }) : null,
+        body ? el('p', { class: 'bro-p', text: body }) : null,
+        list.length ? el('ul', { class: 'bro-near' }, list.map((l) => el('li', { text: l }))) : null
     ]);
     const area = areaValue(facts);
     const stats = el('div', { class: 'bro-stats' }, [
@@ -395,12 +382,12 @@ function about(page, facts) {
         stat('عدد الوحدات', facts.units_count ? String(facts.units_count) : null),
         stat('التسليم', facts.delivery_date ? fmtDate(facts.delivery_date) : facts.construction_status)
     ].filter(Boolean));
-    return [section('عن المشروع'), page.variant === 'split' ? img(facts, page.images[0], 'bro-about-img bro-marks') : null, words,
-        stats.childNodes.length ? stats : null];
+    return [section('عن المشروع'), page.variant === 'split' ? img(facts, page.images[0], 'bro-about-img bro-marks') : null, box,
+        page.stats !== false && stats.childNodes.length ? stats : null];
 }
 
 function photoPage(page, facts) {
-    return [section('المشروع'), img(facts, page.images[0], 'bro-bleed'), caption(facts, page.images[0])];
+    return [section('المشروع'), img(facts, page.images[0], 'bro-bleed'), caption(facts, page.images[0], page)];
 }
 
 function trio(page, facts) {
@@ -408,16 +395,19 @@ function trio(page, facts) {
 }
 
 function pair(page, facts) {
-    return [section('تفاصيل'), img(facts, page.images[0], 'bro-pair-a'), img(facts, page.images[1], 'bro-pair-b bro-marks'), caption(facts, page.images[0])];
+    return [section('تفاصيل'), img(facts, page.images[0], 'bro-pair-a'), img(facts, page.images[1], 'bro-pair-b bro-marks'), caption(facts, page.images[0], page)];
 }
 
 function locationPage(page, facts) {
-    const words = el('div', { class: 'bro-loc-words' }, [
-        place(facts) ? el('h2', { class: 'bro-h', text: place(facts) }) : null,
-        facts.address ? el('p', { class: 'bro-p', text: facts.address }) : null,
-        facts.landmarks.length ? el('ul', { class: 'bro-near' }, facts.landmarks.map((l) => el('li', { text: l }))) : null
+    const heading = words(page, 'title') || place(facts);
+    const body = page.text ? words(page, 'body') : facts.address;
+    const near = items(page).length ? items(page) : facts.landmarks;
+    const box = el('div', { class: 'bro-loc-words' }, [
+        heading ? el('h2', { class: 'bro-h', text: heading }) : null,
+        body ? el('p', { class: 'bro-p', text: body }) : null,
+        near.length ? el('ul', { class: 'bro-near' }, near.slice(0, 6).map((l) => el('li', { text: l }))) : null
     ]);
-    return [section('الموقع'), page.variant === 'map' ? img(facts, page.images[0], 'bro-bleed') : null, page.variant === 'map' ? el('div', { class: 'bro-veil bro-veil-loc' }) : null, words];
+    return [section('الموقع'), page.variant === 'map' ? img(facts, page.images[0], 'bro-bleed') : null, page.variant === 'map' ? el('div', { class: 'bro-veil bro-veil-loc' }) : null, box];
 }
 
 function model(page, facts, ctx) {
@@ -457,8 +447,38 @@ function features(page, facts) {
     return [
         section('مميزات المشروع'),
         page.variant === 'photo' ? img(facts, page.images[0], 'bro-feat-img bro-marks') : null,
-        el('h2', { class: 'bro-h bro-feat-h', text: 'ما يميّز ' + (facts.name || 'المشروع') }),
-        el('ol', { class: 'bro-feats' }, facts.amenities.map((a, i) => el('li', {}, [el('span', { class: 'bro-feat-n', text: String(i + 1).padStart(2, '0') }), el('span', { text: a })])))
+        el('h2', { class: 'bro-h bro-feat-h', text: words(page, 'title') || 'ما يميّز ' + (facts.name || 'المشروع') }),
+        el('ol', { class: 'bro-feats' }, (items(page).length ? items(page) : facts.amenities).map((a, i) => el('li', {}, [el('span', { class: 'bro-feat-n', text: String(i + 1).padStart(2, '0') }), el('span', { text: a })])))
+    ];
+}
+
+// الصفحة الفاصلة: جملة كبيرة على الورق والخيط تحتها، وقفة مقصودة لا صفحة ناقصة. الفواصل المتتالية تتناوب: شعار المشروع،
+// ثم اسمه، ثم موقعه، ثم شعار ملائم، فلا تتكرر جملة واحدة
+function statement(page, facts, ctx) {
+    const t = page.text;
+    if (t && t.title) {
+        return [
+            section('عن المشروع'),
+            el('div', { class: 'bro-say' }, [
+                el('div', { class: 'bro-say-text', text: t.title }),
+                t.subtitle ? el('div', { class: 'bro-say-by', text: t.subtitle }) : null,
+                t.body ? el('p', { class: 'bro-say-p', text: t.body }) : null
+            ])
+        ];
+    }
+    const lines = [
+        facts.tagline ? [facts.tagline, facts.name] : null,
+        facts.name ? [facts.name, facts.nameLatin] : null,
+        place(facts) ? [place(facts), facts.name] : null,
+        [SLOGAN, null]
+    ].filter(Boolean);
+    const [say, by] = lines[ctx.say % lines.length];
+    return [
+        section(facts.name || 'المشروع'),
+        el('div', { class: 'bro-say' }, [
+            el('div', { class: 'bro-say-text', text: say }),
+            by && by !== say ? el('div', { class: 'bro-say-by', text: by }) : null
+        ])
     ];
 }
 
@@ -478,7 +498,7 @@ function back(page, facts) {
         ]),
         el('div', { class: 'bro-back-foot' }, [
             facts.office.whatsapp ? el('span', { dir: 'ltr', class: 'bro-phone', text: phoneText(facts.office.whatsapp) }) : null,
-            el('span', { class: 'bro-fine', text: 'البيانات من سجل المشروع لدى ملائم العقارية بتاريخ ' + fmtDate(new Date().toISOString())
+            el('span', { class: 'bro-fine', text: 'البيانات من بروشور المطوّر كما قُرئ لدى ملائم العقارية بتاريخ ' + fmtDate(new Date().toISOString())
                 + '، والأسعار والتوفر قابلة للتغيير.' + (facts.developer ? ' المشروع من تطوير ' + facts.developer + '.' : '') })
         ].filter(Boolean))
     ];

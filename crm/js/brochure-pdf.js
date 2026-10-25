@@ -1,15 +1,15 @@
-// قراءة بروشور المطوّر (PDF) في المتصفح بـ pdf.js: كل صفحة صورةً للمساعد، وكل صورة ومخطط فيه ملفاً مستقلاً قائماً
-// (المخطط المرسوم بزاوية يُدار)، بلا تكرار ولا صور فارغة، وأوراق مصغّرات مرقّمة يحكم المساعد على كل صورة فيها.
+// قراءة بروشور المطوّر (PDF) في المتصفح بـ pdf.js: كل صورة ومخطط فيه ملفاً مستقلاً كما تظهر في الصفحة، بلا تكرار ولا صور
+// فارغة، وكل صفحة صورةً للمساعد وتحتها صورها مصغّراتٍ مرقّمة يحكم على كل منها برقمها.
 // الحساب على البكسل في brochure-media.js (مختبَر وحده)، وهنا الرسم والملفات فقط.
 // الملف لا يغادر المتصفح هنا: الرفع إلى المخزن وإنشاء طلب المساعد في brochure.js.
 
 import { uprightMatrix, pageRotation, multiply, classifyPixels, fingerprint, pixelKey, duplicate, worthKeeping } from './brochure-media.js';
-import { sheetGroups, SHEET_SIZE } from './brochure-read.js';
 
 // نسخة مثبّتة من jsDelivr (كمكتبة supabase-js في الصفحة). العامل من نطاق آخر: pdf.js يلفّه بنفسه
 const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/';
-export const MAX_PAGES = 36;          // + حتى 4 أوراق مصغّرات = 40، حد طلب البروشور (036)
-export const MAX_IMAGES = SHEET_SIZE * 4;
+export const MAX_PAGES = 36;          // حد طلب البروشور 40 ملفاً (036)
+export const MAX_IMAGES = 64;
+export const MAX_PAGE_IMAGES = 12;    // مصغّرات الصفحة الواحدة، كحد الخادم (brochure.ts)
 const PAGE_WIDTH = 1100;              // عرض صورة الصفحة للمساعد: يقرأ نصوص النماذج والأسعار
 const IMAGE_MAX = 2400;               // أطول ضلع لصورة تُطبع في بروشور ملائم
 
@@ -117,7 +117,54 @@ function imageObject(page, name) {
     });
 }
 
-// file ← { pageCount, pages: [{ n, blob }], images: [{ blob, page, w, h, kind, tone, tall, type }], skipped }
+// مصغّرة الصورة لصفحة المساعد: ارتفاع ثابت
+const THUMB_H = 170;
+function thumbOf(canvas) {
+    const k = Math.min(THUMB_H / canvas.height, 560 / canvas.width);
+    const c = canvasOf(canvas.width * k, canvas.height * k);
+    c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+    return c;
+}
+
+// صفحة للمساعد: الصفحة نفسها، وتحت خط فاصل صورها المستخرجة مصغّراتٍ مرقّمة (1…) صفاً أو أكثر بعرض الصفحة
+function pageSheet(page, thumbs) {
+    const pad = 12;
+    const rows = [];
+    let row = [], x = pad;
+    thumbs.forEach((t, k) => {
+        if (row.length && x + t.width + pad > page.width) { rows.push(row); row = []; x = pad; }
+        row.push({ t, k, x });
+        x += t.width + pad;
+    });
+    if (row.length) rows.push(row);
+    const strip = rows.length ? 4 + pad + rows.length * (THUMB_H + pad) : 0;
+    const c = canvasOf(page.width, page.height + strip);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(page, 0, 0);
+    if (!rows.length) return c;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, page.height, c.width, 4);
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, page.height + 4, c.width, strip - 4);
+    ctx.font = 'bold 24px Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    rows.forEach((r, ri) => {
+        const y = page.height + 4 + pad + ri * (THUMB_H + pad);
+        for (const { t, k, x: tx } of r) {
+            ctx.drawImage(t, tx, y);
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(tx, y, 52, 34);
+            ctx.fillStyle = '#000';
+            ctx.fillText('#' + (k + 1), tx + 6, y + 18);
+        }
+    });
+    return c;
+}
+
+// file ← { pageCount, pages: [{ n, blob, strip }], images: [{ blob, page, w, h, kind, tone, tall, type, on }], skipped }
+// blob: الصفحة للمساعد مع مصغّراتها؛ strip: فهارس صورها بترتيب أرقامها؛ on: [{ page, n }] كل صفحة ظهرت فيها الصورة ورقمها فيها
 // onProgress(نص) يصف المرحلة الحقيقية: «صفحة 5 من 32»
 export async function readBrochurePdf(file, onProgress = () => {}) {
     const pdf = await pdfjs();
@@ -126,6 +173,7 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
     const pages = [];
     const images = [];
     const known = [];
+    const thumbs = [];
     let skipped = 0;
     for (let n = 1; n <= Math.min(pageCount, MAX_PAGES); n++) {
         onProgress('قراءة صفحة ' + n + ' من ' + Math.min(pageCount, MAX_PAGES));
@@ -137,10 +185,10 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport }).promise;
-        pages.push({ n, blob: await toBlob(canvas, 'image/jpeg', 0.82) });
 
+        // صور الصفحة: الجديدة تُضاف، والمكررة (في صفحة سابقة أو مرتين هنا) تُنسب إلى الأولى، وكلها في مصغّرات الصفحة
+        const strip = [];
         for (const ref of await imageRefs(page, pdf.OPS)) {
-            if (images.length >= MAX_IMAGES) { skipped++; continue; }
             const img = await imageObject(page, ref.name);
             if (!img || !worthKeeping(img.width, img.height)) continue;
             const raw = imageCanvas(img);
@@ -149,46 +197,26 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
             const { cls, print, key } = probe(done);
             if (cls.kind === 'blank') continue;
             const seen = { kind: cls.kind, print, key };
-            if (known.some((k) => duplicate(k, seen))) continue;
-            known.push(seen);
-            const png = cls.alpha;
-            images.push({
-                blob: await toBlob(done, png ? 'image/png' : 'image/jpeg', 0.86), type: png ? 'png' : 'jpg',
-                page: n, w: done.width, h: done.height, kind: cls.kind, tone: cls.tone, tall: done.height > done.width * 1.15
-            });
+            let index = known.findIndex((k) => duplicate(k, seen));
+            if (index < 0) {
+                if (images.length >= MAX_IMAGES) { skipped++; continue; }
+                index = images.length;
+                known.push(seen);
+                thumbs.push(thumbOf(done));
+                const png = cls.alpha;
+                images.push({
+                    blob: await toBlob(done, png ? 'image/png' : 'image/jpeg', 0.86), type: png ? 'png' : 'jpg',
+                    page: n, w: done.width, h: done.height, kind: cls.kind, tone: cls.tone, tall: done.height > done.width * 1.15, on: []
+                });
+            }
+            if (!strip.includes(index) && strip.length < MAX_PAGE_IMAGES) {
+                strip.push(index);
+                images[index].on.push({ page: n, n: strip.length });
+            }
         }
+        pages.push({ n, blob: await toBlob(pageSheet(canvas, strip.map((i) => thumbs[i])), 'image/jpeg', 0.82), strip });
         page.cleanup();
     }
     await doc.destroy();
     return { pageCount, pages, images, skipped };
-}
-
-// أوراق المصغّرات للمساعد: 4 × 4 خانات، كل صورة كاملة داخل خانتها ورقمها (1…) ظاهر في زاويتها
-export async function contactSheets(images) {
-    const sheets = [];
-    const cell = { w: 300, h: 225 }, pad = 10, cols = 4;
-    for (const group of sheetGroups(images.length)) {
-        const rows = Math.ceil(group.length / cols);
-        const c = canvasOf(cols * (cell.w + pad) + pad, rows * (cell.h + pad) + pad);
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#808080';
-        ctx.fillRect(0, 0, c.width, c.height);
-        for (const [k, idx] of group.entries()) {
-            const x = pad + (k % cols) * (cell.w + pad), y = pad + Math.floor(k / cols) * (cell.h + pad);
-            const bmp = await createImageBitmap(images[idx].blob);
-            const s = Math.min(cell.w / bmp.width, cell.h / bmp.height);
-            ctx.fillStyle = '#5a5a5a';
-            ctx.fillRect(x, y, cell.w, cell.h);
-            ctx.drawImage(bmp, x + (cell.w - bmp.width * s) / 2, y + (cell.h - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
-            bmp.close();
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(x, y, 46, 34);
-            ctx.fillStyle = '#000';
-            ctx.font = 'bold 24px Arial, sans-serif';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(String(idx + 1), x + 6, y + 18);
-        }
-        sheets.push(await toBlob(c, 'image/jpeg', 0.85));
-    }
-    return sheets;
 }

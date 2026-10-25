@@ -93,7 +93,14 @@
 .bro-location.bro-v-map .bro-p { color: rgba(255, 255, 255, .85); }
 .bro-near { list-style: none; margin-top: 2.4cqw; }
 .bro-near li { padding: .7cqw 0; border-bottom: .09cqw solid var(--hair-light); font-size: 1.05cqw; }
-.bro-location.bro-v-text .bro-near li { border-bottom-color: var(--hair); }
+.bro-location.bro-v-text .bro-near li, .bro-about .bro-near li { border-bottom-color: var(--hair); }
+/* سطر العنوان الثاني كما طُبع في صفحة المطوّر */
+.bro-lead { font-weight: 600; margin-bottom: 1cqw; }
+/* الصفحة الفاصلة: شعار المشروع كبيراً فوق الخيط */
+.bro-say { position: absolute; top: 16cqw; right: calc(var(--spine) + 8cqw); left: 12cqw; }
+.bro-say-text { font-size: 4.2cqw; line-height: 1.3; font-weight: 300; color: var(--navy); }
+.bro-say-by { margin-top: 2.2cqw; font-size: 1.05cqw; letter-spacing: .08em; color: var(--gold); }
+.bro-say-p { margin-top: 2.4cqw; max-width: 46cqw; font-size: 1.3cqw; line-height: 1.9; color: var(--text); }
 
 /* ---------- النموذج: المخطط كبيراً يساراً، والأرقام جالسة على الخيط كعلامات قياس، والمكوّنات تحته ---------- */
 .bro-model { background: var(--navy); color: rgba(255, 255, 255, .86); }

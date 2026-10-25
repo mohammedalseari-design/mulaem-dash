@@ -1,9 +1,9 @@
-// استوديو البروشورات: بيانات المشروع ← مخطط البروشور (الصفحات ونوعها) — بلا DOM وبلا شبكة، فيُختبر وحده.
+// استوديو البروشورات: الحقائق التي يجوز طبعها، والتحقق من مخطط الصفحات قبل الرسم — بلا DOM وبلا شبكة، فيُختبر وحده.
 //
 // المستوى المطلوب من بروشورات المطورين التي أرسلها المالك (2026-10-25): الصورة تملأ الصفحة والنص صغير في زاوية هادئة، وصفحة
 // لكل نموذج فيها مخططه كبيراً وثلاثة أرقام ومكوّناته، وخط واحد ولونان وخطوط رفيعة. لا بطاقات ولا تدرّجات ولا زخرفة.
-// المخطط بيانات لا رسم: brochure.js يرسمه صفحات 16:9، والمدير الإبداعي بالذكاء الاصطناعي (لاحقاً) يكتب مخططاً بالشكل نفسه
-// ويمرّ من validateSpec نفسها. والمخطط لا يحمل أرقاماً ولا أسماء، بل فهارس صور ونماذج، فلا يكتب نموذجٌ سعراً من عنده.
+// المخطط بيانات لا رسم: brochure-read.js يبنيه صفحةً لكل صفحة من بروشور المطوّر، وbrochure.js يرسمه صفحات 16:9.
+// والمخطط لا يحمل أرقاماً، بل فهارس صور ونماذج ونصوص الصفحة كما قرأها المساعد، فلا يكتب نموذجٌ سعراً من عنده.
 // لا قيمة في البروشور ليست في البيانات: الناقص يغيب مع سطره ولا يُخمَّن.
 
 export const PAGE_KINDS = {
@@ -15,12 +15,15 @@ export const PAGE_KINDS = {
     location: ['map', 'text'],
     model: ['plan', 'facts'],
     features: ['list', 'photo'],
-    back: ['brand']
+    back: ['brand'],
+    // صفحة فاصلة: جملة كبيرة، من نص الصفحة القصير أو من شعار المشروع لصفحة لا صورة فيها ولا نص، فيبقى العدد
+    statement: ['say']
 };
 
 // أنواع الصور: من تصنيف البروشور المرفوع، أو photo لصورة لا يُعرف نوعها (صور المخزون الحالية)
 export const IMAGE_KINDS = ['exterior', 'interior', 'aerial', 'map', 'plan3d', 'photo'];
-export const MAX_MODELS = 8;
+export const MAX_PAGES = 40;
+export const MAX_MODELS = MAX_PAGES;
 
 function present(value) {
     return value !== null && value !== undefined && String(value).trim() !== '';
@@ -60,7 +63,7 @@ export function brochureFacts(project, office = {}) {
     const p = project || {};
     const d = p.details && typeof p.details === 'object' ? p.details : {};
     const seen = new Set();
-    const images = (Array.isArray(p.images) ? p.images : []).map(image).filter((i) => i && !seen.has(i.url) && seen.add(i.url)).slice(0, 24);
+    const images = (Array.isArray(p.images) ? p.images : []).map(image).filter((i) => i && !seen.has(i.url) && seen.add(i.url)).slice(0, 64);
     const models = (Array.isArray(d.models) ? d.models : []).filter((m) => m && typeof m === 'object').map((m) => ({
         name: text(m.name, 40), type: text(m.type, 30),
         rooms: num(m.rooms), bathrooms: num(m.bathrooms ?? m.baths), area: num(m.area),
@@ -69,7 +72,7 @@ export function brochureFacts(project, office = {}) {
         orientation: text(m.orientation ?? m.facing, 40),
         parts: list(m.parts ?? m.features ?? m.components, 12),
         plan: https(m.plan), planTone: m.plan_tone === 'light' ? 'light' : 'dark'
-    })).filter((m) => m.name || m.area || m.price).slice(0, MAX_MODELS);
+    })).slice(0, MAX_MODELS);
     const prices = models.filter((m) => m.price && !m.sold).map((m) => m.price);
     const areas = models.filter((m) => m.area).map((m) => m.area);
     return {
@@ -100,71 +103,11 @@ export function brochureFacts(project, office = {}) {
     };
 }
 
-// رقم ثابت لكل مشروع: «تصميم آخر» يزيد variation فيتغير الاختيار، والمشروع نفسه يخرج بالشكل نفسه حتى يُطلب غيره
-function seedOf(facts, variation) {
-    const s = String(facts.id ?? facts.name ?? '') + ':' + (variation || 0);
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return Math.abs(h);
-}
-
-// الحقائق ← المخطط: { version, pages: [{ kind, variant, images?: [فهارس], model?: فهرس }] }
-export function planBrochure(facts, options = {}) {
-    const seed = seedOf(facts, options.variation);
-    const used = new Set();
-    const of = (...kinds) => facts.images.map((img, i) => ({ img, i })).filter(({ img, i }) => !used.has(i) && kinds.includes(img.kind)).map(({ i }) => i);
-    const take = (i) => { used.add(i); return i; };
-    const wide = (i) => !facts.images[i].tall;
-    const pages = [];
-
-    // الغلاف: أقوى واجهة (عريضة) ثم أي صورة؛ بلا صور غلاف بالخط
-    const heroes = of('exterior').filter(wide).concat(of('exterior', 'photo', 'aerial').filter(wide), of('exterior', 'photo'));
-    if (heroes.length) {
-        const pick = heroes[seed % Math.min(heroes.length, 2)];
-        pages.push({ kind: 'cover', variant: ['side', 'low'][seed % 2], images: [take(pick)] });
-    } else {
-        pages.push({ kind: 'cover', variant: 'type' });
-    }
-
-    // عن المشروع: نص وأرقام، وصورة إن بقيت واجهة أو صورة
-    if (facts.description || facts.price || facts.areaRange || facts.area || facts.units_count) {
-        const side = of('exterior', 'photo')[0];
-        pages.push(side !== undefined ? { kind: 'about', variant: 'split', images: [take(side)] } : { kind: 'about', variant: 'text' });
-    }
-
-    // صفحة صورة كاملة: واجهة أو صورة عريضة باقية
-    const full = of('exterior', 'photo', 'aerial').filter(wide)[0];
-    if (full !== undefined) pages.push({ kind: 'photo', variant: 'full', images: [take(full)] });
-
-    // ثلاث لقطات داخلية طولية جنباً إلى جنب، أو صورتان
-    const inside = of('interior', 'photo');
-    if (inside.length >= 3) pages.push({ kind: 'trio', variant: 'panels', images: inside.slice(0, 3).map(take) });
-    const two = of('interior', 'exterior', 'photo', 'plan3d');
-    if (two.length >= 2) pages.push({ kind: 'pair', variant: 'offset', images: two.slice(0, 2).map(take) });
-
-    // الموقع: صورة جوية أو خريطة، أو المعالم القريبة وحدها
-    const where = of('aerial', 'map')[0];
-    if (where !== undefined) pages.push({ kind: 'location', variant: 'map', images: [take(where)] });
-    else if (facts.landmarks.length) pages.push({ kind: 'location', variant: 'text' });
-
-    // صفحة لكل نموذج: بمخططه هو، وإلا بالأرقام وحدها. لا يُستعار مجسّم عام أو مخطط نموذج آخر: يوهم أنه مخطط هذه الوحدة
-    // (في بروشور لامير سيرين نفسه وُضع مخطط «شقة 3، 168م²» على صفحة «ملحق 3، 225م²»)
-    facts.models.forEach((m, i) => pages.push({ kind: 'model', variant: m.plan ? 'plan' : 'facts', model: i }));
-
-    // المزايا بجانب صورة باقية إن وُجدت، فلا تبقى الصفحة نصف فارغة
-    if (facts.amenities.length) {
-        const spare = of('interior', 'exterior', 'photo', 'plan3d')[0];
-        pages.push(spare !== undefined ? { kind: 'features', variant: 'photo', images: [take(spare)] } : { kind: 'features', variant: 'list' });
-    }
-    pages.push({ kind: 'back', variant: 'brand' });
-    return { version: 2, pages };
-}
-
-// المخطط قبل الرسم، من الكود أو من نموذج: الأنواع والأنساق من القوائم، والصور والنماذج فهارس موجودة. قائمة أخطاء بالعربية
+// المخطط قبل الرسم: الأنواع والأنساق من القوائم، والصور والنماذج فهارس موجودة. قائمة أخطاء بالعربية
 export function validateSpec(spec, facts) {
     const errors = [];
     if (!spec || typeof spec !== 'object' || !Array.isArray(spec.pages)) return ['المخطط بلا صفحات'];
-    if (!spec.pages.length || spec.pages.length > 20) errors.push('عدد الصفحات يجب أن يكون من 1 إلى 20');
+    if (!spec.pages.length || spec.pages.length > MAX_PAGES) errors.push('عدد الصفحات يجب أن يكون من 1 إلى ' + MAX_PAGES);
     if (spec.pages[0] && spec.pages[0].kind !== 'cover') errors.push('الصفحة الأولى ليست غلافاً');
     const NEED = { cover: { side: 1, low: 1 }, about: { split: 1 }, photo: { full: 1 }, trio: { panels: 3 }, pair: { offset: 2 }, location: { map: 1 }, features: { photo: 1 } };
     spec.pages.forEach((page, i) => {
@@ -180,7 +123,7 @@ export function validateSpec(spec, facts) {
             if (!Number.isInteger(page.model) || !m) errors.push(n + 'نموذج غير موجود');
             else if (page.variant === 'plan' && !m.plan) errors.push(n + 'النموذج بلا مخطط');
         }
-        if (page.kind === 'features' && !facts.amenities.length) errors.push(n + 'لا مزايا');
+        if (page.kind === 'features' && !(page.text && page.text.bullets && page.text.bullets.length) && !facts.amenities.length) errors.push(n + 'لا مزايا');
     });
     return errors;
 }

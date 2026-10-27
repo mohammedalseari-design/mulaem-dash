@@ -95,3 +95,12 @@ Deno.test("brochure: page number from the studio's file name, else the source or
   assertEquals(pageFromPath("req/x.jpg", 7), 7);
   assertEquals(pageFromPath("req/33-sheet01.jpg", 33), null);
 });
+
+Deno.test("brochure: headline figures keep their printed value and label; incomplete ones are dropped", () => {
+  const g = cleanGroup({
+    project: project(),
+    pages: [page("S1", "about", { figures: [{ value: "+700", label: "عملاء" }, { value: " +300,000 م² ", label: "مساحة مطوّرة" }, { value: "", label: "مشروع" }, { value: "50", label: null }] })],
+  }, pageOf);
+  assertEquals(g.pages[0].figures, [{ value: "+700", label: "عملاء" }, { value: "+300,000 م²", label: "مساحة مطوّرة" }]);
+  assertEquals(cleanGroup({ project: project(), pages: [page("S2", "about")] }, pageOf).pages[0].figures, []);
+});

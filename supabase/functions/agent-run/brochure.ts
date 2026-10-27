@@ -30,6 +30,7 @@ export interface BrochurePage {
   subtitle: string | null;
   body: string | null;
   bullets: string[];
+  figures: { value: string; label: string }[]; // أرقام الصفحة البارزة بعناوينها كما طُبعت
   model: BrochureModel | null;
   images: { n: number; role: string; caption: string | null }[]; // n: رقم المصغّرة تحت الصفحة (1…)
 }
@@ -116,6 +117,8 @@ export function cleanGroup(out: Any, pageOf: (source: unknown) => number | null)
       subtitle: text(p.subtitle, 120),
       body: text(p.body, 600),
       bullets: list(p.bullets, 12),
+      figures: (Array.isArray(p.figures) ? p.figures : []).map((f: Any) => ({ value: text(f?.value, 24), label: text(f?.label, 60) }))
+        .filter((f: { value: string | null; label: string | null }): f is { value: string; label: string } => Boolean(f.value && f.label)).slice(0, 8),
       model: p.role === "model" ? cleanModel(p.model, count) : null,
       images,
     });

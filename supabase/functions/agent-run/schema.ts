@@ -175,6 +175,8 @@ export const BROCHURE_SCHEMA: Schema = obj({
       subtitle: text,
       body: text,
       bullets: texts,
+      // أرقام الصفحة البارزة بعناوينها كما طُبعت («+700» «عملاء»، «10 سنوات» «ضمان الهيكل»)
+      figures: { type: "array", items: obj({ value: { type: "string" }, label: { type: "string" } }) },
       model: nullable(obj({
         name: text,
         type: text,
@@ -258,6 +260,7 @@ const BROCHURE_PROMPT = `Task: each source is ONE page of the brochure as an ima
 
 pages: one entry for EVERY source, in the order given, with "source" set to its id.
 - role: cover (the brochure's front page), about (text about the project, the developer or the vision), photos (mainly renders or photos), model (one unit model with its numbers or floor plan), location (a map, the neighbourhood or nearby places), amenities (features, finishes, guarantees, services), contact (contact details, sales office, closing page), other.
+- figures: the page's headline numbers, each with its printed label, both verbatim (e.g. value «+700» label «عملاء»; value «+300,000 م²» label «مساحة مطوّرة»; value «10 سنوات» label «ضمان الهيكل»), at most 8; [] when the page shows none. Prices and areas of a unit model go in model, not here.
 - title: the page's main heading as printed. subtitle: a second heading line if printed. body: the page's paragraph text as printed; you may drop whole sentences to stay under 400 characters, never add or change words. bullets: listed items as printed, each a short phrase, at most 12. Logos, page numbers, phone numbers, e-mails, websites and social handles are not title, body or bullets.
 - model: only on a model page, else null. name as printed ("شقة 1", "نموذج A", "ملحق 2"); type; orientation as printed ("داخلية شمالي", "ركنية"); rooms, bathrooms, area, price as printed; sold true only when the model is marked sold (مباعة/مباع/sold); parts: the unit's listed components as printed ("غرفة نوم ماستر", "سطح 60م²"); plan_label: the text printed INSIDE its floor-plan drawing (often a model name and an area), verbatim, else null.
 - images: one entry per numbered thumbnail under that page: n as printed; role: exterior (the project's building), interior, aerial, map, plan (a 2D floor plan), plan3d (a 3D floor-plan render), logo (any logo, including a logo on a wall), texture (backgrounds, patterns, mist, nature without the building), people (stock people, handshakes), other; caption: the page's own short label for that image if printed, else null.

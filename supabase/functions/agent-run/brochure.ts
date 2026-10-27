@@ -49,6 +49,8 @@ export interface BrochureResult {
   missing: number[]; // صفحات لم تُقرأ: تُصمَّم من صورها وحدها
   conflicts: { field: string; values: string[]; pages: number[]; note: string }[];
   dropped: number;
+  enhanced?: Record<string, string>; // فهرس صورة media ← رابط نسختها المحسّنة (enhance.ts)، لما اجتاز فحص الأمانة فقط
+  enhance_notes?: string[]; // ملاحظات التحسين للمدير بالعربية: ما رُفض أو لم يُحسَّن، وكله بقي بصورته الأصلية
 }
 
 const PAGE_ROLES = new Set(BROCHURE_PAGE_ROLES);

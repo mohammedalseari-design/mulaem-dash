@@ -58,7 +58,8 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function imageType(bytes: Uint8Array): string | null {
+// نوع الصورة من بايتاتها لا من اسمها أو ما صرّح به مرسلها (enhance.ts يفحص به صور البروشور وجواب نموذج الصور)
+export function imageType(bytes: Uint8Array): string | null {
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") {

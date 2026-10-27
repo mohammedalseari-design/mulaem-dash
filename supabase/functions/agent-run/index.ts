@@ -25,7 +25,11 @@ import { fetchUrlSource } from "./fetch.ts";
 import { LinkRetry, openLinks } from "./links.ts";
 import { BROCHURE_SCHEMA, BROCHURE_SYSTEM_PROMPT, kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { allUnread, buildParts, estimateTokens, hasFiles, type Loaded, loadSources, MAX_BROCHURE_PAGES, MAX_FILES, pdfPages, SourceError, type SourceRow } from "./sources.ts";
-import { type BrochureGroup, cleanGroup, evaluatePages, pageFromPath, readPages } from "./brochure.ts";
+import { type BrochureGroup, type BrochureResult, cleanGroup, evaluatePages, pageFromPath, readPages } from "./brochure.ts";
+import {
+  DEFAULT_IMAGE_COST_USD, DEFAULT_IMAGE_MODEL, DEFAULT_QA_COST_USD, type Ending, type Enhancement, enhanceHeroes, enhanceImage,
+  enhancingRecord, finishReading, type HeroCall, qaRequest, qaTier, savedReading,
+} from "./enhance.ts";
 import {
   buildClientDraft, buildProjectDraft, buildUpdateDraft, districtFromName, districtHintName, districtNote, type DraftFacts,
   type DraftSpec, existingProjectMatch, fmtArea, fmtPrice, forcedNewNote, hasProjectChanges, hasUnitChanges, matchUnit, NEW_PROJECT,
@@ -81,7 +85,7 @@ const CONFIG_NAMES = [
   "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "AGENT_MODEL_FAST", "AGENT_MODEL_REASON", "AGENT_MODEL_GENERAL",
   "AGENT_FAST_PROVIDERS", "AGENT_GENERAL_PROVIDERS", "AGENT_REASONING_THRESHOLD", "AGENT_MAX_REJECT_RATIO",
   "AGENT_MAX_INPUT_TOKENS", "AGENT_PDF_ENGINE", "AGENT_TIMEOUT_COST_FAST", "AGENT_TIMEOUT_COST_REASON", "AGENT_TIMEOUT_COST_GENERAL",
-  "AGENT_TIMEOUT_COST_BROCHURE",
+  "AGENT_TIMEOUT_COST_BROCHURE", "AGENT_IMAGE_MODEL", "AGENT_IMAGE_COST_USD",
 ];
 const configured = () => CONFIG_NAMES.filter((name) => (env(name) ?? "").trim() !== "");
 
@@ -411,14 +415,20 @@ async function readBrochure(
   if (!base?.supportsFiles) throw new Stop("لا طبقة نموذج متاحة تقرأ صفحات البروشور");
   const tier: Tier = { ...base, reasoning: { max_tokens: BROCHURE_THINKING } };
   const step: Step = { attempt: request.attempts ?? 1, tier: "general", reasoning: true, repair: false, escalation: false };
-  const saved: BrochureGroup[] = request.result?.partial === true && Array.isArray(request.result.groups) ? request.result.groups : [];
+  // ما قُرئ في دورة سابقة، وهل توقفت تلك الدورة أثناء تحسين الصور (result.enhancing)
+  const { groups: saved, interrupted } = savedReading(request.result);
   const expected = [...new Set(pageOf.values())].sort((a, b) => a - b);
   const last = (request.attempts ?? 1) >= MAX_ATTEMPTS;
-  const complete = async (groups: BrochureGroup[], note: string | null) => {
+  // enhance: القراءة الناجحة الأخيرة وحدها تُحسَّن صورها قبل الإنهاء إن اتسع الوقت (enhancePhotos)، لا ما يُكمَل بعد سقف أو خطأ.
+  // interrupted: الصور الأصلية بلا قراءة ولا تحسين مرة أخرى (finishReading)
+  const complete = async (groups: BrochureGroup[], note: string | null, ending: Ending = "plain") => {
     const { result, empty } = evaluatePages(groups, expected);
     if (empty) throw new Stop(note ?? "لم يُقرأ من صفحات البروشور شيء — جرّب نسخة أوضح من الملف");
-    await finish(db, id, { status: "ready", result, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: note });
+    const out = await finishReading(result, ending, () => enhancePhotos(db, id, result, groups, base, step, effort, key, spent, deadline));
+    await finish(db, id, { status: "ready", result: out, tokens_used: spent.tokens, cost_usd: spent.cost, error_ar: note });
   };
+  // القراءة المدفوعة حُفظت قبل التحسين ثم توقف التشغيل أثناءه (ذاكرة أو وقت): يُنهى البروشور بما قُرئ وصوره الأصلية
+  if (interrupted) return await complete(saved, null, "interrupted");
   const done = readPages(saved);
   const todo = loaded.srcs.filter((s) => pageOf.has(s.label) && !done.has(pageOf.get(s.label)!));
   let groups: Src[][] = [];
@@ -502,7 +512,65 @@ async function readBrochure(
     await db.from("agent_requests").update({ result: { version: 2, partial: true, groups: all } }).eq("id", id).eq("status", "running");
     throw new Stop(`قُرئت ${have.size} من ${expected.length} صفحة، والباقي في الدورة التالية`, true);
   }
-  await complete(all, null);
+  // آخر محاولة لا تُحسَّن صورها: انقطاعٌ أثناء التحسين لا تتبعه محاولة تُنهي البروشور بالأصلية، فيفشل الطلب بقراءةٍ دُفع ثمنها
+  await complete(all, null, last ? "plain" : "enhance");
+}
+
+// تحسين صور البروشور بعد قراءته (enhance.ts): نموذج الصور AGENT_IMAGE_MODEL (off يطفئه)، وAGENT_IMAGE_COST_USD أقصى تكلفة
+// للصورة يُقدَّر بها (مع تقدير فحصها) ما يتسع له سقف اليوم. الأصل في project-images (brochures/<الطلب>/img-NN) والمحسّنة
+// بجانبه (enh-NN.png) لما اجتاز فحص الأمانة وحده
+const IMAGE_COST_USD = numEnv("AGENT_IMAGE_COST_USD", DEFAULT_IMAGE_COST_USD);
+const imageModel = () => (env("AGENT_IMAGE_MODEL") ?? "").trim() || DEFAULT_IMAGE_MODEL;
+
+// { فهرس صورة media: الرابط العام } لما تحسّن واجتاز الفحص في هذا التشغيل، وملاحظات المدير. إضافةٌ لا يتوقف عليها البروشور: لا
+// تتجاوز موعد التشغيل، والقراءة المدفوعة تُحفظ قبل أول نداء مدفوع (enhancingRecord)، وكل نداء يُسجَّل في agent_model_calls
+// بتكلفته ويُضاف إلى إنفاق الطلب: نداء الصورة على الطبقة العامة بنموذج الصور والتفكير مطفأ، وفحصها على الطبقة العامة نفسها بأقل
+// تفكير (كما تقرأ readBrochure الصفحات)
+async function enhancePhotos(
+  db: SupabaseClient, id: string, result: BrochureResult, groups: BrochureGroup[], base: Tier, step: Step, effort: Effort,
+  key: string, spent: { tokens: number; cost: number }, deadline: number,
+): Promise<Enhancement> {
+  const model = imageModel();
+  if (model.toLowerCase() === "off") return { enhanced: {}, notes: [] };
+  const imageTier: Tier = { ...base, model, reasoning: {} };
+  const imageStep: Step = { ...step, reasoning: false };
+  const checkTier = qaTier(base);
+  const checkStep: Step = { ...step, reasoning: true };
+  const bucket = db.storage.from("project-images");
+  const download = async (path: string) => {
+    const { data, error } = await bucket.download(path);
+    if (error || !data) throw new Error(error?.message ?? "not found");
+    return new Uint8Array(await data.arrayBuffer());
+  };
+  return await enhanceHeroes(result, {
+    requestId: id, model, costBound: IMAGE_COST_USD, qaCostBound: DEFAULT_QA_COST_USD, deadline, download,
+    readMedia: async () => JSON.parse(new TextDecoder().decode(await download(`brochures/${id}/media.json`))),
+    budget: () => checkBudget(db, step, []),
+    // بشرط أن الطلب ما زال قيد التنفيذ: الإلغاء لا يُداس عليه، ولا تحسين لطلب ملغى
+    save: async () => {
+      const { data, error } = await db.from("agent_requests").update({ result: enhancingRecord(groups) })
+        .eq("id", id).eq("status", "running").select("id");
+      if (error) throw new Error(error.message);
+      return Boolean(data && data.length);
+    },
+    upload: async (path, bytes, contentType) => {
+      const { error } = await bucket.upload(path, bytes, { contentType, upsert: true });
+      if (error) throw new Error(error.message);
+      return bucket.getPublicUrl(path).data.publicUrl;
+    },
+    call: (body, timeoutMs) => enhanceImage((u, init) => fetch(u, init), key, body, timeoutMs),
+    audit: (original, enhanced, timeoutMs) => chat(qaRequest(base, key, original, enhanced, timeoutMs)),
+    log: async (c: HeroCall) => {
+      spent.cost += c.costUsd ?? 0;
+      if (c.tokens) spent.tokens += c.tokens.prompt + c.tokens.completion;
+      const [tier, at] = c.kind === "qa" ? [checkTier, checkStep] : [imageTier, imageStep];
+      const usage = c.tokens ? { ...c.tokens, costUsd: c.costUsd } : null;
+      await logCall(
+        db, id, at, tier, effort, usage ? { text: "", finishReason: null, usage, jsonMode: "none", provider: c.provider } : null,
+        c.outcome, c.failure, c.error === null ? null : { provider: c.provider, error: c.error }, c.costUsd,
+      );
+    },
+  });
 }
 
 // نداء الطلب التالي على طبقة ثقيلة: خطوته المحفوظة (agent_requests.ladder، استئناف بعد مهلة السريعة)،

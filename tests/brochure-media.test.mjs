@@ -1,6 +1,7 @@
 // اختبار حساب صور بروشور المطوّر (crm/js/brochure-media.js): الاتجاه، والنوع التقريبي، وبصمة التكرار.
 // التشغيل: node tests/brochure-media.test.mjs   أو   deno run tests/brochure-media.test.mjs
-import { uprightMatrix, pageRotation, multiply, classifyPixels, fingerprint, sameImage, pixelKey, duplicate, worthKeeping } from '../crm/js/brochure-media.js';
+import { uprightMatrix, pageRotation, multiply, classifyPixels, deepTone, quietSide, brochureTone, planCrop, fingerprint, sameImage, pixelKey, duplicate, worthKeeping } from '../crm/js/brochure-media.js';
+import { sliceCount } from '../crm/js/brochure-media.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -72,6 +73,50 @@ t('pixel key: rounding noise matches, a real change does not', pixelKey(new Uint
     && pixelKey(new Uint8Array([200, 100, 50, 255])) !== pixelKey(new Uint8Array([200, 140, 50, 255])) && pixelKey(null) === pixelKey(new Uint8Array(0)));
 
 t('icons and small logos are skipped, renders and plans kept', !worthKeeping(300, 900) && worthKeeping(670, 1191) && worthKeeping(1448, 2048, 600) && !worthKeeping(899, 499));
+
+// ---- عائلة لون المشروع (المالك 2026-10-25: الألوان حرة لكل مشروع) ----
+const forest = image(S, (x, y) => ((x + y) % 5 ? [34, 78, 52, 255] : [230, 230, 225, 255]));
+const wood = image(S, (x, y) => (y % 3 ? [120, 78, 40, 255] : [210, 200, 190, 255]));
+const grey = image(S, (x, y) => [90 + (x % 40), 90 + (x % 40), 92 + (x % 40), 255]);
+t('deepTone: greenery → forest, wood and stone → bronze', deepTone(forest, S, S) === 'forest' && deepTone(wood, S, S) === 'bronze', [deepTone(forest, S, S), deepTone(wood, S, S)]);
+t('deepTone: a grey render, a pale sky or bad input has no family', deepTone(grey, S, S) === null && deepTone(image(S, () => [235, 240, 248, 255]), S, S) === null && deepTone(null, 0, 0) === null);
+t('brochureTone: each image votes once per page it is on; the developer backgrounds outvote one warm photo', brochureTone([
+    { deep: 'bronze', on: [{ page: 3 }] }, { deep: 'bronze', on: [{ page: 7 }] },
+    { deep: 'forest', on: [{ page: 2 }, { page: 4 }, { page: 5 }] }, { deep: null, on: [{ page: 6 }] }, null]) === 'forest'
+    && brochureTone([]) === null && brochureTone(null) === null);
+
+// ---- الجهة الأهدأ أسفل الصورة لكتلة الكلام (2026-10-27: كتلة صفحة الموقع لا تغطي الحي المضاء) ----
+const litRight = image(S, (x, y) => (x > S * 0.6 && y > S * 0.4 ? ((x * 7 + y * 3) % 5 ? [250, 235, 200, 255] : [40, 30, 20, 255]) : [45, 40, 35, 255]));
+const litLeft = image(S, (x, y) => (x < S * 0.4 && y > S * 0.4 ? ((x * 7 + y * 3) % 5 ? [250, 235, 200, 255] : [40, 30, 20, 255]) : [45, 40, 35, 255]));
+t('quietSide: the text block goes to the calm side, away from the bright busy subject; the right when both are alike',
+    quietSide(litRight, S, S) === 'left' && quietSide(litLeft, S, S) === 'right' && quietSide(image(S, () => [60, 60, 60, 255]), S, S) === 'right',
+    [quietSide(litRight, S, S), quietSide(litLeft, S, S)]);
+t('quietSide: bad input gives nothing', quietSide(null, 0, 0) === null && quietSide(new Uint8ClampedArray(8), 10, 10) === null);
+
+// ---- قصّ المخطط: إطار المطوّر، مخطط الوحدة، خط فاصل، مخطط الدور الكثيف ونص تحته ----
+const PW = 200, PH = 140;
+const sheet = new Uint8ClampedArray(PW * PH * 4).fill(255);
+const dot = (x, y) => { const i = (y * PW + x) * 4; sheet[i] = sheet[i + 1] = sheet[i + 2] = 20; };
+for (let x = 4; x <= 195; x++) { dot(x, 4); dot(x, 135); }
+for (let y = 4; y <= 135; y++) { dot(4, y); dot(195, y); }
+for (let x = 15; x <= 85; x++) { dot(x, 15); dot(x, 125); dot(x, 60); }
+for (let y = 15; y <= 125; y++) { dot(15, y); dot(85, y); dot(50, y); }
+for (let y = 10; y <= 130; y++) dot(100, y);
+for (let y = 20; y <= 80; y++) for (let x = 115; x <= 185; x++) if (x % 4 === 0 || y % 4 === 0) dot(x, y);
+for (let y = 100; y <= 110; y++) for (let x = 130; x <= 170; x++) if (x % 3) dot(x, y);
+const pc = planCrop(sheet, PW, PH);
+const near = (v, want) => Math.abs(v - want) < 0.03;
+t('planCrop: the unit plan alone, without the frame', pc && near(pc.unit[0], 15 / PW) && near(pc.unit[2], 86 / PW) && near(pc.unit[1], 15 / PH) && near(pc.unit[3], 126 / PH), pc);
+t('planCrop: the dense floor plan beside it is the key, without the text under it', pc && pc.key && near(pc.key[0], 115 / PW) && near(pc.key[2], 186 / PW) && pc.key[3] < 95 / PH, pc);
+const lone = new Uint8ClampedArray(PW * PH * 4).fill(255);
+for (let x = 40; x <= 160; x++) { const a = (30 * PW + x) * 4, b = (110 * PW + x) * 4; lone[a] = lone[a + 1] = lone[a + 2] = 0; lone[b] = lone[b + 1] = lone[b + 2] = 0; }
+for (let y = 30; y <= 110; y++) for (const x of [40, 100, 160]) { const a = (y * PW + x) * 4; lone[a] = lone[a + 1] = lone[a + 2] = 0; }
+const lc = planCrop(lone, PW, PH);
+t('planCrop: one plan without a frame is trimmed to itself, with no key', lc && lc.key === null && near(lc.unit[0], 40 / PW) && near(lc.unit[2], 161 / PW), lc);
+t('planCrop: blank, tiny or bad input gives nothing', planCrop(new Uint8ClampedArray(PW * PH * 4).fill(255), PW, PH) === null && planCrop(null, 0, 0) === null && planCrop(new Uint8ClampedArray(16), 2, 2) === null);
+
+t('a normal page is one piece; a scroll page is cut into A4 pieces under the model limit', sliceCount(1100, 1556) === 1 && sliceCount(1100, 619) === 1
+    && sliceCount(1100, 20001) === 13 && Math.ceil(20001 / sliceCount(1100, 20001)) < 8000 && sliceCount(0, 500) === 1 && sliceCount(1100, 2200) === 1 && sliceCount(1100, 2300) === 2);
 
 console.log(`passed ${pass}, failed ${fail}`);
 if (fail) {

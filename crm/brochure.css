@@ -1,9 +1,18 @@
-/* استوديو البروشورات (brochure.js): صفحات عريضة 16:9 بهوية ملائم.
-   التكنيك من بروشورات المطورين (الصورة بطل، النص صغير، فراغ واسع، خط واحد بأوزانه، خطوط رفيعة)، والفكرة لملائم وحدها:
-   «عمود ملائم» شريط رفيع يمين كل صفحة فيه اسم القسم عمودياً ورقمها وخط ذهبي، فيتكرر توقيعاً في كل الصفحات؛ والأرقام كبيرة
-   بوزن خفيف بلا صناديق؛ ومربع الشعار ختمٌ في الزاوية.
+/* استوديو البروشورات (brochure.js): صفحات عريضة 16:9 — نظام «مونوغراف» كتب العمارة.
+   الفكرة: شبكة واحدة ظاهرة في كل الصفحات — حقلان يفصلهما «خط القسمة» عند 56% من العرض: الحقل الأيمن للكلام
+   (60–96)، والأيسر للصورة أو المخطط أو الأرقام (4–52). الصورة تنزف من الحافة إلى خط القسمة، وصفحة الكلام يظهر فيها
+   الخط نفسه شعرةً، والكتلة اللونية تبدأ عنده. وصفحات قليلة صورتها تملأ الصفحة والكلام على كتلة ورق تبدأ عند الخط نفسه.
+   والبروشور كتاب: فهرس وفصول مرقّمة يبدأ كل منها برقمه، وعنوانه أكبر من أسماء الوحدات.
+   الخط سلّم واحد من سبع درجات (--fs1 … --fs7) لا مقاس خارجه، والعناوين درجتان: عنوان الفصل (--fs6) وعنوان الصفحة واسم الوحدة
+   (--fs5). أصغر نص --fs1 (≈9pt مطبوعاً) والقراءة --fs2 بسطر 1.75.
+   الألوان حرة لكل مشروع (المالك 2026-10-25): ورقٌ فاتح في أغلب الصفحات، ورمل للفهارس، ولون المشروع العميق (--deep، عائلته من
+   صوره) لصفحتين داكنتين على الأكثر وللغلاف الخلفي، ودرجته الفاتحة (--pale) لفصل النماذج الثاني، والحجري للمباعة.
+   الخطوط: Alexandria للعناوين الكبيرة، وJost للأرقام وحدها («1» بذيل لا تُقرأ ألفاً)، وIBM Plex Sans Arabic للنص.
+   الذهبي لون إبراز واحد قليل: على الداكن وحده، وعلى الورق بدرجته الداكنة (--gold-ink). بلا إطارات ولا زوايا ولا خيوط زخرفية:
+   الخطوط شعرات وظيفية في الجداول وخط القسمة.
    الصفحة حاوية بعرضها، وكل مقاس بداخلها بـ cqw (1cqw = 1% من عرض الصفحة). الألوان ثابتة في الوضعين: البروشور مطبوعة. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@200;300;400&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400&text=0123456789%2C.%2B%E2%80%93-%25%C2%B2&display=swap');
 
 .bro-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 14px; }
 .bro-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
@@ -21,162 +30,284 @@
 .bro-steps > .crm-subtle { margin-top: 10px; }
 .bro-notes { margin-bottom: 14px; }
 
+
+/* ================= الصفحة ================= */
 .bro-page {
-    --navy: #0F172A; --navy-2: #172238; --gold: #C0A062; --paper: #F6F3EE; --text: #334155; --muted: #6B7686;
-    --hair: rgba(15, 23, 42, .14); --hair-light: rgba(255, 255, 255, .22); --spine: 4.6cqw;
+    --navy: #0F172A; --gold: #C0A062; --gold-ink: #86662B; --paper: #F6F3EE; --sand: #ECE5D8; --stone: #E4E0D9;
+    /* لون المشروع (brochure.js يضعه على كل صفحة من PALETTES): هذه قيمه حين لا عائلة */
+    --deep: #14213A; --pale: #E3E6EA;
+    --ink: #141B26; --text: #2F3848; --muted: #5A6474; --hair: rgba(20, 27, 38, .17);
+    /* سلّم الخط: سبع درجات لا غير (بالنقاط على عرض 297 مم): 8.8، 10.9، 15، 23.5، 35، 54، 81 */
+    --fs1: 1.05cqw; --fs2: 1.3cqw; --fs3: 1.8cqw; --fs4: 2.8cqw; --fs5: 4.2cqw; --fs6: 6.4cqw; --fs7: 9.6cqw;
+    --plex: 'IBM Plex Sans Arabic', Tahoma, sans-serif;
+    /* Jost للأرقام وحدها (Google Fonts بحروف الأرقام فقط، فالعربي يقع على Alexandria): «1» بذيلها لا تُقرأ ألفاً بجانب العربي */
+    --display: 'Jost', 'Alexandria', 'IBM Plex Sans Arabic', Tahoma, sans-serif;
+    /* theme.css يفرض font-family: var(--font) !important على كل عنصر في اللوحة: فالخط يُختار بالمتغير نفسه --font */
+    --font: var(--plex);
     position: relative; width: min(100%, 1120px); aspect-ratio: 16 / 9; overflow: hidden;
     container-type: inline-size; direction: rtl; text-align: start; isolation: isolate;
     background: var(--paper); color: var(--text);
-    font-family: 'IBM Plex Sans Arabic', Tahoma, sans-serif; font-size: 1.05cqw; line-height: 1.8; font-weight: 400;
+    font-family: var(--font); font-size: var(--fs2); line-height: 1.75; font-weight: 400;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 14px 36px rgba(15, 23, 42, .12);
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .bro-page * { box-sizing: border-box; }
-:where(.bro-page) :where(h1, h2, p, dl, dd, dt, ul, ol, li, figure) { margin: 0; padding: 0; }
-/* الصورة تملأ إطارها (object-fit)، فلا قصّ على الإطار: علامات المناسب (::after) تخرج عنه */
-.bro-img { position: relative; background: #e7e2d9; }
-.bro-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.bro-bleed { position: absolute; inset: 0; z-index: -2; }
+:where(.bro-page) :where(h1, h2, h3, p, dl, dd, dt, ul, ol, li, figure, figcaption) { margin: 0; padding: 0; }
+.bro-page a { color: inherit; text-decoration: none; }
+.bro-t-sand { background: var(--sand); }
+.bro-t-deep { background: var(--deep); }
+/* سياق داكن (صفحة بلون المشروع العميق أو الغلاف الخلفي): الألوان نفسها بأسمائها، والنص الصغير فيه عادي لا رفيع */
+.bro-t-deep { --ink: #FFFFFF; --text: rgba(255, 255, 255, .86); --muted: rgba(255, 255, 255, .7); --hair: rgba(255, 255, 255, .24); --gold-ink: var(--gold); color: var(--text); }
 
-/* ---------- عمود ملائم: اسم القسم عمودياً، ورقم الصفحة أسفله، وخط ذهبي يفصله عن الصفحة ---------- */
-.bro-page:not(.bro-cover):not(.bro-back)::after {
-    content: ''; position: absolute; top: 4cqw; bottom: 4cqw; right: var(--spine); width: .09cqw; background: var(--gold); opacity: .85;
-}
-.bro-sec {
-    position: absolute; top: 14cqw; right: 0; width: var(--spine); writing-mode: vertical-rl;
-    display: flex; align-items: center; justify-content: flex-start;
-    font-size: .95cqw; font-weight: 600; letter-spacing: .06em; color: var(--navy);
-}
-.bro-num { position: absolute; bottom: 3.6cqw; right: 0; width: var(--spine); text-align: center; font-size: .82cqw; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* ---------- الشبكة: الحقلان وخط القسمة ---------- */
+.bro-fr { position: absolute; right: 4cqw; width: 36cqw; top: 8cqw; bottom: 4cqw; }
+.is-chap .bro-fr { top: 10cqw; }
+.bro-fl { position: absolute; left: 4cqw; width: 48cqw; top: 8cqw; bottom: 4cqw; }
+.bro-seam { position: absolute; left: 56cqw; top: 4cqw; bottom: 4cqw; width: .08cqw; background: var(--hair); }
+.bro-block { position: absolute; right: 0; top: 0; bottom: 0; width: 44cqw; background: var(--sand); }
+.bro-block-l { right: auto; left: 0; }
+.bro-block.bro-pale { background: var(--pale); }
+.bro-block.bro-stone { background: var(--stone); }
+.bro-img { position: relative; overflow: hidden; background: var(--stone); }
+.bro-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.bro-bleed-l { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; }
+.bro-bleed-r { position: absolute; right: 0; top: 0; bottom: 0; width: 56cqw; }
+.bro-full { position: absolute; inset: 0; }
+/* الصفحة المنعكسة: الصورة يميناً حتى خط القسمة، والكلام ورأس الصفحة في الحقل الأيسر */
+.bro-mirror .bro-fr, .bro-mirror > .bro-run, .bro-mirror > .bro-chap { right: auto; left: 4cqw; }
+.bro-mirror .bro-block .bro-fr, .bro-mirror .bro-block .bro-run, .bro-mirror .bro-block .bro-chap { right: 4cqw; left: auto; }
+/* الخريطة بلون المشروع (رمادي تحت لونه العميق) فتنتمي إلى البروشور لا إلى ألوان المطوّر */
+.bro-duo { background: var(--deep); isolation: isolate; }
+.bro-duo img { filter: grayscale(1) contrast(1.12); mix-blend-mode: luminosity; }
+
+/* رأس الصفحة: رقمها واسم فصلها في الزاوية اليمنى العليا، بلا خط */
+.bro-run { position: absolute; top: 2.6cqw; right: 4cqw; display: flex; align-items: baseline; gap: 1.3cqw; line-height: 1.5; z-index: 1; }
+.bro-num { --font: var(--display); font-family: var(--font); font-size: var(--fs1); font-weight: 400; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bro-run-t { font-size: var(--fs1); font-weight: 500; color: var(--muted); }
+/* أول صفحة في الفصل: رقمه واسمه، بلا رقم صفحة */
+.bro-chap { position: absolute; top: 2.3cqw; right: 4cqw; display: flex; align-items: baseline; gap: 1.2cqw; z-index: 1; }
+.bro-chap-n { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1; font-weight: 200; color: var(--gold-ink); }
+.bro-chap-t { font-size: var(--fs2); line-height: 1.5; font-weight: 600; color: var(--ink); }
+
+/* ---------- العناوين: درجتان — عنوان الفصل (--fs6) فوق عنوان الصفحة واسم الوحدة (--fs5)، والطويل درجة أصغر ---------- */
+.bro-h { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.3; font-weight: 300; color: var(--ink); text-wrap: balance; }
+.bro-h.is-chap { font-size: var(--fs6); line-height: 1.2; }
+.bro-h.is-long { font-size: var(--fs4); line-height: 1.45; }
+.bro-lead { margin-top: 1.4cqw; font-size: var(--fs3); line-height: 1.6; font-weight: 500; color: var(--ink); text-wrap: balance; }
+.bro-p { margin-top: 1.4cqw; font-size: var(--fs2); line-height: 1.75; color: var(--text); text-wrap: pretty; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 10; overflow: hidden; }
+.bro-quote { margin-top: 2.4cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.45; font-weight: 300; color: var(--gold-ink); text-wrap: balance; }
+.bro-label { font-size: var(--fs1); line-height: 1.5; font-weight: 600; color: var(--muted); }
+/* الأرقام: بخط الأرقام الرفيع في اتجاه الأرقام، ووحدتها صغيرة على خط رأسها */
+.bro-fig { display: grid; gap: .6cqw; align-content: start; }
+.bro-fig-v { display: flex; align-items: flex-start; gap: .7cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs6); line-height: 1; font-weight: 200; color: var(--ink); white-space: nowrap; }
+.bro-fig-n { direction: ltr; unicode-bidi: isolate; display: inline-flex; align-items: flex-start; }
+.bro-fig-n small { margin-left: .06em; }
+.bro-fig-v small { --font: var(--plex); font-family: var(--font); font-size: var(--fs3); line-height: 1; font-weight: 400; color: var(--muted); margin-top: .5cqw; }
+.bro-fig-v.is-9 { font-size: var(--fs5); }
+/* بيانات المشروع صفاً: عنوان صغير فوق كل قيمة، وشعرة فوق الصف وتحت كل خانة */
+.bro-facts { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); column-gap: 2cqw; border-top: .08cqw solid var(--hair); }
+.bro-fact { padding: .9cqw 0 1cqw; border-bottom: .08cqw solid var(--hair); }
+.bro-fact dt { font-size: var(--fs1); line-height: 1.5; font-weight: 600; color: var(--muted); }
+.bro-fact dd { margin-top: .2cqw; font-size: var(--fs2); line-height: 1.5; font-weight: 500; color: var(--ink); text-wrap: balance; }
+
+/* ---------- شعار ملائم لوناً واحداً: ملف الشعار نفسه بمرشّح يفصل علامته عن مربعه (الأخضر المزرق ← لا شيء) ---------- */
+.bro-logo-ink { filter: grayscale(1) brightness(1.042) contrast(9) invert(1); mix-blend-mode: multiply; opacity: .86; clip-path: inset(3%); }
+.bro-logo-light { filter: grayscale(1) brightness(1.042) contrast(9); mix-blend-mode: screen; clip-path: inset(3%); }
 
 /* ---------- الغلاف ---------- */
-.bro-veil { position: absolute; inset: 0; z-index: -1; background: linear-gradient(to left, rgba(15, 23, 42, .9) 0%, rgba(15, 23, 42, .62) 30%, rgba(15, 23, 42, .08) 62%, rgba(15, 23, 42, 0) 100%); }
-.bro-stamp { display: block; width: 5cqw; height: 5cqw; }
-.bro-stamp-cover { position: absolute; top: 0; right: 7cqw; width: 5.4cqw; height: auto; }
-.bro-cover-words { position: absolute; right: 7cqw; top: 50%; transform: translateY(-46%); max-width: 44cqw; color: #fff; }
-.bro-kicker { font-size: 1.15cqw; font-weight: 500; color: var(--gold); letter-spacing: .04em; }
-.bro-title { margin-top: .8cqw; font-size: 4.9cqw; line-height: 1.12; font-weight: 700; letter-spacing: 0; color: inherit; }
-.bro-latin { margin-top: .6cqw; font-size: 1.9cqw; font-weight: 300; letter-spacing: .32em; direction: ltr; text-align: right; opacity: .92; }
-.bro-tagline { margin-top: 1.6cqw; font-size: 1.6cqw; font-weight: 500; }
-.bro-tag { margin-top: 1.6cqw; display: inline-block; padding: .2cqw 1.2cqw; border: .09cqw solid var(--gold); font-size: .95cqw; }
-.bro-cover-foot { position: absolute; right: 7cqw; bottom: 4cqw; display: flex; gap: 2.4cqw; font-size: .9cqw; color: rgba(255, 255, 255, .78); }
-.bro-v-low .bro-veil { background: linear-gradient(to top, rgba(15, 23, 42, .92) 0%, rgba(15, 23, 42, .5) 34%, rgba(15, 23, 42, 0) 62%); }
-.bro-v-low .bro-cover-words { top: auto; bottom: 8.4cqw; transform: none; max-width: 60cqw; }
-.bro-v-type { background: var(--navy); }
-.bro-v-type .bro-cover-words { max-width: 70cqw; }
+/* low: الصورة البانورامية شريطاً بعرض الصفحة، والاسم كبيراً في الشريط الورقي تحتها، والشعار علامة صغيرة في هامشه */
+.bro-cover-photo { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; }
+.bro-logo-tab { position: absolute; top: 4cqw; right: 4cqw; width: 7cqw; height: 7cqw; display: block; }
+.bro-cover-name { position: absolute; right: 4cqw; width: 36cqw; top: 18cqw; }
+.bro-title { --font: var(--display); font-family: var(--font); font-size: var(--fs7); line-height: 1.12; font-weight: 300; color: var(--ink); text-wrap: balance; }
+.bro-title.is-long { font-size: var(--fs6); line-height: 1.2; }
+.bro-title.is-longer { font-size: var(--fs5); line-height: 1.3; }
+/* الحروف اللاتينية بتباعدها، وآخر حرف على حافة الاسم العربي: التباعد بعد آخر حرف (.4em) يقابل هامش «ل» الأولى، فلا سحب */
+.bro-latin { margin-top: 1cqw; margin-right: .2cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs2); line-height: 1.5; font-weight: 300; letter-spacing: .4em; direction: ltr; text-align: right; color: var(--ink); }
+.bro-cover-meta { position: absolute; right: 4cqw; width: 36cqw; bottom: 4cqw; display: grid; gap: .5cqw; }
+.bro-kicker { font-size: var(--fs1); line-height: 1.5; font-weight: 600; color: var(--gold-ink); }
+.bro-tagline { font-size: var(--fs3); line-height: 1.5; font-weight: 400; color: var(--text); }
+.bro-tag { font-size: var(--fs1); font-weight: 600; color: var(--gold-ink); }
+.bro-cover-foot { margin-top: 1cqw; display: grid; font-size: var(--fs1); line-height: 1.6; color: var(--muted); }
+.bro-v-low .bro-cover-photo { right: 0; bottom: auto; width: auto; height: 34cqw; }
+.bro-v-low .bro-cover-name { top: 37cqw; width: 52cqw; }
+.bro-v-low .bro-latin { margin-top: .4cqw; }
+.bro-v-low .bro-cover-meta { right: auto; left: 14cqw; width: 28cqw; bottom: 5.2cqw; }
+.bro-v-low .bro-cover-foot { margin-top: .8cqw; }
+/* الشعار والبيانات على خط واحد مع أسفل الاسم */
+.bro-v-low .bro-logo-tab { top: auto; right: auto; left: 4cqw; bottom: 5cqw; width: 7cqw; height: 7cqw; }
+/* بلا صورة: حقل الصورة بلون المشروع العميق */
+.bro-cover-field { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; background: var(--deep); }
 
 /* ---------- عن المشروع ---------- */
-.bro-about-img { position: absolute; top: 0; bottom: 0; left: 0; width: 48%; }
-.bro-about-words { position: absolute; top: 7cqw; right: calc(var(--spine) + 4.4cqw); width: 38cqw; }
-.bro-about .bro-p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 9; overflow: hidden; }
-.bro-v-text .bro-about-words { width: 60cqw; }
-.bro-h { font-size: 2.6cqw; line-height: 1.3; font-weight: 600; color: var(--navy); letter-spacing: 0; }
-.bro-p { margin-top: 1.6cqw; font-size: 1.12cqw; line-height: 2; font-weight: 300; color: var(--text); }
+.bro-about .bro-fr, .bro-location .bro-fr, .bro-pair .bro-fr, .bro-features .bro-fr, .bro-statement .bro-fr { display: flex; flex-direction: column; }
+/* بطاقة المشروع: السعر والمساحات أرقاماً كبيرة، وتحتها البيانات */
+.bro-sheet { display: flex; flex-direction: column; justify-content: space-between; gap: 3cqw; }
+.bro-figs { display: grid; gap: 2.8cqw; }
+.bro-mini { margin-top: auto; padding-top: 1.6cqw; display: flex; flex-wrap: wrap; gap: 1.6cqw 4cqw; }
+.bro-mini .bro-fig-v { font-size: var(--fs5); }
+.bro-mini .bro-fig-v small { font-size: var(--fs2); margin-top: .3cqw; }
+/* فهرس: قائمة طويلة عمودين، رقم صغير ثم الاسم، وشعرة فوق كل سطر */
+.bro-index { list-style: none; columns: 2; column-gap: 3cqw; margin-top: auto; }
+.bro-index li { break-inside: avoid; display: flex; gap: 1.2cqw; align-items: baseline; padding: .9cqw 0 .95cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs2); line-height: 1.5; font-weight: 500; color: var(--ink); }
+.bro-fr .bro-index { padding-top: 2cqw; column-gap: 2.4cqw; }
+.bro-ord { flex: none; min-width: 2.2cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs1); font-weight: 400; color: var(--gold-ink); font-variant-numeric: tabular-nums; }
+.bro-fl.bro-index { top: auto; }
+.bro-big-p { font-size: var(--fs3); line-height: 1.8; color: var(--text); text-wrap: pretty; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 11; overflow: hidden; }
+/* أرقام الصفحة البارزة (سجل المطوّر): سطر لكل رقم، عنوانه يميناً والرقم كبيراً يساراً، وشعرة بين السطور */
+.bro-fl-figs { display: flex; flex-direction: column; justify-content: flex-end; }
+.bro-ledger { border-top: .08cqw solid var(--hair); }
+.bro-ledger-row { display: flex; align-items: baseline; justify-content: space-between; gap: 3cqw; padding: 1.2cqw 0 1.3cqw; border-bottom: .08cqw solid var(--hair); }
+.bro-ledger dt { font-size: var(--fs3); line-height: 1.4; font-weight: 500; color: var(--ink); }
+.bro-ledger dd { flex: none; }
+.bro-ledger .bro-fig-v { color: var(--gold-ink); }
+.bro-ledger-t { font-size: var(--fs4); line-height: 1.2; color: var(--gold-ink); }
 
-/* ---------- صفحة صورة، ولقطات ---------- */
-.bro-photo .bro-sec, .bro-location.bro-v-map .bro-sec { color: #fff; }
-.bro-photo::after { background: #fff !important; opacity: .5 !important; }
-.bro-photo .bro-num, .bro-location.bro-v-map .bro-num { color: rgba(255, 255, 255, .8); }
-.bro-cap { position: absolute; left: 4cqw; bottom: 3.6cqw; padding: .3cqw 1.2cqw; background: rgba(15, 23, 42, .66); color: #fff; font-size: .85cqw; font-weight: 500; }
-.bro-panels { position: absolute; top: 4cqw; bottom: 4cqw; left: 4cqw; right: calc(var(--spine) + 3cqw); display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4cqw; }
-.bro-panels figure { position: relative; }
-.bro-panels .bro-img { height: 100%; }
-.bro-panels .bro-cap { left: 1.2cqw; bottom: 1.2cqw; }
-.bro-pair-a { position: absolute; top: 4cqw; bottom: 4cqw; right: calc(var(--spine) + 3cqw); width: 52cqw; }
-.bro-pair-b { position: absolute; top: 12cqw; bottom: 9cqw; left: 4cqw; width: 33cqw; }
+/* ---------- الفهرس: الفصول بأرقامها وأول صفحة في كل منها ---------- */
+.bro-toc { list-style: none; margin-top: 2.6cqw; }
+.bro-toc li { display: grid; grid-template-columns: 5cqw 1fr auto; align-items: baseline; padding: .8cqw 0 .85cqw; border-top: .08cqw solid var(--hair); }
+.bro-toc li:last-child { border-bottom: .08cqw solid var(--hair); }
+.bro-toc-n { --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1; font-weight: 200; color: var(--gold-ink); }
+.bro-toc-t { font-size: var(--fs3); line-height: 1.4; font-weight: 500; color: var(--ink); }
+.bro-toc-p { --font: var(--display); font-family: var(--font); font-size: var(--fs2); line-height: 1.4; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- صفحة صورة: الصورة كاملة العرض، وشريط ورقي أسفلها فيه رقم الصفحة والتعليق ---------- */
+.bro-plate { position: absolute; left: 0; right: 0; top: 0; height: 50cqw; }
+.bro-strip { position: absolute; left: 4cqw; right: 4cqw; bottom: 0; height: 6.25cqw; display: flex; align-items: center; gap: 1.6cqw; }
+.bro-cap { font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
+
+/* ---------- لقطات: ثلاث لوحات بهوامش وتعليق تحت كل منها ---------- */
+.bro-panels { position: absolute; left: 4cqw; right: 4cqw; top: 7.6cqw; bottom: 4cqw; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6cqw; }
+.bro-trio figure { display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+.bro-trio .bro-img { min-height: 0; }
+.bro-trio figcaption { padding-top: .9cqw; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
+/* التالية مباشرة: صورة كبيرة تنزف من الحافة والأعلى، وصورتان صغيرتان في حقل الكلام، والتعليقات الثلاثة على سطر واحد في الأسفل */
+.bro-trio .bro-big { position: absolute; left: 0; top: 0; bottom: 0; width: 44cqw; grid-template-rows: 1fr 6.25cqw; }
+.bro-smalls { position: absolute; right: 4cqw; left: 48cqw; top: 8cqw; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1.6cqw; }
+.bro-smalls figure { grid-template-rows: 1fr 6.25cqw; }
+.bro-trio .bro-big figcaption, .bro-smalls figcaption { padding: 0; align-self: center; }
+.bro-trio .bro-big figcaption { padding-inline-start: 0; text-align: start; margin-inline-end: 4cqw; }
+.bro-pair-b { position: absolute; right: 4cqw; width: 36cqw; top: 21cqw; bottom: 7.4cqw; }
+.bro-pair .bro-cap { position: absolute; right: 4cqw; bottom: 3.6cqw; }
+
+/* ---------- صفحة كاملة الصورة (افتتاح الموقع، «تواصل معنا»): الكلام على كتلة ورق تبدأ عند خط القسمة في الزاوية السفلى ---------- */
+.bro-panel { position: absolute; right: 0; bottom: 0; width: 44cqw; padding: 3.2cqw 4cqw 4cqw; background: var(--paper); display: flex; flex-direction: column; z-index: 1; }
+.bro-panel > .bro-run, .bro-panel > .bro-chap { position: static; margin-bottom: 2cqw; }
+.bro-panel .bro-near { margin-top: 0; }
+.bro-panel.is-site { padding-top: 2.8cqw; }
+/* الكتلة في الزاوية السفلى الأهدأ من الصورة: يساراً حين يكون موضوع الصورة يمينها */
+.bro-panel.is-left { right: auto; left: 0; }
+/* «تواصل معنا» بصورة الغلاف البانورامية: الشريط في أسفل الصفحة، والجملة يميناً والرقم يساراً على الورق فوقه */
+.bro-band { position: absolute; left: 0; right: 0; bottom: 0; height: 30cqw; }
+.bro-call-text { position: absolute; right: 4cqw; width: 52cqw; bottom: 33cqw; }
+.bro-call-side { position: absolute; left: 4cqw; width: 34cqw; bottom: 33cqw; }
+.bro-call-side .bro-call { margin-top: 0; }
+/* لوحة بحد بكسلات صورتها في حقل الصورة: عند خط القسمة، وعلى سطر القائمة الأخير (المزايا) أو تحت رأس الصفحة (النموذج) */
+.bro-plate-d { position: absolute; }
+.bro-plate-feat { right: 48cqw; bottom: 4cqw; }
+.bro-plate-unit { right: 48cqw; top: 8cqw; }
+.bro-plate-cap { position: absolute; right: 48cqw; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
 
 /* ---------- الموقع ---------- */
-.bro-veil-loc { background: linear-gradient(to left, rgba(15, 23, 42, .92) 0%, rgba(15, 23, 42, .7) 34%, rgba(15, 23, 42, 0) 66%); }
-.bro-loc-words { position: absolute; top: 9cqw; right: calc(var(--spine) + 4.4cqw); width: 34cqw; }
-.bro-location.bro-v-map .bro-loc-words { color: #fff; }
-.bro-location.bro-v-map .bro-h { color: #fff; }
-.bro-location.bro-v-map .bro-p { color: rgba(255, 255, 255, .85); }
-.bro-near { list-style: none; margin-top: 2.4cqw; }
-.bro-near li { padding: .7cqw 0; border-bottom: .09cqw solid var(--hair-light); font-size: 1.05cqw; }
-.bro-location.bro-v-text .bro-near li, .bro-about .bro-near li { border-bottom-color: var(--hair); }
-/* سطر العنوان الثاني كما طُبع في صفحة المطوّر */
-.bro-lead { font-weight: 600; margin-bottom: 1cqw; }
-/* الصفحة الفاصلة: شعار المشروع كبيراً فوق الخيط */
-.bro-say { position: absolute; top: 16cqw; right: calc(var(--spine) + 8cqw); left: 12cqw; }
-.bro-say-text { font-size: 4.2cqw; line-height: 1.3; font-weight: 300; color: var(--navy); }
-.bro-say-by { margin-top: 2.2cqw; font-size: 1.05cqw; letter-spacing: .08em; color: var(--gold); }
-.bro-say-p { margin-top: 2.4cqw; max-width: 46cqw; font-size: 1.3cqw; line-height: 1.9; color: var(--text); }
+.bro-near { list-style: none; margin-top: auto; padding-top: 1.8cqw; columns: 2; column-gap: 2.4cqw; }
+.bro-near.is-one { columns: 1; }
+.bro-near li { break-inside: avoid; padding: .55cqw 0 .6cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs2); line-height: 1.5; color: var(--ink); }
 
-/* ---------- النموذج: المخطط كبيراً يساراً، والأرقام جالسة على الخيط كعلامات قياس، والمكوّنات تحته ---------- */
-.bro-model { background: var(--navy); color: rgba(255, 255, 255, .86); }
-.bro-model .bro-sec { color: #fff; }
-.bro-model .bro-num { color: rgba(255, 255, 255, .6); }
-.bro-model-title { position: absolute; top: 5cqw; right: calc(var(--spine) + 4.4cqw); display: flex; align-items: baseline; gap: 1.2cqw; color: #fff; }
-.bro-letter { font-size: 6.4cqw; line-height: .9; font-weight: 300; color: var(--gold); }
-.bro-kashida { font-size: 2.4cqw; font-weight: 500; }
-.bro-model-name { font-size: 1.3cqw; font-weight: 400; color: rgba(255, 255, 255, .7); }
-.bro-orient { position: absolute; top: 13.2cqw; right: calc(var(--spine) + 4.4cqw); font-size: 1cqw; color: var(--gold); }
-.bro-stats { position: absolute; right: calc(var(--spine) + 4.4cqw); display: grid; grid-auto-flow: column; grid-auto-columns: max-content; gap: 0 2.8cqw; }
-.bro-model .bro-stats { top: 31cqw; }
-.bro-about .bro-stats { top: 33cqw; }
-.bro-stat { position: relative; display: grid; grid-template-rows: 5cqw auto; }
-.bro-stat::before { content: ''; position: absolute; right: 0; top: 4.55cqw; width: .12cqw; height: .9cqw; background: var(--gold); }
-.bro-stat-v { align-self: end; padding: 0 .9cqw .9cqw 0; font-size: 2.2cqw; line-height: 1.1; font-weight: 300; color: var(--navy); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.bro-stat-v small { font-size: .85cqw; font-weight: 400; color: var(--muted); }
-.bro-stat-k { padding: .8cqw .9cqw 0 0; font-size: .82cqw; font-weight: 500; color: var(--muted); white-space: nowrap; }
-.bro-model .bro-stat-v { color: #fff; }
-.bro-model .bro-stat-v small { color: rgba(255, 255, 255, .7); }
-.bro-model .bro-stat-k { color: rgba(255, 255, 255, .6); }
-.bro-parts-head { position: absolute; top: 42cqw; right: calc(var(--spine) + 4.4cqw); font-size: .9cqw; font-weight: 600; color: var(--gold); }
-.bro-parts { position: absolute; top: 44.4cqw; right: calc(var(--spine) + 4.4cqw); width: 28cqw; list-style: none; columns: 2; column-gap: 2.4cqw; }
-.bro-parts li { padding: .2cqw 0; font-size: .9cqw; line-height: 1.6; break-inside: avoid; }
-.bro-plan { position: absolute; top: 4cqw; bottom: 6.25cqw; left: 4cqw; width: 52cqw; display: grid; place-items: center; }
-.bro-plan img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.bro-plan-dark { background: var(--paper); padding: 2cqw; }
-/* بلا مخطط: حرف النموذج خطاً ذهبياً مفرّغاً في مكان المخطط، لا مخطط مستعار */
-.bro-ghost { position: absolute; top: 4cqw; bottom: 6.25cqw; left: 4cqw; width: 52cqw; display: grid; place-items: center;
-    font-size: 34cqw; line-height: 1; font-weight: 300; color: transparent; -webkit-text-stroke: .1cqw var(--gold); opacity: .55; }
+/* ---------- المزايا: العنوان كبيراً يميناً، والقائمة سجلاً مرقّماً؛ والضمانات أرقاماً كبيرة بلون المشروع ---------- */
+.bro-feats { list-style: none; columns: 2; column-gap: 3cqw; }
+.bro-fl.bro-feats { top: auto; }
+.bro-feats li { break-inside: avoid; display: flex; gap: 1.2cqw; align-items: baseline; padding: 1.2cqw 0 1.25cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs3); line-height: 1.5; font-weight: 500; color: var(--ink); }
+.bro-fr .bro-feats { columns: 1; margin-top: auto; }
+.bro-fr .bro-feats li { font-size: var(--fs2); padding: .75cqw 0 .8cqw; }
+.bro-fr .bro-feats.is-two { columns: 2; column-gap: 2.4cqw; }
+/* العنوان والأرقام كتلة واحدة في وسط الصفحة */
+.bro-nums-wrap { position: absolute; left: 4cqw; right: 4cqw; top: 8cqw; bottom: 4cqw; display: flex; flex-direction: column; justify-content: center; gap: 4.4cqw; }
+.bro-nums { list-style: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.bro-nums li { display: grid; align-content: start; gap: .5cqw; padding-inline: 2cqw; border-inline-start: .08cqw solid var(--hair); }
+.bro-nums li:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.bro-nums-v { --font: var(--display); font-family: var(--font); font-size: var(--fs7); line-height: 1; font-weight: 200; color: var(--gold-ink); white-space: nowrap; direction: ltr; unicode-bidi: isolate; text-align: right; }
+.bro-nums-u { margin-top: .8cqw; font-size: var(--fs3); line-height: 1.4; font-weight: 600; color: var(--ink); }
+.bro-nums-k { font-size: var(--fs2); line-height: 1.6; color: var(--text); }
 
-/* ---------- المميزات ---------- */
-/* العنوان فوق الخيط (13) والقائمة تحته؛ ومع صورة: القائمة في نصف الصفحة الأيمن عمودين */
-.bro-feat-h { position: absolute; top: 6.4cqw; right: calc(var(--spine) + 4.4cqw); max-width: 44cqw; }
-.bro-feats { position: absolute; top: 17cqw; bottom: 6cqw; right: calc(var(--spine) + 4.4cqw); left: 6cqw; list-style: none;
-    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: min-content; gap: 2.6cqw 4cqw; align-content: start; }
-.bro-v-photo .bro-feats { left: 52cqw; grid-template-columns: repeat(2, 1fr); gap: 2.4cqw 3cqw; }
-.bro-feat-img { position: absolute; top: 5cqw; bottom: 5cqw; left: 4cqw; width: 42cqw; }
-.bro-feats li { display: grid; gap: .5cqw; padding-top: 1.2cqw; border-top: .09cqw solid var(--hair); font-size: 1.3cqw; font-weight: 500; color: var(--navy); line-height: 1.5; }
-.bro-feat-n { font-size: .85cqw; font-weight: 600; color: var(--gold); font-variant-numeric: tabular-nums; }
+/* ---------- النموذج: مخطط الوحدة كبيراً بالحبر على الورق ومخطط الدور بجانبه مجموعةً في وسط حقلها؛ وكتلة المواصفات يميناً
+   (رمل للشقق، ودرجة لون المشروع الفاتحة للمجموعة التالية، وحجري للمباعة) ---------- */
+.bro-plan { position: absolute; overflow: hidden; }
+.bro-plan img { position: absolute; display: block; max-width: none; }
+.bro-plan-free { left: 4cqw; width: 48cqw; top: 6.4cqw; height: 42cqw; display: grid; place-items: center; }
+.bro-plan-free img { position: static; max-width: 100%; max-height: 100%; object-fit: contain; }
+/* المخطط بخطوط فاتحة على شفاف (يُعرض على داكن في بروشور المطوّر) يُقلب حبراً داكناً؛ والداكن على أبيض يذوب أبيضه في الورق.
+   مخطط الدور بتباين أعلى، فتظهر الوحدة المظللة فيه */
+.bro-plan-light img { filter: grayscale(1) invert(1); opacity: .88; }
+.bro-plan-dark img { mix-blend-mode: multiply; }
+.bro-plan-key.bro-plan-light img { filter: grayscale(1) invert(1) contrast(1.9); opacity: 1; }
+.bro-plan-key.bro-plan-dark img { filter: grayscale(1) contrast(1.9); }
+.bro-plan-cap { position: absolute; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.bro-plan-cap-free { left: 4cqw; bottom: 3.8cqw; }
+.bro-sold .bro-plan img { opacity: .34; }
+.bro-spec { position: absolute; right: 4cqw; width: 36cqw; top: 7.4cqw; bottom: 3.6cqw; display: flex; flex-direction: column; }
+.is-chap .bro-spec { top: 9.6cqw; }
+.bro-model-name { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.2; font-weight: 300; color: var(--ink); }
+.bro-model-name.is-long { font-size: var(--fs4); line-height: 1.4; }
+.bro-model-sub { margin-top: .7cqw; font-size: var(--fs2); line-height: 1.6; font-weight: 500; color: var(--muted); }
+.bro-price { margin-top: 1.8cqw; }
+.bro-price .bro-fig-v { font-weight: 300; }
+/* المباعة: «مباعة» واضحة هادئة مكان السعر، أصغر من اسم النموذج، والكتلة حجرية والمخطط باهت */
+.bro-sold-fig { margin-top: 1.8cqw; display: grid; gap: .5cqw; }
+.bro-sold-v { --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.25; font-weight: 400; color: var(--ink); }
+/* شريط القياسات: ثلاثة أعمدة ثابتة في كل النماذج، ولكل خانة شعرتها فوقها وتحتها فلا تبقى خانة بلا خط */
+.bro-dims { margin-top: 1.8cqw; display: grid; grid-template-columns: repeat(3, 1fr); }
+.bro-dim { display: grid; gap: .25cqw; padding: .9cqw 0 1cqw; padding-inline-start: 1.4cqw; border-top: .08cqw solid var(--hair); border-bottom: .08cqw solid var(--hair); border-inline-start: .08cqw solid var(--hair); }
+.bro-dim:nth-child(n+4) { border-top: 0; }
+.bro-dim:nth-child(3n+1) { padding-inline-start: 0; border-inline-start: 0; }
+.bro-dim-v { display: flex; align-items: flex-start; gap: .35cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.1; font-weight: 300; color: var(--ink); white-space: nowrap; }
+.bro-dim-v small { --font: var(--plex); font-family: var(--font); font-size: var(--fs1); line-height: 1; font-weight: 500; color: var(--muted); margin-top: .35cqw; }
+.bro-parts { margin-top: 1.8cqw; }
+.bro-parts ul { list-style: none; margin-top: .5cqw; columns: 2; column-gap: 2.4cqw; }
+.bro-parts li { break-inside: avoid; font-size: var(--fs2); line-height: 1.8; color: var(--text); }
+/* نموذج بلا مخطط: صورة من المشروع تنزف حتى خط القسمة وتعليقها تحتها، وإلا حقل هادئ بلون المشروع الفاتح */
+.bro-unit-photo { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; display: grid; grid-template-rows: 1fr 6.25cqw; }
+.bro-unit-photo .bro-img { min-height: 0; }
+.bro-unit-photo figcaption { align-self: center; padding-inline-start: 2.4cqw; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
+.bro-quiet { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; background: var(--pale); }
 
-/* ---------- الغلاف الخلفي: مواضع ثابتة، فيصل الخيط إلى منتصف الصفحة تحت «حيث تجد ما يناسبك» وينتهي بنقطة ---------- */
-.bro-back { background: var(--navy); color: #fff; }
-.bro-back-mid { position: absolute; top: 8.4cqw; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
-.bro-stamp-back { width: 7cqw; height: 7cqw; }
-.bro-brand { margin-top: 2.2cqw; font-size: 2.4cqw; line-height: 1.3; font-weight: 600; }
-.bro-brand-latin { margin-top: .2cqw; font-size: .95cqw; font-weight: 300; letter-spacing: .42em; direction: ltr; opacity: .8; }
-.bro-slogan { position: absolute; top: 21cqw; left: 0; right: 0; text-align: center; font-size: 1.3cqw; line-height: 2; font-weight: 300; color: rgba(255, 255, 255, .9); }
-.bro-back-foot { position: absolute; left: 7cqw; right: 7cqw; bottom: 3.6cqw; display: flex; justify-content: space-between; align-items: flex-end; gap: 4cqw; font-size: .8cqw; color: rgba(255, 255, 255, .62); }
-.bro-phone { font-size: 1.3cqw; font-weight: 500; color: #fff; letter-spacing: .04em; unicode-bidi: isolate; }
-.bro-fine { max-width: 60cqw; line-height: 1.7; }
+/* ---------- الصفحة الفاصلة ---------- */
+.bro-say { position: absolute; right: 4cqw; width: 64cqw; top: 15cqw; }
+.is-chap .bro-say { top: 12cqw; }
+.bro-say-text { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.35; font-weight: 300; color: var(--ink); text-wrap: balance; }
+.bro-say-text.is-chap { font-size: var(--fs6); line-height: 1.2; }
+.bro-say-by { margin-top: 2cqw; font-size: var(--fs3); line-height: 1.6; font-weight: 400; color: var(--muted); text-wrap: balance; }
+.bro-say-p { margin-top: 2cqw; max-width: 48cqw; font-size: var(--fs2); line-height: 1.75; color: var(--text); text-wrap: pretty; }
+/* جملة فيها عدد («بخبرة تمتد منذ عام 2010»): العدد كبيراً جداً في موضعه من الجملة، فتنتهي الجملة إليه */
+.bro-h-fig { position: absolute; right: 4cqw; left: 4cqw; top: 11cqw; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 2.4cqw; row-gap: 0; }
+.bro-giant { --font: var(--display); font-family: var(--font); font-size: var(--fs7); line-height: 1; font-weight: 200; color: var(--gold-ink); white-space: nowrap; direction: ltr; unicode-bidi: isolate; }
+.bro-say-foot { position: absolute; right: 4cqw; width: 40cqw; bottom: 4.4cqw; }
+.bro-say-foot .bro-lead { margin-top: 0; }
+/* «تواصل معنا…»: الجملة وتتمتها جملة واحدة بلون واحد، ورقم واتساب المكتب رابطاً */
+.bro-call { margin-top: 2.6cqw; display: grid; gap: .4cqw; }
+.bro-call-n { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.2; font-weight: 300; color: var(--ink); direction: ltr; unicode-bidi: isolate; text-align: right; white-space: nowrap; }
+.bro-fl-call { display: flex; flex-direction: column; justify-content: flex-end; }
+/* افتتاح النماذج: العنوان وعددها وصورة النموذج يميناً، وفهرس النماذج بأسعارها وصفحاتها يساراً */
+.bro-count { margin-top: 1cqw; font-size: var(--fs2); line-height: 1.6; font-weight: 500; color: var(--muted); }
+.bro-chapter-img { flex: 1 1 auto; min-height: 0; margin-top: 2.4cqw; }
+.bro-ix { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); column-gap: 3cqw; align-content: end; }
+.bro-ix-col { display: grid; grid-template-columns: 1fr max-content max-content max-content; align-content: start; }
+/* كل عمود ورأسه على حافة واحدة (يمين العمود)، والأرقام بعرض ثابت فتتحاذى منازلها */
+.bro-ix-col > span { padding: .45cqw 0 .5cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs2); line-height: 1.5; color: var(--ink); white-space: nowrap; text-align: start; }
+.bro-ix-col > .bro-ix-v { padding-inline-start: 1.6cqw; font-variant-numeric: tabular-nums; }
+.bro-ix-col > span:nth-last-child(-n+4) { border-bottom: .08cqw solid var(--hair); }
+.bro-ix-col > .bro-ix-k { padding-top: 0; border-top: 0; font-size: var(--fs1); font-weight: 600; color: var(--muted); }
+.bro-ix-col > .bro-ix-n { font-weight: 600; white-space: normal; }
+.bro-ix-col > .bro-ix-p { color: var(--muted); }
+.bro-ix-col > .is-sold { font-weight: 400; color: var(--muted); }
 
-/* ---------- خيط ملائم وعلامات المناسب ---------- */
-.bro-thread { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.bro-thread span { position: absolute; background: var(--gold); }
-.bro-th-h { height: .12cqw; }
-.bro-th-v { width: .12cqw; }
-.bro-th-dot { width: .8cqw; height: .8cqw; margin: -.34cqw 0 0 -.34cqw; border-radius: 50%; }
-.bro-photo .bro-thread, .bro-location .bro-thread { filter: drop-shadow(0 0 .25cqw rgba(15, 23, 42, .45)); }
-.bro-thread-start { position: relative; width: 93cqw; height: .12cqw; margin-top: 2.2cqw; background: var(--gold); }
-.bro-thread-start::before { content: ''; position: absolute; right: -.34cqw; top: -.34cqw; width: .8cqw; height: .8cqw; border-radius: 50%; background: var(--gold); }
-/* زوايا ذهبية رفيعة خارج الصورة كعلامات القصّ عند المصمم: «ما يناسبك» */
-.bro-marks::after {
-    content: ''; position: absolute; inset: -1.3cqw; pointer-events: none; --m: 2.4cqw; --t: .12cqw;
-    background:
-        linear-gradient(var(--gold), var(--gold)) top left / var(--m) var(--t) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) top left / var(--t) var(--m) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) top right / var(--m) var(--t) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) top right / var(--t) var(--m) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) bottom left / var(--m) var(--t) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) bottom left / var(--t) var(--m) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) bottom right / var(--m) var(--t) no-repeat,
-        linear-gradient(var(--gold), var(--gold)) bottom right / var(--t) var(--m) no-repeat;
-}
-/* صورة «عن المشروع» بعيدة عن حواف الصفحة، فتظهر علاماتها كاملة */
-.bro-about-img { top: 5cqw; bottom: 5cqw; left: 4cqw; width: 44cqw; }
+/* ---------- الغلاف الخلفي: لون المشروع العميق، وشعار ملائم أبيض بهواء حوله، وشعاره سطران ---------- */
+.bro-back-mid { position: absolute; top: 11cqw; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.bro-logo-back { width: 12cqw; height: 12cqw; display: block; }
+.bro-slogan { margin-top: 3.6cqw; display: grid; gap: .4cqw; }
+.bro-slogan span:first-child { --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.4; font-weight: 300; color: var(--ink); }
+.bro-slogan span + span { font-size: var(--fs3); line-height: 1.5; font-weight: 400; color: var(--gold-ink); }
+.bro-phone { margin-top: 1.6cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.3; font-weight: 300; color: var(--ink); letter-spacing: .04em; direction: ltr; unicode-bidi: isolate; }
+.bro-fine { position: absolute; left: 14cqw; right: 14cqw; bottom: 3.6cqw; text-align: center; font-size: var(--fs1); line-height: 1.7; color: var(--muted); text-wrap: balance; }
 
 /* ---------- الطباعة: 297 × 167 مم (عرض A4 بنسبة 16:9) ---------- */
 #broPrint { display: none; }

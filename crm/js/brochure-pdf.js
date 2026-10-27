@@ -3,7 +3,7 @@
 // الحساب على البكسل في brochure-media.js (مختبَر وحده)، وهنا الرسم والملفات فقط.
 // الملف لا يغادر المتصفح هنا: الرفع إلى المخزن وإنشاء طلب المساعد في brochure.js.
 
-import { uprightMatrix, pageRotation, multiply, classifyPixels, fingerprint, pixelKey, duplicate, worthKeeping } from './brochure-media.js';
+import { uprightMatrix, pageRotation, multiply, classifyPixels, deepTone, quietSide, planCrop, fingerprint, pixelKey, duplicate, worthKeeping, sliceCount } from './brochure-media.js';
 
 // نسخة مثبّتة من jsDelivr (كمكتبة supabase-js في الصفحة). العامل من نطاق آخر: pdf.js يلفّه بنفسه
 const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/';
@@ -85,7 +85,20 @@ function probe(canvas) {
     const gp = gx.getImageData(0, 0, 8, 8).data;
     const gray = [];
     for (let i = 0; i < 64; i++) gray.push(0.299 * gp[i * 4] + 0.587 * gp[i * 4 + 1] + 0.114 * gp[i * 4 + 2]);
-    return { cls: classifyPixels(px, c.width, c.height), print: fingerprint(gray), key: c.width + 'x' + c.height + ':' + pixelKey(px) };
+    const cls = classifyPixels(px, c.width, c.height);
+    // عائلة لون الصورة (ألوان البروشور): للصور والخلفيات وحدها، اسماً من قائمة ثابتة
+    // والجهة الأهدأ أسفل الصورة لكتلة كلام فوقها (صفحة كاملة الصورة)
+    const photo = cls.kind === 'photo';
+    return { cls, deep: photo ? deepTone(px, c.width, c.height) : null, quiet: photo ? quietSide(px, c.width, c.height) : null,
+        print: fingerprint(gray), key: c.width + 'x' + c.height + ':' + pixelKey(px) };
+}
+
+// قصّ المخطط (مخطط الوحدة ومخطط الدور بلا الإطار والنص المكرر) من نسخة بـ 400 بكسل: الخطوط الرفيعة تبقى فيها
+function cropOf(canvas) {
+    const k = Math.min(1, 400 / Math.max(canvas.width, canvas.height));
+    const c = canvasOf(canvas.width * k, canvas.height * k);
+    c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+    return planCrop(c.getContext('2d').getImageData(0, 0, c.width, c.height).data, c.width, c.height);
 }
 
 // مراجع الصور في صفحة مع مصفوفة رسم كل منها، من قائمة أوامر الرسم (مع حفظ الحالة واسترجاعها والنماذج المتداخلة)
@@ -163,7 +176,13 @@ function pageSheet(page, thumbs) {
     return c;
 }
 
-// file ← { pageCount, pages: [{ n, blob, strip }], images: [{ blob, page, w, h, kind, tone, tall, type, on }], skipped }
+// وسط الصورة في فضاء الصفحة: مصفوفة الرسم تنقل مربع الوحدة [0,1]² إلى موضع الصورة
+function centerOf(m) {
+    const [a, b, c, d, e, f] = m || [1, 0, 0, 1, 0, 0];
+    return [e + (a + c) / 2, f + (b + d) / 2];
+}
+
+// file ← { pageCount, pages: [{ n, blob, strip }], images: [{ blob, page, w, h, kind, tone, deep, quiet, crop, tall, type, on }], skipped }
 // blob: الصفحة للمساعد مع مصغّراتها؛ strip: فهارس صورها بترتيب أرقامها؛ on: [{ page, n }] كل صفحة ظهرت فيها الصورة ورقمها فيها
 // onProgress(نص) يصف المرحلة الحقيقية: «صفحة 5 من 32»
 export async function readBrochurePdf(file, onProgress = () => {}) {
@@ -175,7 +194,8 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
     const known = [];
     const thumbs = [];
     let skipped = 0;
-    for (let n = 1; n <= Math.min(pageCount, MAX_PAGES); n++) {
+    let out = 0;   // صفحات البروشور كما تُرسل: الصفحة الطويلة جداً (بروشور «تمرير» بصفحة واحدة) تُقسم صفحاتٍ بمقاس A4
+    for (let n = 1; n <= pageCount && out < MAX_PAGES; n++) {
         onProgress('قراءة صفحة ' + n + ' من ' + Math.min(pageCount, MAX_PAGES));
         const page = await doc.getPage(n);
         const base = page.getViewport({ scale: 1 });
@@ -185,16 +205,23 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport }).promise;
+        const parts = sliceCount(canvas.width, canvas.height);
+        const sliceH = Math.ceil(canvas.height / parts);
+        const strips = Array.from({ length: parts }, () => []);
 
-        // صور الصفحة: الجديدة تُضاف، والمكررة (في صفحة سابقة أو مرتين هنا) تُنسب إلى الأولى، وكلها في مصغّرات الصفحة
-        const strip = [];
+        // صور الصفحة: الجديدة تُضاف، والمكررة (في صفحة سابقة أو مرتين هنا) تُنسب إلى الأولى، وكلها في مصغّرات الصفحة —
+        // وفي الصفحة المقسومة في مصغّرات القطعة التي يقع فيها وسط الصورة
         for (const ref of await imageRefs(page, pdf.OPS)) {
+            const [, cy] = viewport.convertToViewportPoint(...centerOf(ref.ctm));
+            const part = Math.min(parts - 1, Math.max(0, Math.floor(cy / sliceH)));
+            if (out + part >= MAX_PAGES) continue;
+            const strip = strips[part];
             const img = await imageObject(page, ref.name);
             if (!img || !worthKeeping(img.width, img.height)) continue;
             const raw = imageCanvas(img);
             if (!raw) continue;
             const done = upright(raw, ref.ctm);
-            const { cls, print, key } = probe(done);
+            const { cls, deep, quiet, print, key } = probe(done);
             if (cls.kind === 'blank') continue;
             const seen = { kind: cls.kind, print, key };
             let index = known.findIndex((k) => duplicate(k, seen));
@@ -207,15 +234,21 @@ export async function readBrochurePdf(file, onProgress = () => {}) {
                 const png = cls.alpha;
                 images.push({
                     blob: await toBlob(done, png ? 'image/png' : 'image/jpeg', 0.86), type: png ? 'png' : 'jpg',
-                    page: n, w: done.width, h: done.height, kind: cls.kind, tone: cls.tone, tall: done.height > done.width * 1.15, on: []
+                    page: out + part + 1, w: done.width, h: done.height, kind: cls.kind, tone: cls.tone, deep, quiet, crop: cls.kind === 'plan' ? cropOf(done) : null,
+                    tall: done.height > done.width * 1.15, on: []
                 });
             }
             if (!strip.includes(index) && strip.length < MAX_PAGE_IMAGES) {
                 strip.push(index);
-                images[index].on.push({ page: n, n: strip.length });
+                images[index].on.push({ page: out + part + 1, n: strip.length });
             }
         }
-        pages.push({ n, blob: await toBlob(pageSheet(canvas, strip.map((i) => thumbs[i])), 'image/jpeg', 0.82), strip });
+        for (let p = 0; p < parts && out < MAX_PAGES; p++) {
+            const piece = parts === 1 ? canvas : canvasOf(canvas.width, Math.min(sliceH, canvas.height - p * sliceH));
+            if (parts > 1) piece.getContext('2d').drawImage(canvas, 0, -p * sliceH);
+            out += 1;
+            pages.push({ n: out, blob: await toBlob(pageSheet(piece, strips[p].map((i) => thumbs[i])), 'image/jpeg', 0.82), strip: strips[p] });
+        }
         page.cleanup();
     }
     await doc.destroy();

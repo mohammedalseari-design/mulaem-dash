@@ -42,7 +42,7 @@ const reading = {
 const b = readingToBrochure(reading, media, { id: 'r1' });
 const kinds = b.spec.pages.map((p) => p.kind + ':' + p.variant).join(' ');
 // صفحة «عن المشروع» صورتها صورة الغلاف نفسها: صفحة كلام لا الصورة مرة ثانية
-t('one Mulaem page per developer page, each from its role', kinds === 'cover:side about:text trio:panels model:plan model:facts back:brand', kinds);
+t('one Mulaem page per developer page, each from its role', kinds === 'cover:side about:text trio:panels model:plan model:wide back:brand', kinds);
 const facts = brochureFacts(b.project, { whatsapp: '966551234567' });
 t('the plan is valid for its facts', validateSpec(b.spec, facts).length === 0, validateSpec(b.spec, facts));
 t('a photo shown on two pages is one image, and the page right after the cover does not show it again', b.project.images.filter((i) => i.url === u(1)).length === 1
@@ -297,6 +297,166 @@ t('lent photos: with nothing unused left, the largest photo shown far away is pr
     && validateSpec(lend.spec, lfx).length === 0, [lp[9], lend.notes]);
 t('lent photos: the image keeps its pixel size for the print frame; a picture from the closing page of the developer (now the Mulaem back cover) is never lent',
     lfx.images[lp[9].images[0]].w === 900 && lfx.images[lp[9].images[0]].h === 1400 && !lfx.images.some((im) => im.url === u(10)) && lp[11].kind === 'back');
+
+// ---- قواعد عامة من مراجعة أربعة بروشورات أخرى (2026-10-28): كل بروشور مطوّر لا بروشور لامير وحده ----
+const v = (n) => 'https://img.test/brochures/r1/v-' + n + '.jpg';
+const pg = (n, role, extra) => page(n, role, extra);
+const build = (pages, images, extra = {}) => readingToBrochure({ version: 2, project: { name: 'نقش', developer: 'Alramz', city: 'جدة', district: 'أبحر', ...(extra.project || {}) }, pages, missing: [], conflicts: [], dropped: 0 },
+    { version: 2, pages: pages.length, read: pages.length, images, fills: extra.fills || [], links: extra.links || [] }, { id: 'r1' });
+const kindsOf = (b) => b.spec.pages.map((p) => p.kind + ':' + p.variant).join(' ');
+
+t('areaIn: the Arabic decimal comma and decimal sign are decimals (١٦٨,١٥م٢ ← 168.15), not a room of 15 m²',
+    areaIn('صالة معيشة ١٦٨,١٥م٢') === 168.15 && areaIn('١١٤,٢٣م٢') === 114.23 && areaIn('168,15 م2') === 168.15 && areaIn('١٦٨٫١٥ م2') === 168.15 && areaIn('مساحتها 97 م2') === 97);
+t('tidy: a Latin letter inside a stretched Arabic word moves to its end, brackets lose inner spaces', tidyText('نمBوذج') === 'نموذج B' && tidyText('( 4 ) غرف') === '(4) غرف');
+
+// المخطط لا يُحذف لأن عليه مساحة غرفة: التناقض مساحةُ وحدة (60% من النموذج فأكثر)
+const roomLabel = build([pg(1, 'cover'), pg(2, 'model', { model: model('A', 168, 'غرفة نوم ١٥م٢'), images: [{ n: 1, role: 'plan', caption: null }] }), pg(3, 'contact')],
+    [{ url: v(1), page: 2, kind: 'plan', tone: 'dark', w: 900, h: 700, on: [{ page: 2, n: 1 }] }]);
+t('a room size printed on a plan is not a contradiction; the plan is shown', roomLabel.spec.pages[1].variant === 'plan' && !roomLabel.notes.some((n) => /مكتوب عليه/.test(n)), roomLabel.notes);
+
+// فاصل «نموذج A» ثم صفحات أدواره بلا اسم: الاسم من الفاصل والدور من عنوان الصفحة؛ ونموذج بلا اسم ولا فاصل عنوانه مساحته
+const floors = build([pg(1, 'cover'), pg(2, 'other', { title: 'نموذج A' }),
+    pg(3, 'model', { title: 'مكونات الدور الأرضي', model: model(null, null, null, { parts: ['مجلس', 'جناح نوم رئيسي', 'يحتوي على غرفه ملابس + دورة مياة'] }) }),
+    pg(4, 'model', { title: 'مكونات الدور الاول', model: model(null, null, null) }),
+    pg(5, 'other', { title: 'نـــمـــBـــوذج' }), pg(6, 'model', { title: 'مكونات الدور الأرضي', model: model(null, null, null) }),
+    pg(7, 'amenities', { title: 'مميزات', bullets: ['مصعد'] }), pg(8, 'model', { model: model(null, 282, null) }), pg(9, 'contact')], []);
+const fm = floors.project.details.models;
+t('model names carry from the divider before their floors, the floor from the page title; a stretched «نمBوذج» reads «نموذج B»',
+    fm[0].name === 'نموذج A' && fm[0].floor === 'الدور الأرضي' && fm[1].name === 'نموذج A' && fm[1].floor === 'الدور الاول' && fm[2].name === 'نموذج B' && fm[3].name === null, fm.map((m) => [m.name, m.floor]));
+t('a model with no name is reported, and its divider pages open the models', floors.notes.some((n) => /صفحة 8: لم يُقرأ اسم النموذج/.test(n)) && floors.spec.pages[1].variant === 'chapter' && floors.spec.pages[4].variant === 'chapter');
+const ff = brochureFacts(floors.project, {});
+t('a model page without plan or photo is the wide layout, never a blank half', floors.spec.pages[2].variant === 'wide' && validateSpec(floors.spec, ff).length === 0, validateSpec(floors.spec, ff));
+
+// لقطة الحياة (صورة بشر هي الصورة الوحيدة في صفحة المطوّر) تُطبع؛ وصورة المصافحة على صفحة التواصل لا
+const life = build([pg(1, 'cover'), pg(2, 'about', { title: 'المقدمة', body: 'نؤمن بأن أمان الإنسان في مسكنه.', images: [{ n: 1, role: 'people', caption: null }] }),
+    pg(3, 'photos', { images: [{ n: 1, role: 'people', caption: null }, { n: 2, role: 'texture', caption: null }] }),
+    pg(4, 'contact', { title: 'تواصل معنا', images: [{ n: 1, role: 'people', caption: null }] }), pg(5, 'cover')],
+    [{ url: v(1), page: 2, kind: 'photo', w: 1926, h: 2400, on: [{ page: 2, n: 1 }] }, { url: v(2), page: 3, kind: 'photo', w: 2400, h: 1921, on: [{ page: 3, n: 1 }] },
+        { url: v(3), page: 3, kind: 'backdrop', w: 1600, h: 2000, on: [{ page: 3, n: 2 }] }, { url: v(4), page: 4, kind: 'photo', w: 1448, h: 1086, on: [{ page: 4, n: 1 }] }]);
+const lifeUrls = life.project.images.map((i) => i.url);
+t('a lifestyle photo (the only picture on its page) is printed; stock people on a contact page and backdrops are not',
+    life.spec.pages[1].variant === 'split' && life.spec.pages[2].kind === 'photo' && lifeUrls.includes(v(1)) && lifeUrls.includes(v(2)) && !lifeUrls.includes(v(3)) && !lifeUrls.includes(v(4)), kindsOf(life));
+
+// لقطة الحياة تبقى في صفحتها ولا تُستعار لصفحة مزايا؛ وصورة بشر في صفحة ختام («other») مصافحة جاهزة لا تُطبع ولا تُستعار
+const stock = build([pg(1, 'cover'), pg(2, 'amenities', { title: 'مميزات المشروع', bullets: ['دخول ذكي', 'مداخل فندقية'] }),
+    pg(3, 'photos', { images: [{ n: 1, role: 'people', caption: null }] }), pg(4, 'other', { images: [{ n: 1, role: 'people', caption: null }] }), pg(5, 'contact')],
+    [{ url: v(60), page: 3, kind: 'photo', w: 2400, h: 1600, on: [{ page: 3, n: 1 }] }, { url: v(61), page: 4, kind: 'photo', w: 2400, h: 1600, on: [{ page: 4, n: 1 }] }]);
+t('a lifestyle photo stays on its own page and is never lent; stock people on a closing page are not printed', stock.spec.pages[2].kind === 'photo'
+    && stock.project.images[stock.spec.pages[2].images[0]].url === v(60) && stock.spec.pages[1].variant === 'list' && !stock.project.images.some((i) => i.url === v(61)), kindsOf(stock));
+
+// صفحة صور كل صورها خلفيات تستعير صورة لم تُعرض؛ وصورة يقول المساعد إنها واجهة وهي طبقة لونية لا تُطبع
+const lost = build([pg(1, 'cover'), pg(2, 'photos', { images: [{ n: 1, role: 'exterior', caption: null }] }), pg(3, 'photos', { images: [{ n: 1, role: 'exterior', caption: null }, { n: 2, role: 'exterior', caption: null }] }),
+    pg(4, 'about', { title: 'عن', body: 'نص طويل عن المشروع.', images: [{ n: 1, role: 'interior', caption: null }, { n: 2, role: 'interior', caption: null }] }), pg(5, 'contact')],
+    [{ url: v(1), page: 2, kind: 'backdrop', w: 1240, h: 1754, on: [{ page: 2, n: 1 }] }, { url: v(2), page: 3, kind: 'photo', w: 2400, h: 1600, on: [{ page: 3, n: 1 }] },
+        { url: v(3), page: 3, kind: 'photo', w: 2400, h: 1600, on: [{ page: 3, n: 2 }] }, { url: v(4), page: 4, kind: 'photo', w: 1200, h: 900, on: [{ page: 4, n: 1 }] },
+        { url: v(5), page: 4, kind: 'photo', w: 1600, h: 1200, on: [{ page: 4, n: 2 }] }]);
+t('a backdrop is never printed whatever the reading calls it; a photo page that lost its photos is not an empty pause page',
+    !lost.project.images.some((i) => i.url === v(1)) && lost.spec.pages[1].kind === 'photo' && lost.project.images[lost.spec.pages[1].images[0]].url === v(5)
+    && lost.notes.some((n) => /تُركت 1 صورة/.test(n)), kindsOf(lost));
+
+// لوحة صور المطوّر (صورتان في ملف واحد) أجزاءً: صفحتها صورتان متجاورتان
+const coll = build([pg(1, 'cover'), pg(2, 'photos', { images: [{ n: 1, role: 'interior', caption: null }] }), pg(3, 'contact')],
+    [{ url: v(1), page: 2, kind: 'photo', alpha: true, w: 1240, h: 1754, on: [{ page: 2, n: 1 }],
+        parts: [{ url: v('1a'), w: 540, h: 700, tall: true }, { url: v('1b'), w: 540, h: 700, tall: true }] }]);
+t('a developer collage of two framed photos prints as its two photos, not one sliced canvas', coll.spec.pages[1].kind === 'pair'
+    && coll.spec.pages[1].images.map((i) => coll.project.images[i].url).join() === v('1a') + ',' + v('1b') && !coll.project.images.some((i) => i.url === v(1)), kindsOf(coll));
+
+// الموقع: المسافات المطبوعة تبقى، ورابط الخرائط يُنسب إلى صفحة الموقع
+const loc = build([pg(1, 'cover'), pg(2, 'location', { title: 'احتياجاتك تحيط بك', body: 'يقع المشروع في أبحر.', figures: [{ value: '7 دقائق', label: 'عن جدة سوبردوم' }, { value: '10 دقائق', label: 'عن المطار' }] }),
+    pg(3, 'location', { title: 'موقع المشروع' }), pg(4, 'contact')], [], { links: [{ page: 3, url: 'https://maps.app.goo.gl/abc' }, { page: 3, url: 'https://wa.me/9665' }] });
+t('location: the printed drive times stay with the page, and the developer\'s maps link goes to its location page (not a WhatsApp link)',
+    loc.spec.pages[1].text.figures.length === 2 && loc.spec.pages[2].link === 'https://maps.app.goo.gl/abc' && !loc.spec.pages[1].link);
+
+// المزايا: كل سطر مدة (بالكلمة أيضاً) ← أرقام حتى 12؛ قائمة وأرقام ← حقلان؛ رقم عنوانه سطر في القائمة يُدمج في سطره؛ وسطر بلا عدد تحت الأرقام
+const warr = ['سنة ضمان شامل للوحدة السكنية', '25 سنة ضمان عدادات الكهرباء', '3 سنوات ضمان للإضاءة', '10 سنوات ضمان للهيكل الإنشائي', 'سنة ضمان للدهان', '15 سنة ضمان للمواسير الحرارية',
+    '5 سنوات ضمان لتمديدات السباكة', '10 سنوات ضمان للعزل المائي والحراري', 'سنة ضمان للأبواب', '5 سنوات ضمان للتمديدات الكهربائية', 'سنتين ضمان للمصاعد'];
+const am = build([pg(1, 'cover'),
+    pg(2, 'amenities', { title: 'الضمانات', bullets: warr, figures: [{ value: '25 سنة', label: 'ضمان عدادات الكهرباء' }] }),
+    pg(3, 'amenities', { title: 'مميزات المشروع', bullets: ['موقع مميز', 'تصميم بوهيمي', 'أسقف عالية'], figures: [{ value: '5 دقايق', label: 'يبعد عن الكورنيش' }, { value: '10 دقايق', label: 'يبعد عن المطار' }] }),
+    pg(4, 'amenities', { title: 'مميزات المشروع', bullets: ['مصعد أتوماتيك بالكامل', 'دخول ذكي'], figures: [{ value: '2', label: 'مصعد أتوماتيك بالكامل' }] }),
+    pg(5, 'amenities', { title: 'ضمانات المشروع', bullets: ['تأمين ضد العيوب الخفية'], figures: [{ value: '20 سنة', label: 'الهيكل الانشائي' }, { value: '25 سنة', label: 'الافياش' }, { value: '5 سنوات', label: 'الكهرباء' }] }),
+    pg(6, 'contact')], []);
+const ap = am.spec.pages;
+t('amenities: eleven warranties (one written «سنتين») are all numbers, none dropped', ap[1].variant === 'numbers' && ap[1].text.bullets.length === 11);
+t('amenities: a list with headline figures is two fields (list and figures), not figures alone', ap[2].variant === 'mixed' && ap[2].text.bullets.length === 3 && ap[2].text.figures.length === 2);
+t('amenities: a figure whose label is a line of the list joins its line («2 مصعد أتوماتيك بالكامل»)', ap[3].variant === 'list' && ap[3].text.bullets[0] === '2 مصعد أتوماتيك بالكامل' && !ap[3].text.figures.length, ap[3]);
+t('amenities: numbers with a line that has no number keep that line under the numbers', ap[4].variant === 'numbers' && (ap[4].extra || []).join() === 'تأمين ضد العيوب الخفية', ap[4]);
+
+// التواصل قبل الأخيرة دعوة ملائم (الرقم وكلام المطوّر صغيراً)؛ وآخر صفحة فيها كلام تعطي الغلاف الخلفي عنوانها
+const ends = build([pg(1, 'cover', { title: 'نقش', subtitle: 'وحدات سكنية جاهزه' }), pg(2, 'contact', { title: 'للاسفسارات', body: 'نود الإحاطة بأن المخططات المعروضة لأغراض توضيحية.' }),
+    pg(3, 'photos', { title: 'صورة' }), pg(4, 'other', { title: 'افراغ فوري', bullets: ['متاح', 'محجوز'] })], []);
+t('a contact page before the end is Mulaem\'s call page; the last page\'s headline is printed on the back cover', ends.spec.pages[1].kind === 'statement' && ends.spec.pages[1].call === true
+    && ends.spec.pages[3].kind === 'back' && ends.spec.pages[3].text.title === 'افراغ فوري' && ends.notes.some((n) => /صفحة 4 الأخيرة/.test(n)), kindsOf(ends));
+t('the cover carries the line the developer printed under the name, not the Latin name', ends.spec.pages[0].text.subtitle === 'وحدات سكنية جاهزه'
+    && !build([pg(1, 'cover', { subtitle: 'NQSH' }), pg(2, 'contact')], [], { project: { name_latin: 'NQSH' } }).spec.pages[0].text);
+
+// اسم المطوّر اللاتيني بالعربية كما طُبع في صفحة؛ وعدد الوحدات ومدى المساحات من نص «عن المشروع» الذي يسمّيه
+const named = build([pg(1, 'cover'), pg(2, 'about', { title: 'عن الـرمـز', body: 'تأسست شركة الرمز للعقارات في عام 2016م.' }),
+    pg(3, 'about', { body: 'يأتي مشروع نقش أبحر ليقدِّم 75 فلة سكنية بمساحات تتراوح ما بين 196.45م2 وحتى 220م2 يمتاز بتصميمه.' }), pg(4, 'contact')], []);
+t('the developer\'s Latin name is printed in Arabic as its own pages print it (Alramz ← الرمز), with a note', named.project.details.developer === 'الرمز' && named.notes.some((n) => /Alramz/.test(n)));
+t('units and the area range come from the about text that names the project, as printed', named.project.details.units_count === 75
+    && JSON.stringify(named.project.details.area_range) === '[196.45,220]');
+
+// صورة الغلاف: الواجهة التي أفرد لها المطوّر صفحة في أول البروشور (فتصير صفحتها الفهرس) قبل واجهة أعرض بعيدة
+const hero = build([pg(1, 'cover'), pg(2, 'photos', { images: [{ n: 1, role: 'exterior', caption: null }] }), pg(3, 'about', { title: 'عن', body: 'نص.' }), pg(4, 'about', { title: 'ب', body: 'نص.' }),
+    pg(5, 'about', { title: 'ج', body: 'نص.' }), pg(6, 'about', { title: 'د', body: 'نص.' }), pg(7, 'about', { title: 'ه', body: 'نص.' }), pg(8, 'photos', { images: [{ n: 1, role: 'exterior', caption: 'انتقالة عمرانية' }] }), pg(9, 'contact')],
+    [{ url: v(1), page: 2, kind: 'photo', w: 2400, h: 1923, on: [{ page: 2, n: 1 }] }, { url: v(2), page: 8, kind: 'photo', w: 2400, h: 1921, on: [{ page: 8, n: 1 }] }]);
+t('the cover photo is the early solo facade, whose page becomes the contents; the later facade keeps its own page and caption',
+    hero.project.images[hero.spec.pages[0].images[0]].url === v(1) && hero.spec.pages[1].variant === 'contents' && hero.spec.pages[7].kind === 'photo'
+    && hero.project.images[hero.spec.pages[7].images[0]].caption === 'انتقالة عمرانية', kindsOf(hero));
+
+// صفحات الصور المتتالية: الطولية بنسبتها تتبادل جانباها، واللقطة الضعيفة بينها لوحة
+const tallImgs = Array.from({ length: 4 }, (_, k) => ({ url: v(10 + k), page: k + 2, kind: 'photo', w: 960, h: 1280, tall: true, detail: k === 2 ? 0.01 : 0.08, on: [{ page: k + 2, n: 1 }] }));
+const run4 = build([pg(1, 'cover'), ...[2, 3, 4, 5].map((n) => pg(n, 'photos', { images: [{ n: 1, role: 'interior', caption: null }] })), pg(6, 'contact')], tallImgs);
+const rv = run4.spec.pages.slice(1, 5);
+t('a run of portrait photos is not squeezed into strips: own ratio, alternating sides, and the weak shot as a small plate',
+    rv.map((p) => p.variant).join() === 'tall,tall,plate,tall' && rv[0].side !== rv[1].side && validateSpec(run4.spec, brochureFacts(run4.project, {})).length === 0, rv);
+
+// لون البروشور: لون المطوّر المسطّح في صفحتين فأكثر يقرره؛ وإلا صور المشروع والداخلية عُشر صوت
+const brand = build([pg(1, 'cover'), pg(2, 'contact')], [], { fills: [{ page: 1, hex: '#212C2A', share: 0.96 }, { page: 2, hex: '#23302D', share: 0.77 }] });
+t('the developer\'s own flat colour on its pages is the brochure colour, with a note', brand.project.details.colours && brand.project.details.colours.deep === '#212C2A'
+    && brochureFacts(brand.project, {}).palette.name === 'brand' && brand.notes.some((n) => /#212C2A/.test(n)));
+const rooms = build([pg(1, 'cover', { images: [{ n: 1, role: 'exterior', caption: null }] }), ...[2, 3, 4, 5, 6, 7].map((n) => pg(n, 'photos', { images: [{ n: 1, role: 'interior', caption: null }] })), pg(8, 'contact')],
+    [{ url: v(1), page: 1, kind: 'photo', w: 1427, h: 1840, deep: 'navy', on: [{ page: 1, n: 1 }] }, ...[2, 3, 4, 5, 6, 7].map((n) => ({ url: v(n + 20), page: n, kind: 'photo', w: 960, h: 1280, deep: 'bronze', on: [{ page: n, n: 1 }] }))]);
+t('beige interiors do not outvote the cover: the palette follows the night render', rooms.project.details.palette === 'navy', rooms.project.details.palette);
+
+// رسوم المطوّر الخطية (لا صورة نقطية فيها): مخطط النموذج، والدور المتكرر لوحةً بعنوانه، والخريطة
+const vec = build([pg(1, 'cover'), pg(2, 'location', { title: 'موقع المشروع', body: 'يقع في حي الريان.' }),
+    pg(3, 'model', { title: 'نموذج A', model: model(null, 116, null) }), pg(4, 'other', { title: 'الطابق المتكرر' }), pg(5, 'contact')],
+    [{ url: v(30), page: 2, kind: 'photo', vector: true, w: 1600, h: 1400, on: [{ page: 2, n: 1 }] },
+        { url: v(31), page: 3, kind: 'plan', vector: true, w: 1800, h: 1500, crop: { unit: [0.1, 0.1, 0.9, 0.9], key: null }, on: [{ page: 3, n: 1 }] },
+        { url: v(32), page: 4, kind: 'plan', vector: true, w: 2000, h: 1200, on: [{ page: 4, n: 1 }] }]);
+const vp = vec.spec.pages;
+const words2 = build([pg(1, 'cover'), pg(2, 'location', { title: 'قريب من', bullets: ['سوق المرجان', 'طريق الحرمين'] }), pg(3, 'contact')],
+    [{ url: v(33), page: 2, kind: 'photo', vector: true, w: 1600, h: 1400, on: [{ page: 2, n: 1 }] }]);
+t('vector drawings: a location page that lists its landmarks as words does not take a drawing (the same words outlined) as its map', words2.spec.pages[1].variant === 'text', kindsOf(words2));
+t('vector drawings: a model page without a raster plan uses the plan drawn on its page; a floor plate is a plate with its title; a drawn map is the map',
+    vp[2].variant === 'plan' && vec.project.details.models[0].plan === v(31) && vp[3].kind === 'photo' && vp[3].variant === 'plate'
+    && vec.project.images[vp[3].images[0]].kind === 'plan' && vp[1].variant === 'map' && validateSpec(vec.spec, brochureFacts(vec.project, {})).length === 0, kindsOf(vec));
+
+// اللقطة نفسها في صفحتين متجاورتين: صفحة الكلام تترك صورتها؛ وصفحة «المحتويات» في بروشور المطوّر يصير مكانها فهرس ملائم حين تأخذ
+// صفحة صورة الغلاف صورة لم تُعرض (فلا فهرسان ولا صورة الغلاف مرتين)
+const view = (n) => '1'.repeat(n) + '0'.repeat(64 - n);
+const twin = build([pg(1, 'cover'), pg(2, 'photos', { images: [{ n: 1, role: 'exterior', caption: null }] }), pg(3, 'about', { title: 'المقدمة', body: 'نؤمن بأن أمان الإنسان في مسكنه.' }),
+    pg(4, 'other', { title: 'المحتويات', bullets: ['عن الرمز', 'حول', 'احتياجاتك تحيط بك'] }), pg(5, 'about', { title: 'عن الرمز', body: 'تأسست شركة الرمز.' }),
+    pg(6, 'about', { body: 'يأتي مشروع نقش أبحر.', images: [{ n: 1, role: 'exterior', caption: null }] }), pg(7, 'photos', { images: [{ n: 1, role: 'exterior', caption: 'انتقالة عمرانية' }] }), pg(8, 'contact')],
+    [{ url: v(40), page: 2, kind: 'photo', w: 2400, h: 1923, view: view(0), on: [{ page: 2, n: 1 }] },
+        { url: v(41), page: 6, kind: 'photo', w: 1922, h: 2400, tall: true, view: view(40), on: [{ page: 6, n: 1 }] },
+        { url: v(42), page: 7, kind: 'photo', w: 2400, h: 1921, view: view(34), on: [{ page: 7, n: 1 }] }]);
+const tw = twin.spec.pages;
+t('same view on neighbouring pages: the text page leaves its photo (about text), with a note', tw[5].kind === 'about' && tw[5].variant === 'text' && !tw[5].images
+    && twin.project.images[tw[6].images[0]].url === v(42) && twin.notes.some((n) => /صفحة 6: صورتها المنظر نفسه/.test(n)), kindsOf(twin));
+t('the developer\'s contents page becomes Mulaem\'s contents; the cover-photo page takes the photo left unused, so neither repeats',
+    tw[3].variant === 'contents' && tw[1].kind === 'photo' && twin.project.images[tw[1].images[0]].url === v(41) && twin.project.images[tw[0].images[0]].url === v(40)
+    && tw.filter((p) => p.variant === 'contents').length === 1 && validateSpec(twin.spec, brochureFacts(twin.project, {})).length === 0, kindsOf(twin));
+const noSpare = build([pg(1, 'cover'), pg(2, 'photos', { images: [{ n: 1, role: 'exterior', caption: null }] }), pg(3, 'about', { title: 'المقدمة', body: 'نص.' }),
+    pg(4, 'other', { title: 'المحتويات', bullets: ['عن الرمز', 'حول'] }), pg(5, 'contact')], [{ url: v(40), page: 2, kind: 'photo', w: 2400, h: 1923, on: [{ page: 2, n: 1 }] }]);
+t('without a spare photo the contents stay on the cover-photo page and the developer\'s list stays a page of its own', noSpare.spec.pages[1].variant === 'contents'
+    && noSpare.spec.pages[3].kind === 'about', kindsOf(noSpare));
+// سلسلة صور: لقطة تعيد منظر صورة قبلها (الحمّام نفسه مرتين) لوحةٌ صغيرة
+const again = build([pg(1, 'cover'), ...[2, 3, 4, 5].map((n) => pg(n, 'photos', { images: [{ n: 1, role: 'interior', caption: null }] })), pg(6, 'contact')],
+    [2, 3, 4, 5].map((n) => ({ url: v(50 + n), page: n, kind: 'photo', w: 960, h: 1280, tall: true, detail: 0.08, view: n === 5 ? view(30) : view(n * 14), on: [{ page: n, n: 1 }] })));
+t('a photo that repeats the view of an earlier one in its run is a small plate', again.spec.pages.slice(1, 5).map((p) => p.variant).join() === 'tall,tall,tall,plate', kindsOf(again));
 
 console.log(`passed ${pass}, failed ${fail}`);
 if (fail) {

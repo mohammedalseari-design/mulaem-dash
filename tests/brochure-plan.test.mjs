@@ -1,6 +1,7 @@
 // اختبار حقائق البروشور والتحقق من مخطط الصفحات (crm/js/brochure-plan.js): الحقائق من البيانات فقط، والمخطط فهارس موجودة.
 // التشغيل: node tests/brochure-plan.test.mjs   أو   deno run tests/brochure-plan.test.mjs
 import { brochureFacts, validateSpec, chaptersOf, splitFigure, guaranteePage, PALETTES, MAX_MODELS, MAX_PAGES } from '../crm/js/brochure-plan.js';
+import { durationRow, numberRows, unprinted, restates, modelLabel } from '../crm/js/brochure-plan.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -105,6 +106,52 @@ t('validate: a full-bleed location page needs its photo', validateSpec({ pages: 
 const px = brochureFacts({ images: [{ url: u(1), kind: 'aerial', w: 2400, h: 1349.6, quiet: 'left' }, { url: u(2), kind: 'interior', w: -3, h: 'x', quiet: 'top' }] }).images;
 t('facts: an image keeps its pixel size and quiet side; junk values are dropped', px[0].w === 2400 && px[0].h === 1350 && px[0].quiet === 'left'
     && px[1].w === null && px[1].h === null && px[1].quiet === null, px);
+
+// ---- قواعد عامة من مراجعة أربعة بروشورات أخرى (2026-10-28) ----
+const dr = (s) => JSON.stringify(durationRow(s));
+t('durationRow: the number and its unit anywhere in the line, the item before it and its condition after it', dr('الهيكل الإنشائي 25 سنة ولا يشمل ذلك الكوارث الطبيعية')
+    === '{"n":"25","unit":"سنة","label":"الهيكل الإنشائي","note":"ولا يشمل ذلك الكوارث الطبيعية"}' && dr('25 سنة ضمان عدادات الكهرباء') === '{"n":"25","unit":"سنة","label":"ضمان عدادات الكهرباء","note":null}');
+t('durationRow: a duration written as a word keeps its word and gets its number (سنة 1، سنتان 2)', dr('سنتين ضمان للمصاعد') === '{"n":"2","unit":"سنتين","label":"ضمان للمصاعد","note":null}'
+    && dr('السباكة سنتان التمديدات الداخلية') === '{"n":"2","unit":"سنتان","label":"السباكة","note":"التمديدات الداخلية"}' && dr('سنة ضمان شامل').startsWith('{"n":"1"'));
+t('durationRow: a line without a duration gives nothing', durationRow('يقع المشروع على شارع 15 م') === null && durationRow('') === null && durationRow(null) === null);
+t('numberRows: every line a duration → the lines themselves (11 warranties, none capped); otherwise the figures, word values too', numberRows({
+    bullets: ['سنة ضمان شامل', '25 سنة عدادات', '3 سنوات إضاءة', '10 سنوات هيكل', 'سنة دهان', '15 سنة مواسير', '5 سنوات سباكة', '10 سنوات عزل', 'سنة أبواب', '5 سنوات كهرباء', 'سنتين مصاعد'],
+    figures: [{ value: '25 سنة', label: 'عدادات' }] }).length === 11
+    && JSON.stringify(numberRows({ bullets: ['مصعدان', 'دخول ذكي'], figures: [{ value: '20 سنة', label: 'الهيكل' }, { value: 'سنتان', label: 'المصعد' }] }).map((r) => r.n)) === '["20","2"]');
+t('guaranteePage: a page titled «ضمانات» is the guarantees page even with mixed rows', guaranteePage({ kind: 'features', variant: 'mixed', text: { title: 'ضمانات المشروع', bullets: [], figures: [] } })
+    && !guaranteePage({ kind: 'features', variant: 'mixed', text: { title: 'المميزات', bullets: ['مصعدان'], figures: [{ value: '2', label: 'x' }] } }));
+t('restates: a part that repeats the rooms or bathrooms count, in any wording, is not a part', restates('3 دورة مياة', { bathrooms: 3 }) && restates('( 4 ) غرف', { rooms: 4 })
+    && restates('(4) دورات مياه', { bathrooms: 4 }) && !restates('3 دورة مياة', { bathrooms: 2 }) && !restates('غرفة خادمة', { rooms: 1 }));
+const cov = { pages: [{ kind: 'cover', variant: 'side', text: { title: 'x' } },
+    { kind: 'location', variant: 'text', text: { title: 'احتياجاتك تحيط بك', subtitle: null, body: null, bullets: [], figures: [{ value: '7 دقائق', label: 'عن جدة سوبردوم' }] } },
+    { kind: 'features', variant: 'numbers', text: { title: 'الضمانات', bullets: ['سنتين ضمان للمصاعد', '25 سنة ضمان عدادات الكهرباء'], figures: [] } }] };
+const miss = unprinted(cov, { models: [] }, ['', 'احتياجاتك تحيط بك عن جدة سوبردوم 7 دقائق', 'الضمانات 25 سنة ضمان عدادات الكهرباء']);
+t('unprinted: every string of the reading reaches its page; the dropped ones are listed (a lost warranty), split numbers still count as printed',
+    miss.length === 1 && miss[0].page === 3 && miss[0].text === 'سنتين ضمان للمصاعد', miss);
+t('chapters: one model (with its floors) is «النموذج», and a contact page before the end is «تواصل»', (() => {
+    const one = chaptersOf({ pages: [cover, { kind: 'model', variant: 'facts', model: 0 }, { kind: 'statement', variant: 'say', call: true, text: { title: 'للاستفسار' } }, { kind: 'statement', variant: 'say' }, { kind: 'back', variant: 'brand' }] },
+        { models: [{ name: null }] });
+    return one.list.map((c) => c.name).join() === 'النموذج,تواصل';
+})());
+t('facts: the developer colours measured from its pages are used as they are; bad values fall back to the family', (() => {
+    const a = brochureFacts({ name: 'x', details: { palette: 'navy', colours: { deep: '#212c2a', pale: '#E5ECE9' } } });
+    const b = brochureFacts({ name: 'x', details: { palette: 'forest', colours: { deep: 'red;}', pale: '#fff' } } });
+    return a.palette.name === 'brand' && a.palette.deep === '#212C2A' && b.palette.name === 'forest';
+})());
+t('facts: an image keeps its crop focus, line-art flag and full-page flag; a model keeps its floor', (() => {
+    const fx = brochureFacts({ name: 'x', images: [{ url: 'https://img.test/a.jpg', focus: [0.4, 0.7], alpha: true, raster: true, detail: 0.05 }, { url: 'https://img.test/b.jpg', focus: [2, 'x'] }],
+        details: { models: [{ name: 'نموذج A', floor: 'الدور الأرضي' }] } });
+    return fx.images[0].focus.join() === '0.4,0.7' && fx.images[0].alpha && fx.images[0].raster && fx.images[1].focus === null && fx.models[0].floor === 'الدور الأرضي';
+})());
+t('validate: the new variants are known (tall photo, plate, wide model, mixed features)', validateSpec({ pages: [cover, { kind: 'photo', variant: 'tall', images: [0] },
+    { kind: 'photo', variant: 'plate', images: [0] }, { kind: 'model', variant: 'wide', model: 0 }, { kind: 'features', variant: 'mixed', text: { bullets: ['a'], figures: [{ value: '2', label: 'b' }] } }] }, f).length === 0,
+    validateSpec({ pages: [cover, { kind: 'photo', variant: 'tall', images: [0] }, { kind: 'model', variant: 'wide', model: 0 }] }, f));
+
+// عنوان صفحة النموذج: الاسم كما قُرئ؛ والحرف وحده («A» في شارة المطوّر) يُسبق بنوعه («شقة A») وإلا بـ«نموذج»؛ وبلا اسم عنوان صفحته ثم مساحته
+t('modelLabel: a bare letter name takes its type («شقة A»), a full name stays, no name falls back to the page title then the area, never a bare «النموذج»',
+    modelLabel({ name: 'A', type: 'شقة' }) === 'شقة A' && modelLabel({ name: 'B' }) === 'نموذج B' && modelLabel({ name: 'شقة 1', type: 'شقة' }) === 'شقة 1'
+    && modelLabel({ name: null, area: 282 }, 'مكونات الدور الأرضي', (v) => String(v)) === 'وحدة 282 م²' && modelLabel({ name: null }, 'نموذج C') === 'نموذج C'
+    && modelLabel({ name: null, type: 'فيلا', area: 1250 }, null, (v) => v.toLocaleString('en-US')) === 'فيلا 1,250 م²');
 
 console.log(`passed ${pass}, failed ${fail}`);
 if (fail) {

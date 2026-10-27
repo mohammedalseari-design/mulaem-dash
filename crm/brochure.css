@@ -79,6 +79,10 @@
 /* الخريطة بلون المشروع (رمادي تحت لونه العميق) فتنتمي إلى البروشور لا إلى ألوان المطوّر */
 .bro-duo { background: var(--deep); isolation: isolate; }
 .bro-duo img { filter: grayscale(1) contrast(1.12); mix-blend-mode: luminosity; }
+/* خريطة خطوط على شفاف: حبرٌ على الورق (والخطوط الفاتحة تُقلب داكنة)، لا صورة بلون المشروع تذوب فيها الخطوط */
+.bro-lines { background: var(--paper); }
+.bro-lines img { object-fit: contain; mix-blend-mode: multiply; filter: grayscale(1) contrast(1.4); }
+.bro-lines.is-light img { filter: grayscale(1) invert(1) contrast(1.4); }
 
 /* رأس الصفحة: رقمها واسم فصلها في الزاوية اليمنى العليا، بلا خط */
 .bro-run { position: absolute; top: 2.6cqw; right: 4cqw; display: flex; align-items: baseline; gap: 1.3cqw; line-height: 1.5; z-index: 1; }
@@ -136,6 +140,13 @@
 .bro-v-low .bro-cover-foot { margin-top: .8cqw; }
 /* الشعار والبيانات على خط واحد مع أسفل الاسم */
 .bro-v-low .bro-logo-tab { top: auto; right: auto; left: 4cqw; bottom: 5cqw; width: 7cqw; height: 7cqw; }
+/* بلا صورة في البروشور كله: الغلاف كله بلون المشروع، والاسم كبيراً بعرض الصفحة وسطره بلون الإبراز، وأرقام المشروع صفاً في أسفله */
+.bro-v-type .bro-type-name { right: 8cqw; width: 76cqw; top: 13cqw; }
+.bro-type-line { margin-top: 2.6cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.35; font-weight: 300; color: var(--gold-ink); }
+.bro-type-foot { position: absolute; right: 8cqw; left: 8cqw; bottom: 5.6cqw; display: flex; align-items: flex-end; justify-content: space-between; gap: 4cqw; }
+.bro-type-foot .bro-mini { margin-top: 0; padding-top: 0; }
+.bro-type-foot .bro-cover-foot { margin-top: 0; text-align: left; }
+.bro-v-type .bro-logo-tab { right: auto; left: 8cqw; top: 6cqw; }
 /* بلا صورة: حقل الصورة بلون المشروع العميق */
 .bro-cover-field { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; background: var(--deep); }
 
@@ -174,6 +185,14 @@
 /* ---------- صفحة صورة: الصورة كاملة العرض، وشريط ورقي أسفلها فيه رقم الصفحة والتعليق ---------- */
 .bro-plate { position: absolute; left: 0; right: 0; top: 0; height: 50cqw; }
 .bro-strip { position: absolute; left: 4cqw; right: 4cqw; bottom: 0; height: 6.25cqw; display: flex; align-items: center; gap: 1.6cqw; }
+.bro-strip .bro-strip-n { font-size: var(--fs4); }
+/* صورة طولية بنسبتها وارتفاع الصفحة كله عند حافتها، وحقل ورق بجانبها فيه رأس الصفحة أعلاه وتعليقها أسفله؛ والتالية على الحافة الأخرى */
+.bro-tall { position: absolute; top: 0; bottom: 0; left: 0; }
+.bro-mirror .bro-tall { left: auto; right: 0; }
+.bro-tall-field { position: absolute; top: 0; bottom: 0; right: 0; left: var(--w); padding: 2.6cqw 4cqw 4cqw; display: flex; flex-direction: column; justify-content: space-between; }
+.bro-mirror .bro-tall-field { right: var(--w); left: 0; }
+.bro-tall-field > .bro-run, .bro-tall-field > .bro-chap { position: static; }
+.bro-tall-cap { max-width: 30cqw; font-size: var(--fs3); line-height: 1.5; font-weight: 500; color: var(--ink); }
 .bro-cap { font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
 
 /* ---------- لقطات: ثلاث لوحات بهوامش وتعليق تحت كل منها ---------- */
@@ -189,6 +208,7 @@
 .bro-trio .bro-big figcaption { padding-inline-start: 0; text-align: start; margin-inline-end: 4cqw; }
 .bro-pair-b { position: absolute; right: 4cqw; width: 36cqw; top: 21cqw; bottom: 7.4cqw; }
 .bro-pair .bro-cap { position: absolute; right: 4cqw; bottom: 3.6cqw; }
+.bro-mirror .bro-pair-b, .bro-mirror.bro-pair .bro-cap { right: auto; left: 4cqw; }
 
 /* ---------- صفحة كاملة الصورة (افتتاح الموقع، «تواصل معنا»): الكلام على كتلة ورق تبدأ عند خط القسمة في الزاوية السفلى ---------- */
 .bro-panel { position: absolute; right: 0; bottom: 0; width: 44cqw; padding: 3.2cqw 4cqw 4cqw; background: var(--paper); display: flex; flex-direction: column; z-index: 1; }
@@ -204,6 +224,9 @@
 .bro-call-side .bro-call { margin-top: 0; }
 /* لوحة بحد بكسلات صورتها في حقل الصورة: عند خط القسمة، وعلى سطر القائمة الأخير (المزايا) أو تحت رأس الصفحة (النموذج) */
 .bro-plate-d { position: absolute; }
+/* رسم المطوّر الخطي لوحةً: كاملاً بنسبته، وحبره على الورق */
+.bro-plate-d.is-plan { background: transparent; }
+.bro-plate-d.is-plan img { object-fit: contain; mix-blend-mode: multiply; }
 .bro-plate-feat { right: 48cqw; bottom: 4cqw; }
 .bro-plate-unit { right: 48cqw; top: 8cqw; }
 .bro-plate-cap { position: absolute; right: 48cqw; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--ink); }
@@ -212,6 +235,27 @@
 .bro-near { list-style: none; margin-top: auto; padding-top: 1.8cqw; columns: 2; column-gap: 2.4cqw; }
 .bro-near.is-one { columns: 1; }
 .bro-near li { break-inside: avoid; padding: .55cqw 0 .6cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs2); line-height: 1.5; color: var(--ink); }
+/* معالم قليلة بلا خريطة: كبيرة في الحقل المقابل، سطراً سطراً بشعرة فوق كل منها، في منتصفه */
+.bro-places { list-style: none; display: flex; flex-direction: column; justify-content: center; }
+.bro-places li { display: flex; gap: 1.6cqw; align-items: baseline; padding: 1.4cqw 0 1.5cqw; border-top: .08cqw solid var(--hair); --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.35; font-weight: 300; color: var(--ink); }
+.bro-places li:last-child { border-bottom: .08cqw solid var(--hair); }
+.bro-places.is-more li { padding: 1cqw 0 1.05cqw; font-size: var(--fs3); }
+/* فهرس صفوف قليلة (أدوار النموذج): كبيراً في منتصف الحقل */
+.bro-ix.is-few { align-content: center; }
+.bro-ix.is-few .bro-ix-col > span { padding-top: 1.2cqw; padding-bottom: 1.3cqw; font-size: var(--fs3); }
+.bro-ix.is-few .bro-ix-col > .bro-ix-v { padding-inline-start: 3cqw; }
+.bro-ix.is-few .bro-ix-col > .bro-ix-n { --font: var(--display); font-family: var(--font); font-size: var(--fs4); font-weight: 300; }
+.bro-ix.is-few .bro-ix-col > .bro-ix-k { padding-bottom: .6cqw; font-size: var(--fs1); }
+/* رابط الموقع على الخرائط كما وضعه المطوّر */
+.bro-page a.bro-maplink { margin-top: 1.6cqw; align-self: flex-start; font-size: var(--fs2); line-height: 1.6; font-weight: 600; color: var(--gold-ink); border-bottom: .12cqw solid currentColor; }
+/* المسافات بجانب الخريطة: سجل أصغر */
+.bro-ledger.is-compact { margin-top: 1.6cqw; }
+.bro-ledger.is-compact .bro-ledger-row { padding: .6cqw 0 .65cqw; gap: 2cqw; }
+.bro-ledger.is-compact dt { font-size: var(--fs2); }
+.bro-ledger.is-compact .bro-fig-v { font-size: var(--fs4); }
+.bro-ledger.is-compact .bro-fig-v small { font-size: var(--fs1); margin-top: .2cqw; }
+.bro-figs-h { margin-bottom: 1.4cqw; }
+.bro-location .bro-fr > .bro-p { flex-shrink: 0; }
 
 /* ---------- المزايا: العنوان كبيراً يميناً، والقائمة سجلاً مرقّماً؛ والضمانات أرقاماً كبيرة بلون المشروع ---------- */
 .bro-feats { list-style: none; columns: 2; column-gap: 3cqw; }
@@ -220,6 +264,8 @@
 .bro-fr .bro-feats { columns: 1; margin-top: auto; }
 .bro-fr .bro-feats li { font-size: var(--fs2); padding: .75cqw 0 .8cqw; }
 .bro-fr .bro-feats.is-two { columns: 2; column-gap: 2.4cqw; }
+.bro-fl.bro-feats.is-three { columns: 3; column-gap: 2.4cqw; }
+.bro-fl.bro-feats.is-three li { font-size: var(--fs2); }
 /* العنوان والأرقام كتلة واحدة في وسط الصفحة */
 .bro-nums-wrap { position: absolute; left: 4cqw; right: 4cqw; top: 8cqw; bottom: 4cqw; display: flex; flex-direction: column; justify-content: center; gap: 4.4cqw; }
 .bro-nums { list-style: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
@@ -228,6 +274,14 @@
 .bro-nums-v { --font: var(--display); font-family: var(--font); font-size: var(--fs7); line-height: 1; font-weight: 200; color: var(--gold-ink); white-space: nowrap; direction: ltr; unicode-bidi: isolate; text-align: right; }
 .bro-nums-u { margin-top: .8cqw; font-size: var(--fs3); line-height: 1.4; font-weight: 600; color: var(--ink); }
 .bro-nums-k { font-size: var(--fs2); line-height: 1.6; color: var(--text); }
+/* شرط الضمان كما طبعه المطوّر («حسب ضمان الوكيل») تحت بنده */
+.bro-nums-c { font-size: var(--fs1); line-height: 1.5; color: var(--muted); }
+/* سبعة أرقام إلى اثني عشر: صفّان، والعدد درجة أصغر، وشعرة فوق كل خانة */
+.bro-nums.is-many { grid-auto-flow: row; grid-template-columns: repeat(var(--cols), 1fr); column-gap: 2cqw; row-gap: 2.2cqw; }
+.bro-nums.is-many li { padding-inline: 0; border-inline-start: 0; padding-top: 1cqw; border-top: .08cqw solid var(--hair); }
+.bro-nums.is-many .bro-nums-v { font-size: var(--fs6); }
+.bro-nums.is-many .bro-nums-u { margin-top: .4cqw; font-size: var(--fs2); }
+.bro-nums-foot { font-size: var(--fs2); line-height: 1.6; font-weight: 600; color: var(--gold-ink); }
 
 /* ---------- النموذج: مخطط الوحدة كبيراً بالحبر على الورق ومخطط الدور بجانبه مجموعةً في وسط حقلها؛ وكتلة المواصفات يميناً
    (رمل للشقق، ودرجة لون المشروع الفاتحة للمجموعة التالية، وحجري للمباعة) ---------- */
@@ -238,7 +292,9 @@
 /* المخطط بخطوط فاتحة على شفاف (يُعرض على داكن في بروشور المطوّر) يُقلب حبراً داكناً؛ والداكن على أبيض يذوب أبيضه في الورق.
    مخطط الدور بتباين أعلى، فتظهر الوحدة المظللة فيه */
 .bro-plan-light img { filter: grayscale(1) invert(1); opacity: .88; }
-.bro-plan-dark img { mix-blend-mode: multiply; }
+.bro-plan-dark img { mix-blend-mode: multiply; filter: grayscale(1) brightness(.8) contrast(1.7); }
+/* مخطط مضيء على لوح معتم (لوح المطوّر الكحلي): يُقلب ويذوب لوحه في الورق فيبقى الحبر وحده */
+.bro-plan-board img { filter: grayscale(1) invert(1) contrast(1.8) brightness(1.1); mix-blend-mode: multiply; opacity: 1; }
 .bro-plan-key.bro-plan-light img { filter: grayscale(1) invert(1) contrast(1.9); opacity: 1; }
 .bro-plan-key.bro-plan-dark img { filter: grayscale(1) contrast(1.9); }
 .bro-plan-cap { position: absolute; font-size: var(--fs1); line-height: 1.5; font-weight: 500; color: var(--muted); white-space: nowrap; }
@@ -249,6 +305,8 @@
 .bro-model-name { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.2; font-weight: 300; color: var(--ink); }
 .bro-model-name.is-long { font-size: var(--fs4); line-height: 1.4; }
 .bro-model-sub { margin-top: .7cqw; font-size: var(--fs2); line-height: 1.6; font-weight: 500; color: var(--muted); }
+/* الدور تحت اسم النموذج («نموذج A» ثم «الدور الأرضي») */
+.bro-model-floor { margin-top: .6cqw; font-size: var(--fs3); line-height: 1.4; font-weight: 600; color: var(--ink); }
 .bro-price { margin-top: 1.8cqw; }
 .bro-price .bro-fig-v { font-weight: 300; }
 /* المباعة: «مباعة» واضحة هادئة مكان السعر، أصغر من اسم النموذج، والكتلة حجرية والمخطط باهت */
@@ -264,6 +322,14 @@
 .bro-parts { margin-top: 1.8cqw; }
 .bro-parts ul { list-style: none; margin-top: .5cqw; columns: 2; column-gap: 2.4cqw; }
 .bro-parts li { break-inside: avoid; font-size: var(--fs2); line-height: 1.8; color: var(--text); }
+/* سطر يكمل البند الذي قبله («يحتوي على غرفة ملابس + دورة مياه») تحته أصغر */
+.bro-sub { display: block; margin-top: -.2cqw; font-size: var(--fs1); line-height: 1.5; color: var(--muted); }
+/* نموذج بلا مخطط ولا صورة: القياسات والمكوّنات كبيرة في الحقل المقابل للكتلة */
+.bro-wide { position: absolute; left: 4cqw; width: 48cqw; top: 8cqw; bottom: 4cqw; display: flex; flex-direction: column; justify-content: center; gap: 3cqw; }
+.bro-wide .bro-dims { margin-top: 0; }
+.bro-wide .bro-dim-v { font-size: var(--fs5); }
+.bro-parts.is-wide { margin-top: 0; }
+.bro-parts.is-wide li { font-size: var(--fs3); line-height: 1.7; }
 /* نموذج بلا مخطط: صورة من المشروع تنزف حتى خط القسمة وتعليقها تحتها، وإلا حقل هادئ بلون المشروع الفاتح */
 .bro-unit-photo { position: absolute; left: 0; top: 0; bottom: 0; width: 56cqw; display: grid; grid-template-rows: 1fr 6.25cqw; }
 .bro-unit-photo .bro-img { min-height: 0; }
@@ -286,6 +352,8 @@
 .bro-call { margin-top: 2.6cqw; display: grid; gap: .4cqw; }
 .bro-call-n { --font: var(--display); font-family: var(--font); font-size: var(--fs5); line-height: 1.2; font-weight: 300; color: var(--ink); direction: ltr; unicode-bidi: isolate; text-align: right; white-space: nowrap; }
 .bro-fl-call { display: flex; flex-direction: column; justify-content: flex-end; }
+/* كلام المطوّر الطويل في صفحة التواصل (إخلاء المسؤولية): سطر صغير هادئ */
+.bro-fine-p { margin-top: 2cqw; max-width: 40cqw; font-size: var(--fs1); line-height: 1.7; color: var(--muted); text-wrap: pretty; }
 /* افتتاح النماذج: العنوان وعددها وصورة النموذج يميناً، وفهرس النماذج بأسعارها وصفحاتها يساراً */
 .bro-count { margin-top: 1cqw; font-size: var(--fs2); line-height: 1.6; font-weight: 500; color: var(--muted); }
 .bro-chapter-img { flex: 1 1 auto; min-height: 0; margin-top: 2.4cqw; }
@@ -294,7 +362,7 @@
 /* كل عمود ورأسه على حافة واحدة (يمين العمود)، والأرقام بعرض ثابت فتتحاذى منازلها */
 .bro-ix-col > span { padding: .45cqw 0 .5cqw; border-top: .08cqw solid var(--hair); font-size: var(--fs2); line-height: 1.5; color: var(--ink); white-space: nowrap; text-align: start; }
 .bro-ix-col > .bro-ix-v { padding-inline-start: 1.6cqw; font-variant-numeric: tabular-nums; }
-.bro-ix-col > span:nth-last-child(-n+4) { border-bottom: .08cqw solid var(--hair); }
+.bro-ix-col > .is-last { border-bottom: .08cqw solid var(--hair); }
 .bro-ix-col > .bro-ix-k { padding-top: 0; border-top: 0; font-size: var(--fs1); font-weight: 600; color: var(--muted); }
 .bro-ix-col > .bro-ix-n { font-weight: 600; white-space: normal; }
 .bro-ix-col > .bro-ix-p { color: var(--muted); }
@@ -302,6 +370,8 @@
 
 /* ---------- الغلاف الخلفي: لون المشروع العميق، وشعار ملائم أبيض بهواء حوله، وشعاره سطران ---------- */
 .bro-back-mid { position: absolute; top: 11cqw; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* عنوان صفحة المطوّر الأخيرة («افراغ فوري») فوق الشعار */
+.bro-back-line { margin-top: -5cqw; margin-bottom: 3cqw; --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.3; font-weight: 300; color: var(--gold-ink); }
 .bro-logo-back { width: 12cqw; height: 12cqw; display: block; }
 .bro-slogan { margin-top: 3.6cqw; display: grid; gap: .4cqw; }
 .bro-slogan span:first-child { --font: var(--display); font-family: var(--font); font-size: var(--fs4); line-height: 1.4; font-weight: 300; color: var(--ink); }

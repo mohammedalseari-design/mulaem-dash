@@ -9,7 +9,7 @@
 // ثم «حفظ كـ PDF» من نافذة المتصفح. الشعار ملف الشعار الرسمي نفسه (images/logo.jpg) كما هو، لا يُعاد رسمه.
 
 import { supabase } from './supabase.js';
-import { brochureFacts, validateSpec, chaptersOf, groupOf, splitFigure, guaranteePage } from './brochure-plan.js';
+import { brochureFacts, validateSpec, chaptersOf, groupOf, splitFigure, guaranteePage, numberRows, unprinted, restates, modelLabel } from './brochure-plan.js';
 import { readingToBrochure } from './brochure-read.js';
 import { readBrochurePdf, MAX_PAGES } from './brochure-pdf.js';
 import { createRequest, startExtraction } from './agent.js';
@@ -90,14 +90,23 @@ async function startBrochure(file, status) {
             progress: (t) => show(1, t)
         });
         show(2, read.images.length + ' صورة ومخطط');
-        const media = { version: 2, file: file.name, pages: read.pageCount, read: read.pages.length, images: [] };
+        const media = { version: 2, file: file.name, pages: read.pageCount, read: read.pages.length, images: [], fills: read.fills || [], links: read.links || [] };
+        const put = async (path, blob, type) => {
+            const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, blob, { contentType: type === 'png' ? 'image/png' : 'image/jpeg', upsert: false });
+            if (error) throw error;
+            return supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
+        };
         for (const [i, img] of read.images.entries()) {
             show(2, 'رفع صورة ' + (i + 1) + ' من ' + read.images.length);
-            const path = 'brochures/' + id + '/img-' + String(i + 1).padStart(2, '0') + '.' + img.type;
-            const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, img.blob, { contentType: img.type === 'png' ? 'image/png' : 'image/jpeg', upsert: false });
-            if (error) throw error;
-            media.images.push({ url: supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
-                page: img.page, w: img.w, h: img.h, kind: img.kind, tone: img.tone, deep: img.deep, quiet: img.quiet, crop: img.crop, tall: img.tall, on: img.on });
+            const name = 'brochures/' + id + '/img-' + String(i + 1).padStart(2, '0');
+            const url = await put(name + '.' + img.type, img.blob, img.type);
+            // صور لوحة المطوّر كلٌّ وحدها (img-05-1.jpg …)، ورقم اللوحة تحت صفحتها واحد كما رآها المساعد
+            const parts = [];
+            for (const [k, p] of (img.parts || []).entries()) {
+                parts.push({ url: await put(name + '-' + (k + 1) + '.' + p.type, p.blob, p.type), w: p.w, h: p.h, kind: p.kind, deep: p.deep, quiet: p.quiet, focus: p.focus, detail: p.detail, tall: p.tall, box: p.box, view: p.view });
+            }
+            media.images.push({ url, page: img.page, w: img.w, h: img.h, kind: img.kind, tone: img.tone, deep: img.deep, quiet: img.quiet, focus: img.focus, bg: img.bg,
+                detail: img.detail, alpha: img.alpha, raster: img.raster, view: typeof img.view === 'string' ? img.view : null, vector: img.vector === true, text: typeof img.text === 'number' ? img.text : null, crop: img.crop, tall: img.tall, parts: parts.length >= 2 ? parts : null, on: img.on });
         }
         const manifest = new Blob([JSON.stringify(media)], { type: 'application/json' });
         const { error: mediaError } = await supabase.storage.from(MEDIA_BUCKET).upload('brochures/' + id + '/media.json', manifest, { contentType: 'application/json', upsert: true });
@@ -186,13 +195,31 @@ function showBrochure(root, opts) {
     let variation = 0;
     const pagesBox = el('div', { class: 'bro-pages' });
     const note = el('span', { class: 'crm-subtle' });
+    const lost = el('ul', { class: 'agent-list' });
     const draw = () => {
         const { facts, spec } = opts.build(variation);
         const errors = validateSpec(spec, facts);
         if (errors.length) return void replace(pagesBox, el('div', { class: 'crm-error', text: 'المخطط غير صالح: ' + errors.join('، ') }));
         note.textContent = pagesWord(spec.pages.length) + (facts.images.length ? '' : ' · بلا صور، فالغلاف بالخط وحده');
-        replace(pagesBox, renderPages(spec, facts));
+        const nodes = renderPages(spec, facts);
+        replace(pagesBox, nodes);
+        // كل نص قرأه المساعد يُطبع: ما لم يظهر في صفحته (نص أو رقم أو مكوّن) يُكتب هنا ليراجعه المدير
+        const items = unprinted(spec, facts, nodes.map((n) => n.textContent)).map((x) => 'صفحة ' + x.page + ': لم يُطبع «' + x.text + '»');
+        const show = (list) => { replace(lost, list.slice(0, 8).map((t) => el('li', { text: t }))); lostBox.hidden = !list.length; };
+        show(items);
+        // وفقرة لم يتسع مكانها لكل أسطرها فقُصّت: تُكتب كذلك، بعد تحميل الخط فتُقاس الأسطر كما تُطبع
+        const token = ++drawn;
+        (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => requestAnimationFrame(() => {
+            if (token !== drawn) return;
+            const cut = [];
+            nodes.forEach((pg, i) => pg.querySelectorAll('p').forEach((p) => {
+                if (p.clientHeight && p.scrollHeight > p.clientHeight + 2) cut.push('صفحة ' + (i + 1) + ': لم يتسع مكانه لكل النص «' + p.textContent.trim().slice(0, 48) + '…»');
+            }));
+            if (cut.length) show([...items, ...cut]);
+        }));
     };
+    let drawn = 0;
+    const lostBox = el('div', { class: 'crm-warn-box bro-notes bro-lost', hidden: true }, [el('strong', { text: 'نص من بروشور المطوّر لم يُطبع — راجعه' }), lost]);
     replace(root, [
         pageHead(opts.title, opts.sub, [
             el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'تحميل PDF', onclick: () => printPages(pagesBox) })
@@ -207,6 +234,7 @@ function showBrochure(root, opts) {
             el('strong', { text: 'ملاحظات القراءة — راجعها قبل المشاركة' }),
             el('ul', { class: 'agent-list' }, opts.notes.map((n) => el('li', { text: n })))
         ]) : null,
+        lostBox,
         pagesBox
     ]);
     draw();
@@ -265,9 +293,10 @@ export function renderPages(spec, facts) {
             ctx.group = group;
         }
         if (page.kind === 'statement' && page.variant === 'say' && !(page.text && page.text.title)) ctx.say = says++;
-        ctx.alt = Boolean(prev && prev.kind === page.kind && (page.kind === 'trio' || page.kind === 'location') && !lastAlt);
+        ctx.alt = Boolean(prev && prev.kind === page.kind && (page.kind === 'trio' || page.kind === 'location' || page.kind === 'pair') && !lastAlt);
         lastAlt = ctx.alt;
-        ctx.mirror = (page.kind === 'about' && page.variant === 'split' && splits++ % 2 === 1) || (page.kind === 'location' && ctx.alt);
+        ctx.mirror = (page.kind === 'about' && page.variant === 'split' && splits++ % 2 === 1) || ((page.kind === 'location' || page.kind === 'pair') && ctx.alt)
+            || (page.kind === 'photo' && page.side === 'right');
         let tone = toneOf(page);
         // صفحتان داكنتان لا تتجاوران، ولا أكثر من صفحتين بلون المشروع غير الغلاف الخلفي
         if (tone === 'deep' && page.kind !== 'back' && (lastTone === 'deep' || dark >= 2)) tone = 'sand';
@@ -289,6 +318,7 @@ export function renderPages(spec, facts) {
 function toneOf(page) {
     const { kind, variant } = page;
     if (kind === 'back') return 'deep';
+    if (kind === 'cover' && variant === 'type') return 'deep';
     if (kind === 'features' && variant === 'numbers') return 'deep';
     if (kind === 'statement' && variant === 'say') return page.text && page.text.title && figureIn(page.text.title) ? 'deep' : 'sand';
     if (kind === 'about' && variant === 'text' && !page.stats && items(page).length && !words(page, 'body')) return 'sand';
@@ -307,10 +337,28 @@ function append(node, children) {
 
 const PAGES = { cover, about, photo: photoPage, trio, pair, location: locationPage, model, features, back, statement };
 
-function img(facts, index, cls) {
+// frame: { w, h } مقاس الإطار بـ cqw، فيُقصّ حول نقطة ثقل الصورة. الخريطة صورةً بلون المشروع؛ وخريطة الخطوط على شفاف حبرٌ على الورق
+function img(facts, index, cls, frame) {
     const it = facts.images[index];
-    return it ? el('div', { class: 'bro-img ' + (it.kind === 'map' ? 'bro-duo ' : '') + (cls || '') },
-        el('img', { src: it.url, alt: it.caption || facts.name || 'صورة المشروع', loading: 'eager' })) : null;
+    return it ? el('div', { class: 'bro-img ' + (it.kind === 'map' ? (it.alpha ? 'bro-lines ' + (it.tone === 'light' ? 'is-light ' : '') : 'bro-duo ') : '') + (cls || '') },
+        el('img', { src: it.url, alt: it.caption || facts.name || 'صورة المشروع', loading: 'eager', style: frame ? cropAt(it, frame.w, frame.h) : null })) : null;
+}
+// موضع القصّ حين يقصّ الإطار خُمس الصورة فأكثر: نقطة ثقلها (حيث تفاصيلها) في وسطه ما أمكن، فتُقصّ السماء الفارغة قبل الموضوع؛
+// وصفحة المطوّر كاملةً صورةً (عنوانه مرسوم في سمائها) تُقصّ من أعلاها فلا يظهر نصف عنوانه بجانب عنوان ملائم
+function cropAt(it, fw, fh) {
+    if (!it || !it.w || !it.h || !fw || !fh) return null;
+    const ir = it.w / it.h, fr = fw / fh;
+    const f = it.focus || [0.5, 0.5];
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    if (ir < fr) {
+        const seen = ir / fr;
+        if (seen > 0.8 && !it.raster) return null;
+        const y = it.raster ? 1 : clamp((f[1] - seen / 2) / (1 - seen));
+        return 'object-position:50% ' + (y * 100).toFixed(1) + '%';
+    }
+    const seen = fr / ir;
+    if (seen > 0.8) return null;
+    return 'object-position:' + (clamp((f[0] - seen / 2) / (1 - seen)) * 100).toFixed(1) + '% 50%';
 }
 
 // 1cqw = 1% من عرض الصفحة = 8.42 نقطة مطبوعة (297 مم). لا تُطبع صورة أكبر مما تحمل بكسلاتها: تحت SOFT_DPI يصغر إطارها
@@ -332,7 +380,7 @@ function plate(facts, index, box, zoom, cls) {
     let w = Math.min(box.w, box.h * r);
     if (it.w && it.h) w = Math.min(w, ((Math.min(it.w, it.h * r) / zoom) / MIN_DPI) * 72 / PT_PER_CQW);
     const h = w / r;
-    const node = el('div', { class: 'bro-img bro-plate-d ' + (cls || ''), style: 'width:' + w.toFixed(2) + 'cqw;height:' + h.toFixed(2) + 'cqw' },
+    const node = el('div', { class: 'bro-img bro-plate-d ' + (it.kind === 'plan' ? 'is-plan ' : '') + (cls || ''), style: 'width:' + w.toFixed(2) + 'cqw;height:' + h.toFixed(2) + 'cqw' },
         el('img', { src: it.url, alt: it.caption || facts.name || 'صورة المشروع', loading: 'eager',
             style: zoom > 1 ? 'transform:scale(' + zoom + ');transform-origin:50% 62%' : null }));
     return { node, w, h };
@@ -407,8 +455,8 @@ function fig(label, value, unit, cls) {
     ]);
 }
 // أرقام الصفحة البارزة كما طُبعت (سجل التطوير: «+700 عملاء»): سطر لكل رقم، العنوان يميناً والرقم كبيراً يساراً
-function ledger(list) {
-    return el('dl', { class: 'bro-ledger' }, list.slice(0, 6).map((f) => {
+function ledger(list, cls) {
+    return el('dl', { class: 'bro-ledger' + (cls ? ' ' + cls : '') }, list.slice(0, 8).map((f) => {
         const s = splitFigure(f.value);
         return el('div', { class: 'bro-ledger-row' }, [
             el('dt', { text: f.label || '' }),
@@ -435,17 +483,40 @@ function sloganLines() {
 /* ---------- الغلاف ---------- */
 // low: الصورة البانورامية شريط عريض بعرض الصفحة والاسم كبيراً تحته؛ side: الصورة حتى خط القسمة والاسم في حقل الكلام؛
 // type: بلا صورة، حقل الصورة بلون المشروع. شعار ملائم صغيراً في هامش الورق
+// وسطر الغلاف ما طبعه المطوّر تحت اسم مشروعه («وحدات سكنية جاهزه»)، وإلا شعار المشروع. type: بلا صورة في البروشور كله، غلاف
+// بلون المشروع كله: الاسم كبيراً بعرض الصفحة، وسطره، وأرقام المشروع (السعر من، والمساحات، وعدد الوحدات) صفاً في أسفله
 function cover(page, facts) {
     const name = facts.name || 'مشروع';
+    const line = page.text && page.text.subtitle ? page.text.subtitle : facts.tagline;
+    if (page.variant === 'type') {
+        const figs = [...projectFigures(facts), facts.units_count ? fig('عدد الوحدات', String(facts.units_count)) : null].filter(Boolean);
+        return [
+            el('div', { class: 'bro-cover-name bro-type-name' }, [
+                el('h1', { class: 'bro-title' + (name.length > 26 ? ' is-long' : ''), text: name }),
+                facts.nameLatin ? el('div', { class: 'bro-latin', text: facts.nameLatin }) : null,
+                line ? el('div', { class: 'bro-type-line', text: line }) : null
+            ]),
+            el('div', { class: 'bro-type-foot' }, [
+                figs.length ? el('div', { class: 'bro-mini' }, figs) : null,
+                el('div', { class: 'bro-cover-foot' }, [
+                    place(facts) ? el('span', { class: 'bro-kicker', text: place(facts) }) : null,
+                    facts.developer ? el('span', { text: 'تطوير ' + facts.developer }) : null,
+                    facts.license ? el('span', { text: facts.license }) : null
+                ])
+            ]),
+            logo('bro-logo-tab', true)
+        ];
+    }
+    const low = page.variant === 'low';
     return [
-        page.variant === 'type' ? el('div', { class: 'bro-cover-field', 'aria-hidden': 'true' }) : img(facts, page.images[0], 'bro-cover-photo'),
+        img(facts, page.images[0], 'bro-cover-photo', low ? { w: 100, h: 34 } : { w: 56, h: 56.25 }),
         el('div', { class: 'bro-cover-name' }, [
             el('h1', { class: 'bro-title' + (name.length > 26 ? ' is-longer' : name.length > 14 ? ' is-long' : ''), text: name }),
             facts.nameLatin ? el('div', { class: 'bro-latin', text: facts.nameLatin }) : null
         ]),
         el('div', { class: 'bro-cover-meta' }, [
             place(facts) ? el('div', { class: 'bro-kicker', text: place(facts) }) : null,
-            facts.tagline ? el('div', { class: 'bro-tagline', text: facts.tagline }) : null,
+            line ? el('div', { class: 'bro-tagline', text: line }) : null,
             facts.soldOut ? el('div', { class: 'bro-tag', text: 'نفدت الوحدات' }) : null,
             facts.developer || facts.license ? el('div', { class: 'bro-cover-foot' }, [
                 facts.developer ? el('span', { text: 'تطوير ' + facts.developer }) : null,
@@ -528,15 +599,41 @@ function about(page, facts, ctx) {
             el('div', { class: 'bro-fl bro-fl-figs' }, ledger(figs))];
     }
     if (list.length && !body && !quote) {
-        return [run(ctx, title), el('div', { class: 'bro-fr' }, [heading(title, ctx, 'is-list'), head[1]]), seam(), register(list, 'bro-fl bro-index')];
+        // قائمة قصيرة وحدها (فهرس المطوّر، أسماء أقسامه): كبيرة في منتصف الحقل المقابل لا أسطراً صغيرة في أسفله
+        const field = list.length <= 8 ? el('ol', { class: 'bro-fl bro-places' + (list.length > 5 ? ' is-more' : '') }, list.map((x, j) => el('li', {}, [ord(j), el('span', { text: x })])))
+            : register(list, 'bro-fl bro-index');
+        return [run(ctx, title), el('div', { class: 'bro-fr' }, [heading(title, ctx, 'is-list'), head[1]]), seam(), field];
     }
     return [run(ctx, title), el('div', { class: 'bro-fr' }, [...head, quote || near(list)]), seam(),
         body ? el('div', { class: 'bro-fl' }, el('p', { class: 'bro-big-p', text: body })) : null];
 }
 
+// صفحة صورة: full عريضة بعرض الصفحة وشريط ورق تحتها برقم الصفحة (أو رقم الفصل واسمه في أوله) وتعليقها؛ tall طولية بنسبتها
+// وارتفاع الصفحة كله عند حافتها، وحقل ورق بجانبها فيه رأس الصفحة وتعليقها؛ plate لوحة بهوامش بحد بكسلاتها
 function photoPage(page, facts, ctx) {
-    const cap = captionOf(facts, page.images[0], page);
-    return [img(facts, page.images[0], 'bro-plate'), el('div', { class: 'bro-strip' }, [el('span', { class: 'bro-num', text: folio(ctx) }), cap ? el('span', { class: 'bro-cap', text: cap }) : null])];
+    const i = page.images[0], it = facts.images[i];
+    const cap = captionOf(facts, i, page);
+    const head = ctx.chap ? [el('span', { class: 'bro-chap-n bro-strip-n', text: ctx.chap.n }), el('span', { class: 'bro-chap-t', text: ctx.chap.name })]
+        : [el('span', { class: 'bro-num', text: folio(ctx) })];
+    if (page.variant === 'tall' && it && it.w && it.h) {
+        // حتى خط القسمة (56) إن بقي ثلاثة أرباع ارتفاعها فأكثر وحملت بكسلاتها العرض، وإلا بنسبتها كاملة
+        const own = 56.25 * (it.w / it.h);
+        const w = own / 56 >= 0.72 && dpiIn(it, 56, 56.25) >= SOFT_DPI ? 56 : Math.min(52, own);
+        const photo = img(facts, i, 'bro-tall', { w, h: 56.25 });
+        if (photo) photo.style.width = w.toFixed(2) + 'cqw';
+        return [photo, el('div', { class: 'bro-tall-field', style: '--w:' + w.toFixed(2) + 'cqw' }, [run(ctx, cap), cap ? el('p', { class: 'bro-tall-cap', text: cap }) : null])];
+    }
+    if (page.variant === 'plate') {
+        // اللوحة في وسط الصفحة بين هامشين، وتعليقها تحتها على حافتها
+        const p = plate(facts, i, { w: 62, h: 42 }, 1, 'bro-plate-photo');
+        if (p) {
+            const top = 7.4 + (42 - p.h) / 2, right = (100 - p.w) / 2;
+            p.node.style.top = top.toFixed(2) + 'cqw';
+            p.node.style.right = right.toFixed(2) + 'cqw';
+            return [run(ctx, cap), p.node, cap ? el('p', { class: 'bro-plate-cap', style: 'top:' + (top + p.h + 0.8).toFixed(2) + 'cqw;right:' + right.toFixed(2) + 'cqw', text: cap }) : null];
+        }
+    }
+    return [img(facts, i, 'bro-plate', { w: 100, h: 50 }), el('div', { class: 'bro-strip' }, [...head, cap ? el('span', { class: 'bro-cap', text: cap }) : null])];
 }
 
 // لقطات: ثلاث لوحات بهوامش وتعليق تحت كل منها؛ والتالية مباشرة صورة كبيرة تنزف من الحافة وصورتان صغيرتان، والتعليقات على سطر واحد
@@ -548,34 +645,46 @@ function trio(page, facts, ctx) {
     return [run(ctx), panel(big, 'bro-big'), el('div', { class: 'bro-smalls' }, list.slice(0, -1).map((i) => panel(i)))];
 }
 
+// صورتان: الكبيرة تنزف حتى خط القسمة والصغيرة في حقل الكلام؛ والتالية مباشرة منعكسة (الكبيرة يميناً)
 function pair(page, facts, ctx) {
     const cap = captionOf(facts, page.images[1]) || captionOf(facts, page.images[0]);
-    return [img(facts, page.images[0], 'bro-bleed-l'), run(ctx),
+    return [img(facts, page.images[0], ctx.alt ? 'bro-bleed-r' : 'bro-bleed-l', { w: 56, h: 56.25 }), run(ctx),
         words(page, 'title') ? el('div', { class: 'bro-fr' }, heading(words(page, 'title'), ctx)) : null,
-        img(facts, page.images[1], 'bro-pair-b'), cap ? el('span', { class: 'bro-cap', text: cap }) : null];
+        img(facts, page.images[1], 'bro-pair-b', { w: 36, h: 27.85 }), cap ? el('span', { class: 'bro-cap', text: cap }) : null];
 }
 
+// الموقع: المسافات المطبوعة («7 دقائق عن جدة سوبردوم») سجلاً في كل نسق، ورابط الخرائط كما وضعه المطوّر. بلا خريطة: الكلام يميناً،
+// والمسافات (أو المعالم كبيرة إن قلّت) في الحقل المقابل
 function locationPage(page, facts, ctx) {
     const body = page.text ? words(page, 'body') : facts.address;
     const list = items(page).length ? items(page) : facts.landmarks;
+    const figs = figures(page);
     const title = words(page, 'title') || place(facts);
-    const head = [heading(title, ctx), lead(page)];
+    // مسافات كثيرة بجانب الصورة: العنوان درجة أصغر فيبقى للنص سطراه وللمسافات مكانها
+    const head = [heading(title, ctx, figs.length >= 4 && page.variant !== 'text' ? 'is-long' : null), lead(page)];
     const para = body ? el('p', { class: 'bro-p', text: body }) : null;
+    const link = page.link && /^https:\/\//.test(page.link) ? el('a', { class: 'bro-maplink', href: page.link, target: '_blank', rel: 'noopener', text: 'الموقع على الخرائط' }) : null;
+    const dist = figs.length ? ledger(figs, 'is-compact') : null;
     if (page.variant === 'hero') {
         // الصورة الجوية تملأ الصفحة، والكلام على كتلة ورق بعرض حقل الكلام (44) في الزاوية السفلى الأهدأ من الصورة (quiet في
         // media.json)، فيبقى موضوعها (الحي المضاء على القناة) ظاهراً. العنوان فيها بدرجة عنوان الصفحة ورقم الفصل فوقه
         const it = facts.images[page.images[0]];
         return [img(facts, page.images[0], 'bro-full'), el('div', { class: 'bro-panel is-site' + (it && it.quiet === 'left' ? ' is-left' : '') }, [
-            run(ctx, title), heading(title, null), lead(page), para, near(list)
+            run(ctx, title), heading(title, null), lead(page), para, near(list), dist, link
         ])];
     }
     if (page.variant === 'map') {
-        const fr = el('div', { class: 'bro-fr' }, [...head, para, near(list)]);
+        const fr = el('div', { class: 'bro-fr' }, [...head, para, near(list), dist, link]);
         // الثانية بعد صفحة موقع تنعكس: الصورة تنزف يميناً، والكلام على كتلة بدرجة لون المشروع الفاتحة يساراً
         if (ctx.alt) return [img(facts, page.images[0], 'bro-bleed-r'), el('div', { class: 'bro-block bro-block-l bro-pale' }, [run(ctx, title), fr])];
         return [img(facts, page.images[0], 'bro-bleed-l'), run(ctx, title), fr];
     }
-    return [run(ctx, title), el('div', { class: 'bro-fr' }, [...head, para]), seam(), list.length ? register(list, 'bro-fl bro-index', 12) : null];
+    if (figs.length) {
+        return [run(ctx, title), el('div', { class: 'bro-fr' }, [...head, para, near(list), link]), seam(), el('div', { class: 'bro-fl bro-fl-figs' }, ledger(figs))];
+    }
+    const field = !list.length ? null : list.length <= 4 ? el('ol', { class: 'bro-fl bro-places' }, list.map((x, j) => el('li', {}, [ord(j), el('span', { text: x })])))
+        : register(list, 'bro-fl bro-index', 16);
+    return [run(ctx, title), el('div', { class: 'bro-fr' }, [...head, para, link]), seam(), field];
 }
 
 /* ---------- النموذج ---------- */
@@ -585,14 +694,16 @@ const AREA_PART = /^([\d٠-٩]+(?:[.,][\d٠-٩]+)?)\s*(?:م²|م2)\s+(\S.*)$/;
 function latinDigits(t) {
     return String(t).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 }
+// وسطر يكمل ما قبله («يحتوي على غرفه ملابس + دورة مياة») يُطبع تحته لا بنداً مستقلاً
+const CONTINUES = /^(?:يحتوي|تحتوي|يشمل|تشمل|ويحتوي|وتحتوي|مع\s|\+)/;
 function specOf(m) {
     const extra = [], parts = [], seen = new Set();
     for (const p of m.parts) {
         const a = AREA_PART.exec(p);
         if (a) { extra.push([a[2].trim(), latinDigits(a[1])]); continue; }
-        const baths = /^([\d٠-٩]+)\s*دورات?\s*مياه$/.exec(p);
-        if (baths && m.bathrooms && Number(latinDigits(baths[1])) === m.bathrooms) continue;
-        if (!seen.has(p)) { seen.add(p); parts.push(p); }
+        if (restates(p, m)) continue;
+        if (CONTINUES.test(p) && parts.length) { parts[parts.length - 1].subs.push(p); continue; }
+        if (!seen.has(p)) { seen.add(p); parts.push({ text: p, subs: [] }); }
     }
     const dims = [
         m.area ? ['المساحة', money(m.area), 'م²'] : null,
@@ -623,12 +734,12 @@ function cropped(m, box, w, h, cls) {
     const pct = (v) => (Math.round(v * 10000) / 100) + '%';
     const im = el('img', { src: m.plan, alt: 'مخطط ' + (m.name || 'النموذج'),
         style: 'width:' + pct(1 / (x1 - x0)) + ';height:' + pct(1 / (y1 - y0)) + ';left:' + pct(-x0 / (x1 - x0)) + ';top:' + pct(-y0 / (y1 - y0)) });
-    return el('div', { class: 'bro-plan ' + cls + ' bro-plan-' + m.planTone, style: 'width:' + w.toFixed(2) + 'cqw;height:' + h.toFixed(2) + 'cqw' }, im);
+    return el('div', { class: 'bro-plan ' + cls + ' bro-plan-' + m.planTone + (m.planBoard ? ' bro-plan-board' : ''), style: 'width:' + w.toFixed(2) + 'cqw;height:' + h.toFixed(2) + 'cqw' }, im);
 }
 function planView(m, caption) {
     const ratio = m.planRatio;
     if (!ratio) {
-        return [el('div', { class: 'bro-plan bro-plan-free bro-plan-' + m.planTone }, el('img', { src: m.plan, alt: 'مخطط ' + (m.name || 'النموذج') })),
+        return [el('div', { class: 'bro-plan bro-plan-free bro-plan-' + m.planTone + (m.planBoard ? ' bro-plan-board' : '') }, el('img', { src: m.plan, alt: 'مخطط ' + (m.name || 'النموذج') })),
             el('div', { class: 'bro-plan-cap bro-plan-cap-free', text: caption })];
     }
     const unitBox = m.planUnit || [0, 0, 1, 1];
@@ -669,23 +780,37 @@ function planView(m, caption) {
 
 // صفحة النموذج قالب واحد بمخطط وبلا مخطط: الاسم، والسعر أكبر رقم فيها (أو «مباعة»)، وشريط القياسات بالمساحة والغرف ودورات
 // المياه، والمكوّنات، في الكتلة يميناً. وحقل المخطط: المخطط، وإلا صورة من صور المشروع بتعليقها، وإلا حقل هادئ بلون المشروع الفاتح
+// اسم النموذج كما قُرئ؛ وبلا اسم عنوانُ صفحته المطبوع، ثم نوعه أو مساحته («وحدة 282 م²») — لا «النموذج» عنواناً لكل الصفحات
+function modelName(m, page) {
+    return modelLabel(m, page && page.text ? page.text.title : null, money);
+}
+function partsList(parts, label, cls) {
+    return parts.length ? el('div', { class: 'bro-parts' + (cls ? ' ' + cls : '') }, [el('div', { class: 'bro-label', text: label }),
+        el('ul', {}, parts.map((p) => el('li', {}, [p.text, ...p.subs.map((x) => el('span', { class: 'bro-sub', text: x }))])))]) : null;
+}
+
 function model(page, facts, ctx) {
     const m = facts.models[page.model];
     const plan = page.variant === 'plan';
-    const sub = [m.type && !(m.name || '').startsWith(m.type) ? m.type : null, m.orientation].filter(Boolean).join(' · ');
+    const name = modelName(m, page);
+    const sub = [m.type && !name.startsWith(m.type) ? m.type : null, m.orientation].filter(Boolean).join(' · ');
     const { dims, parts, extra } = specOf(m);
     const price = m.sold ? soldTag() : m.price ? fig('السعر', money(m.price), 'ريال', 'bro-price') : null;
-    const name = m.name || 'النموذج';
-    const spec = el('div', { class: 'bro-spec' }, [
-        el('h2', { class: 'bro-model-name' + (name.length > 14 ? ' is-long' : ''), text: name }),
-        sub ? el('div', { class: 'bro-model-sub', text: sub }) : null,
-        price,
-        dimsGrid(dims),
-        parts.length ? el('div', { class: 'bro-parts' }, [el('div', { class: 'bro-label', text: 'مكوّنات الوحدة' }), el('ul', {}, parts.map((p) => el('li', { text: p })))]) : null
-    ]);
+    // صفحة دورٍ من النموذج: اسمه ثم الدور تحته، ومكوّناته «مكوّنات الدور» لا الوحدة كلها
+    const what = m.floor ? 'الدور' : 'الوحدة';
+    const head = [el('h2', { class: 'bro-model-name' + (name.length > 14 ? ' is-long' : ''), text: name }),
+        m.floor ? el('div', { class: 'bro-model-floor', text: m.floor }) : null,
+        sub ? el('div', { class: 'bro-model-sub', text: sub }) : null];
+    const tint = m.sold ? ' bro-stone' : ctx.group % 2 ? ' bro-pale' : '';
+    if (page.variant === 'wide') {
+        // بلا مخطط ولا صورة: الاسم والسعر في الكتلة، والقياسات والمكوّنات كبيرة في الحقل المقابل
+        return [el('div', { class: 'bro-block' + tint }, [run(ctx), el('div', { class: 'bro-spec' }, [...head, price])]),
+            el('div', { class: 'bro-wide' }, [dimsGrid(dims), partsList(parts, 'مكوّنات ' + what, 'is-wide')])];
+    }
+    const spec = el('div', { class: 'bro-spec' }, [...head, price, dimsGrid(dims), partsList(parts, 'مكوّنات ' + what)]);
     // تعليق المخطط: ومساحة المباني إن كُتبت في مكوّناته، فلا يبدو رقم المخطط («مساحتها 165م²») مناقضاً لمساحة الملحق كلها
     const built = extra.find(([k]) => /مبان/.test(k));
-    const caption = 'مخطط الوحدة' + (built ? ' · ' + built[0] + ' ' + built[1] + ' م²' : '');
+    const caption = 'مخطط ' + what + (built ? ' · ' + built[0] + ' ' + built[1] + ' م²' : '');
     const photo = !plan && (page.images || []).length ? page.images[0] : null;
     // صورة مستعارة من صور المشروع لا تخص هذه الوحدة: «صورة توضيحية» تحتها، فلا تُقرأ صورةً للوحدة نفسها
     const cap = photo === null ? null : page.lent ? [captionOf(facts, photo), 'صورة توضيحية'].filter(Boolean).join(' · ') : captionOf(facts, photo);
@@ -696,50 +821,61 @@ function model(page, facts, ctx) {
         : p ? [p.node, el('div', { class: 'bro-plate-cap', style: 'top:' + (8 + p.h + 0.8).toFixed(2) + 'cqw', text: cap || '' })]
             : photo !== null ? [el('figure', { class: 'bro-unit-photo' }, [img(facts, photo), el('figcaption', { text: cap || '' })])]
                 : [el('div', { class: 'bro-quiet', 'aria-hidden': 'true' })];
-    const tint = m.sold ? ' bro-stone' : ctx.group % 2 ? ' bro-pale' : '';
     return [...visual, el('div', { class: 'bro-block' + tint }, [run(ctx), spec])];
 }
 
 /* ---------- المزايا والضمانات ---------- */
-// «10 سنوات أبواب WPC» ← { n: 10، الوحدة: سنوات، البند: أبواب WPC }
-const UNIT_WORD = /^(سنوات|سنة|سنين|سنتين|سنتان|أعوام|عام|أشهر|شهور|شهر|أيام|يوم|ساعة|%)/;
-function numberItem(text) {
-    const m = /^\s*([\d٠-٩]+(?:[.,][\d٠-٩]+)?)\s*(.*)$/.exec(String(text || ''));
-    if (!m) return null;
-    const rest = m[2].trim();
-    const u = UNIT_WORD.exec(rest);
-    return { n: m[1], unit: u ? u[1] : null, label: (u ? rest.slice(u[1].length) : rest).trim() || null };
+
+// عنوان من كلمة واحدة وتتمته في السطر التالي («ضمانات» ثم «المشروع») عنوانٌ واحد
+function joinedTitle(page) {
+    const t = words(page, 'title'), s = words(page, 'subtitle');
+    return t && s && !/\s/.test(t) && s.split(/\s+/).length <= 2 && !/ضمان/.test(s) ? t + ' ' + s : null;
 }
 
 function features(page, facts, ctx) {
     const list = items(page).length ? items(page) : facts.amenities;
-    const title = words(page, 'title');
+    const joined = joinedTitle(page);
+    const title = joined || words(page, 'title');
     // صفحة الضمانات تُعنون باسم قسمها حين يكرر المطوّر عليها عنوان صفحة سابقة («مميزات المشروع» مرتين)
     const repeated = title && ctx.spec.pages.slice(0, ctx.n - 1).some((p) => p.text && p.text.title === title);
     const headText = guaranteePage(page) && (repeated || !title) ? 'الضمانات' : title || 'مميزات المشروع';
     const head = heading(headText, ctx, 'bro-feat-h');
+    const sub = joined ? null : lead(page);
+    const body = words(page, 'body') ? el('p', { class: 'bro-p' + short(words(page, 'body')), text: words(page, 'body') }) : null;
     if (page.variant === 'numbers') {
-        // العنوان والأرقام كتلة واحدة في وسط الصفحة: العدد كبيراً، ووحدته ثم بنده تحته
-        const rows = (figures(page).length ? figures(page).map((f) => { const s = splitFigure(f.value); return s.n ? { n: s.n, unit: s.unit, label: f.label } : null; })
-            : list.map(numberItem)).filter(Boolean).slice(0, 6);
-        return [run(ctx, headText), el('div', { class: 'bro-nums-wrap' }, [head, el('ol', { class: 'bro-nums' }, rows.map((r) => el('li', {}, [
-            el('div', { class: 'bro-nums-v', text: r.n }),
-            r.unit ? el('div', { class: 'bro-nums-u', text: r.unit }) : null,
-            r.label ? el('div', { class: 'bro-nums-k', text: r.label }) : null
-        ])))])];
+        // العنوان والأرقام كتلة واحدة في وسط الصفحة: العدد كبيراً، ووحدته ثم بنده وشرطه تحته؛ حتى 12 رقماً صفّين، وسطر بلا عدد
+        // («تأمين ضد العيوب الخفية») تحت الأرقام
+        const rows = numberRows(page.text).slice(0, 12);
+        const cols = rows.length <= 6 ? rows.length : Math.ceil(rows.length / 2);
+        return [run(ctx, headText), el('div', { class: 'bro-nums-wrap' }, [el('div', {}, [head, sub]), el('ol', { class: 'bro-nums' + (rows.length > 6 ? ' is-many' : ''), style: '--cols:' + cols },
+            rows.map((r) => el('li', {}, [
+                el('div', { class: 'bro-nums-v', text: r.n }),
+                r.unit ? el('div', { class: 'bro-nums-u', text: r.unit }) : null,
+                r.label ? el('div', { class: 'bro-nums-k', text: r.label }) : null,
+                r.note ? el('div', { class: 'bro-nums-c', text: r.note }) : null
+            ]))), (page.extra || []).length ? el('p', { class: 'bro-nums-foot', text: page.extra.join(' · ') }) : null])];
+    }
+    // قائمة المزايا ومعها أرقام الصفحة البارزة: القائمة يميناً تحت العنوان، والأرقام سجلاً في الحقل المقابل تحت عنوانها الفرعي
+    // («المميزات» ثم «الضمانات»)
+    if (page.variant === 'mixed') {
+        return [run(ctx, headText), el('div', { class: 'bro-fr' }, [head, register(list, 'bro-feats' + (list.length > 5 ? ' is-two' : ''), 16)]), seam(),
+            el('div', { class: 'bro-fl bro-fl-figs' }, [words(page, 'subtitle') && !joined ? el('h3', { class: 'bro-h is-long bro-figs-h', text: words(page, 'subtitle') }) : null, ledger(figures(page))])];
     }
     // بجانب الصورة: القائمة عمودان إن طالت، فيبقى لعنوان الفصل الكبير مكانه فوقها. صورة عُرضت كاملة في صفحة أخرى (مستعارة) أو
     // صغيرة على الصفحة كلها: لوحة في حقل الصورة بحد بكسلاتها، تفصيلاً مقرّباً إن كانت مستعارة، عند خط القسمة وعلى سطر القائمة الأخير
     if (page.variant === 'photo') {
-        const copy = el('div', { class: 'bro-fr' }, [head, register(list, 'bro-feats' + (list.length > 5 ? ' is-two' : ''), 10)]);
+        const copy = el('div', { class: 'bro-fr' }, [head, sub, body, register(list, 'bro-feats' + (list.length > 5 ? ' is-two' : ''), 16)]);
         const it = facts.images[page.images[0]];
         if (page.detail || dpiIn(it, 56, 56.25) < SOFT_DPI) {
             const p = plate(facts, page.images[0], { w: 48, h: 44 }, page.detail ? 2 : 1, 'bro-plate-feat');
             return [run(ctx, headText), copy, seam(), p ? p.node : null];
         }
-        return [img(facts, page.images[0], 'bro-bleed-l'), run(ctx, headText), copy];
+        return [img(facts, page.images[0], 'bro-bleed-l', { w: 56, h: 56.25 }), run(ctx, headText), copy];
     }
-    return [run(ctx, headText), el('div', { class: 'bro-fr' }, head), seam(), register(list, 'bro-fl bro-feats', 10)];
+    // قائمة قصيرة (ستة أسطر فأقل): كبيرة في منتصف الحقل المقابل لا سطرين صغيرين في أسفله
+    const field = list.length <= 6 ? el('ol', { class: 'bro-fl bro-places' }, list.map((x, j) => el('li', {}, [ord(j), el('span', { text: x })])))
+        : register(list, 'bro-fl bro-feats' + (list.length > 12 ? ' is-three' : ''), 16);
+    return [run(ctx, headText), el('div', { class: 'bro-fr' }, [head, sub, body]), seam(), field];
 }
 
 /* ---------- الصفحة الفاصلة، والفهرس، وافتتاح النماذج، و«تواصل معنا» ---------- */
@@ -750,7 +886,7 @@ function statement(page, facts, ctx) {
     if (page.variant === 'contents') return contents(page, facts, ctx);
     const t = page.text;
     if (t && t.title) {
-        if (ctx.next && ctx.next.kind === 'back') return call(page, facts, ctx);
+        if (page.call || (ctx.next && ctx.next.kind === 'back')) return call(page, facts, ctx);
         const big = ctx.tone === 'deep' ? figureIn(t.title) : null;
         if (big) {
             // العدد يُكتب مرة واحدة كبيراً في موضعه من الجملة («بخبرة تمتد منذ عام [2010]»)، والجملة بدرجة عنوان الفصل
@@ -806,7 +942,8 @@ function call(page, facts, ctx) {
         el('span', { text: t.title }), t.subtitle ? ' ' : null, t.subtitle ? el('span', { class: 'bro-h-more', text: t.subtitle }) : null
     ]);
     const phone = facts.office.whatsapp ? el('div', { class: 'bro-call' }, [el('div', { class: 'bro-label', text: 'واتساب ملائم العقارية' }), phoneLink(facts.office.whatsapp, 'bro-call-n')]) : null;
-    const body = t.body ? el('p', { class: 'bro-p', text: t.body }) : null;
+    // كلام المطوّر الطويل في صفحة التواصل (إخلاء المسؤولية) سطرٌ صغير، والرقم هو العنصر الأول
+    const body = t.body ? el('p', { class: t.body.length > 180 ? 'bro-fine-p' : 'bro-p', text: t.body }) : null;
     const it = (page.images || []).length ? facts.images[page.images[0]] : null;
     // صورة بانورامية (صورة الغلاف): شريط بعرض الصفحة في أسفلها بارتفاع تحمله بكسلاتها، صدى الغلاف في آخر الكتاب، والجملة
     // يميناً والرقم يساراً على الورق فوقه
@@ -839,6 +976,10 @@ function contents(page, facts, ctx) {
 function modelsWord(n) {
     return n === 1 ? 'نموذج واحد' : n === 2 ? 'نموذجان' : n <= 10 ? n + ' نماذج' : n + ' نموذجًا';
 }
+// «3 أدوار»، «دوران»
+function floorsWord(n) {
+    return n === 1 ? 'دور واحد' : n === 2 ? 'دوران' : n <= 10 ? n + ' أدوار' : n + ' دورًا';
+}
 
 // فهرس النماذج التي تلي الصفحة بأسمائها ومساحاتها وأسعارها وصفحاتها كما قُرئت (المباعة «مباعة» باهتة في آخر مجموعتها): عمود لكل
 // مجموعة إن كانتا اثنتين، وإلا عمود أو عمودان بالتساوي؛ وتحت العنوان عدد النماذج والمباع منها
@@ -858,25 +999,30 @@ function chapter(page, facts, ctx) {
     const cols = groups.length === 2 && Math.max(groups[0].rows.length, groups[1].rows.length) <= 14 ? groups.map((g) => g.rows)
         : list.length > 10 ? [list.slice(0, half), list.slice(half)] : [list];
     const sold = list.filter((r) => r.m.sold).length;
-    const table = el('div', { class: 'bro-fl bro-ix', style: '--cols:' + cols.length }, cols.map((rows) => el('div', { class: 'bro-ix-col' }, [
-        el('span', { class: 'bro-ix-k', text: 'النموذج' }),
-        el('span', { class: 'bro-ix-k bro-ix-v', text: 'م²' }),
-        el('span', { class: 'bro-ix-k bro-ix-v', text: 'السعر' }),
+    // نموذج واحد بأدواره (فاصل «نموذج A» قبل صفحات أدواره): فهرس أدواره بصفحاتها، و«3 أدوار»؛ وإلا فهرس النماذج بأعمدة ما قُرئ
+    // منها فقط (لا عمود كله «—»)، وعددها بأسمائها لا بصفحاتها
+    const names = [...new Set(list.map((r) => r.m.name).filter(Boolean))];
+    const floors = names.length <= 1 && list.length > 1 && list.some((r) => r.m.floor);
+    const fields = floors ? [['الدور', (m) => m.floor || '—', 'bro-ix-n']]
+        : [['النموذج', (m) => modelName(m), 'bro-ix-n'],
+            list.some((r) => r.m.area) ? ['م²', (m) => (m.area ? money(m.area) : '—'), 'bro-ix-v'] : null,
+            list.some((r) => r.m.price || r.m.sold) ? ['السعر', (m) => (m.sold ? 'مباعة' : m.price ? money(m.price) : '—'), 'bro-ix-v'] : null].filter(Boolean);
+    // صفوف قليلة (أدوار نموذج، أو نموذجان أو ثلاثة): كبيرة في منتصف الحقل
+    const few = list.length <= 5;
+    const table = el('div', { class: 'bro-fl bro-ix' + (few ? ' is-few' : ''), style: '--cols:' + cols.length }, cols.map((rows) => el('div', { class: 'bro-ix-col', style: 'grid-template-columns:1fr' + ' max-content'.repeat(fields.length) }, [
+        ...fields.map(([k, , c], j) => el('span', { class: 'bro-ix-k' + (j ? ' bro-ix-v' : ''), text: k })),
         el('span', { class: 'bro-ix-k bro-ix-v', text: 'ص' }),
-        ...rows.slice(0, 16).flatMap(({ m, page: at }) => {
-            const s = m.sold ? ' is-sold' : '';
-            return [
-                el('span', { class: 'bro-ix-n' + s, text: m.name || '—' }),
-                el('span', { class: 'bro-ix-v' + s, text: m.area ? money(m.area) : '—' }),
-                el('span', { class: 'bro-ix-v' + s, text: m.sold ? 'مباعة' : m.price ? money(m.price) : '—' }),
-                el('span', { class: 'bro-ix-v bro-ix-p' + s, text: at ? String(at).padStart(2, '0') : '' })
-            ];
+        ...rows.slice(0, 16).flatMap(({ m, page: at }, r) => {
+            const s = (m.sold ? ' is-sold' : '') + (r === Math.min(rows.length, 16) - 1 ? ' is-last' : '');
+            return [...fields.map(([, v, c]) => el('span', { class: c + s, text: v(m) })),
+                el('span', { class: 'bro-ix-v bro-ix-p' + s, text: at ? String(at).padStart(2, '0') : '' })];
         })
     ])));
+    const many = floors ? floorsWord(list.length) : modelsWord(names.length || list.length);
     return [run(ctx, t.title || 'النماذج'), el('div', { class: 'bro-fr' }, [
         heading(t.title || 'النماذج', ctx),
         t.subtitle ? el('p', { class: 'bro-lead', text: t.subtitle }) : null,
-        el('p', { class: 'bro-count', text: modelsWord(list.length) + (sold ? '، المباع منها ' + sold : '') }),
+        el('p', { class: 'bro-count', text: many + (sold ? '، المباع منها ' + sold : '') }),
         (page.images || []).length ? img(facts, page.images[0], 'bro-chapter-img') : null
     ]), seam(), table];
 }
@@ -885,8 +1031,11 @@ function chapter(page, facts, ctx) {
 function back(page, facts, ctx) {
     const prev = ctx.prev;
     const called = prev && prev.kind === 'statement' && prev.variant === 'say' && prev.text && prev.text.title;
+    // عنوان صفحة المطوّر الأخيرة حين كان فيها كلام («افراغ فوري»): سطرٌ بلون الإبراز فوق شعار ملائم
+    const closing = page.text && page.text.title ? [page.text.title, page.text.subtitle].filter(Boolean).join(' — ') : null;
     return [
         el('div', { class: 'bro-back-mid' }, [
+            closing ? el('div', { class: 'bro-back-line', text: closing }) : null,
             logo('bro-logo-back', true),
             el('div', { class: 'bro-slogan' }, sloganLines().map((s) => el('span', { text: s }))),
             facts.office.whatsapp && !called ? phoneLink(facts.office.whatsapp, 'bro-phone') : null

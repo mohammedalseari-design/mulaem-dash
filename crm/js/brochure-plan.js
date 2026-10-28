@@ -7,8 +7,11 @@
 // والمخطط لا يحمل أرقاماً، بل فهارس صور ونماذج ونصوص الصفحة كما قرأها المساعد، فلا يكتب نموذجٌ سعراً من عنده.
 // لا قيمة في البروشور ليست في البيانات: الناقص يغيب مع سطره ولا يُخمَّن.
 
+import { FAMILIES } from './brochure-art.js';
+
 export const PAGE_KINDS = {
-    cover: ['side', 'low', 'type'],
+    // full: صورة الغلاف تملأ الصفحة والاسم على كتلة في زاويتها (يختاره الاتجاه الفني لصورة أفقية تحمل بكسلاتها الصفحة)
+    cover: ['side', 'low', 'full', 'type'],
     about: ['split', 'text'],
     // full: صورة عريضة بعرض الصفحة؛ tall: صورة طولية بنسبتها وارتفاع الصفحة كله بجانب حقل ورق (يتبادل الجانبان)؛ plate: لوحة
     // بهوامش بحد بكسلاتها (صورة صغيرة أو لقطة ضعيفة بين لقطات متتالية)
@@ -28,17 +31,9 @@ export const PAGE_KINDS = {
     statement: ['say', 'chapter', 'contents']
 };
 
-// ألوان البروشور من لون مشروعه: لون هوية المطوّر المسطّح في صفحاته إن تكرر (brandColour في brochure-media.js)، وإلا عائلة لون
-// صوره (brochureTone): deep للصفحات والكتل الداكنة (ثلاث صفحات على الأكثر) وللغلاف الخلفي، وpale لكتل فصل النماذج الثاني.
-// المالك (2026-10-25): «مو لازم أزرق غامق… لا تكون مقيد بألوان ملائم». هوية ملائم في شعارها وسطرها على الغلاف الخلفي بلون
-// المشروع؛ وبلا لون ولا عائلة يبقى كحلي ملائم. العائلات مختارة هنا سلفاً
-export const PALETTES = {
-    navy: { deep: '#14213A', pale: '#E3E6EA' },
-    forest: { deep: '#1E3A2F', pale: '#E2E7DD' },
-    teal: { deep: '#173B40', pale: '#DFE8E6' },
-    bronze: { deep: '#3A2A1E', pale: '#ECE2D3' },
-    plum: { deep: '#2E2436', pale: '#E8E2E8' }
-};
+// ألوان البروشور وخطوطه وإيقاعه من اتجاهه الفني (brochure-art.js): الحقائق تحمل عائلة لون صور المشروع وحدها (اسماً من قائمة
+// ثابتة لا لوناً)، فلا يُطبع لون من ملف المطوّر. المالك (2026-10-27): «ابغا ذوق المصمم اللي سويناه… يعطي لكل مشروع على حسبه»
+export { FAMILIES };
 
 // اسم الفصل لمجموعة نماذج ثانية فأكثر («ملحق» ← «الملاحق»)؛ ما ليس هنا يبقى في فصل «النماذج»
 const PLURAL = { 'شقة': 'الشقق', 'ملحق': 'الملاحق', 'فيلا': 'الفلل', 'فيلة': 'الفلل', 'فلة': 'الفلل', 'دور': 'الأدوار', 'روف': 'الروف',
@@ -185,12 +180,11 @@ function image(value) {
     const px = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : null);
     const unit = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
     return { url, kind: IMAGE_KINDS.includes(raw.kind) ? raw.kind : 'photo', caption: text(raw.caption, 60), tall: raw.tall === true,
-        wide: raw.wide === true, deep: Object.prototype.hasOwnProperty.call(PALETTES, raw.deep) ? raw.deep : null,
+        wide: raw.wide === true, deep: FAMILIES.includes(raw.deep) ? raw.deep : null,
         w: px(raw.w), h: px(raw.h), quiet: raw.quiet === 'left' || raw.quiet === 'right' ? raw.quiet : null,
         focus: Array.isArray(raw.focus) && raw.focus.length === 2 && raw.focus.every(unit) ? raw.focus.slice() : null,
         alpha: raw.alpha === true, tone: raw.tone === 'light' ? 'light' : 'dark', raster: raw.raster === true, detail: unit(raw.detail) ? raw.detail : null };
 }
-const HEX = /^#[0-9A-F]{6}$/i;
 
 // قصّ المخطط: [x0, y0, x1, y1] نسباً من 0 إلى 1، وكل ضلع 15% فأكثر؛ وغيره null (يُعرض المخطط كاملاً)
 function crop(value) {
@@ -243,9 +237,8 @@ export function brochureFacts(project, office = {}) {
         landmarks: list(d.landmarks ?? d.nearby, 6),
         license: text(d.license ?? d.rega_license, 60),
         models, images,
-        // لون هوية المطوّر من صفحاته (colours: { deep, pale } ست عشريّة مختبرة)، وإلا عائلة صوره، وإلا كحلي ملائم
-        palette: d.colours && HEX.test(d.colours.deep) && HEX.test(d.colours.pale) ? { name: 'brand', deep: d.colours.deep.toUpperCase(), pale: d.colours.pale.toUpperCase() }
-            : Object.prototype.hasOwnProperty.call(PALETTES, d.palette) ? { name: d.palette, ...PALETTES[d.palette] } : { name: 'navy', ...PALETTES.navy },
+        // عائلة لون صور المشروع (أو لون هوية المطوّر حين لا صور، brochure-read.js) اسماً من القائمة، وإلا لا عائلة
+        family: FAMILIES.includes(d.palette) ? d.palette : null,
         soldOut: p.availability === 'sold_out',
         office: { whatsapp: text(office.whatsapp, 20) }
     };
@@ -257,7 +250,7 @@ export function validateSpec(spec, facts) {
     if (!spec || typeof spec !== 'object' || !Array.isArray(spec.pages)) return ['المخطط بلا صفحات'];
     if (!spec.pages.length || spec.pages.length > MAX_PAGES) errors.push('عدد الصفحات يجب أن يكون من 1 إلى ' + MAX_PAGES);
     if (spec.pages[0] && spec.pages[0].kind !== 'cover') errors.push('الصفحة الأولى ليست غلافاً');
-    const NEED = { cover: { side: 1, low: 1 }, about: { split: 1 }, photo: { full: 1, tall: 1, plate: 1 }, trio: { panels: 3 }, pair: { offset: 2 }, location: { map: 1, hero: 1 }, features: { photo: 1 } };
+    const NEED = { cover: { side: 1, low: 1, full: 1 }, about: { split: 1 }, photo: { full: 1, tall: 1, plate: 1 }, trio: { panels: 3 }, pair: { offset: 2 }, location: { map: 1, hero: 1 }, features: { photo: 1 } };
     spec.pages.forEach((page, i) => {
         const n = 'الصفحة ' + (i + 1) + ': ';
         if (!page || !PAGE_KINDS[page.kind]) return void errors.push(n + 'نوع غير معروف');

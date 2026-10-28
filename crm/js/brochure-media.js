@@ -213,7 +213,7 @@ export function focusOf(data, width, height) {
 // أزرق غامق… لا تكون مقيد بألوان ملائم»). يُوزن كل بكسل معتم متوسط الإضاءة بتشبّعه وعمقه، فتغلب الخضرة والخشب والحجر على
 // الإسفلت والسماء البيضاء، ويؤخذ متوسط درجة اللون دائرياً. لون واحد واضح يغطي 5% من الصورة فأكثر ← عائلته (forest للخضرة،
 // teal للماء، bronze للخشب والحجر الدافئ والغروب، plum للبنفسجي، navy للأزرق)؛ وصورة رمادية أو باهتة أو ألوانها متفرقة ← null.
-// العائلة اسم من قائمة ثابتة لا لون حر، فالألوان نفسها مختارة سلفاً (PALETTES في brochure-plan.js) ولا تأتي من الملف
+// العائلة اسم من قائمة ثابتة لا لون حر، فالألوان نفسها مختارة سلفاً (MOODS في brochure-art.js) ولا تأتي من الملف
 // والسماء لا تصوّت: الأزرق الفاتح في أعلى الصورة (45% منها) سماءُ كل واجهة، لا لون المشروع («نقش»: سماء خمس واجهات
 // صوّتت كحلياً على هوية خضراء). سماء الليل الداكنة تبقى (صورة الغلاف الليلية لونها)
 export function deepTone(data, width, height) {
@@ -314,6 +314,15 @@ export function hexOfHsl(h, s, l) {
     const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
     const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
     return '#' + [r, g, b].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+// عائلة لون ست عشري بحدود deepTone نفسها (لون هوية المطوّر حين لا صور تقرر العائلة): صوتٌ لعائلة من القائمة، لا لون يُطبع.
+// الرمادي والباهت بلا عائلة
+export function hueFamily(hex) {
+    const rgb = rgbOf(hex);
+    if (!rgb) return null;
+    const [h, s] = hslOf(rgb);
+    if (s < 0.08) return null;
+    return h < 52 || h >= 330 ? 'bronze' : h < 165 ? 'forest' : h < 200 ? 'teal' : h < 255 ? 'navy' : 'plum';
 }
 export function brandColour(fills) {
     const list = (Array.isArray(fills) ? fills : []).map((f) => ({ ...f, rgb: rgbOf(f && f.hex) })).filter((f) => f.rgb && f.share > 0);

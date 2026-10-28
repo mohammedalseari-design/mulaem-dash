@@ -15,7 +15,7 @@
 // وترتيب البروشور كتاب: النماذج المتاحة قبل المباعة في كل مجموعة، فلا يفتح فصلٌ بوحدة مباعة؛ وصفحة مزايا بلا صورة، ونموذج بلا
 // مخطط، وصفحة «تواصل معنا» الأخيرة تستعير صورة من صور المشروع نفسه لم تظهر في الصفحات المجاورة.
 
-import { brochureTone, brandColour, sameView } from './brochure-media.js';
+import { brochureTone, brandColour, hueFamily, sameView } from './brochure-media.js';
 import { groupOf, numberRows, durationRow, DURATION } from './brochure-plan.js';
 
 const PHOTO_ROLES = new Set(['exterior', 'interior', 'aerial', 'map', 'plan3d', 'lifestyle']);
@@ -90,9 +90,11 @@ export function areaIn(label) {
     return m ? Number(m[1].replace(',', '.')) : null;
 }
 
-// نص كما طُبع بلا مدّ الكشيدة (ـ): المطوّر يمدّ الحروف زخرفةً («سيـرين»)، وخط ملائم يرسم الكلمة بلا مدّ
+// نص كما طُبع بلا مدّ الكشيدة (ـ): المطوّر يمدّ الحروف زخرفةً («سيـرين»)، وخط ملائم يرسم الكلمة بلا مدّ. والمسافة بين حرف لاتيني
+// وكشيدة جزءٌ من الكلمة الممدودة نفسها حين يلاصق الحرفُ الكلمةَ من جهته الأخرى («نـــمــC ـــوذج» ← «نموذج C»)؛ وكشيدةٌ بين
+// كلمتين لاتينيتين شرطةٌ تُحذف ولا تَصِلهما («Tower A ـ B» ← «Tower A B»). و[ء-ي] تشمل الكشيدة نفسها
 function str(value, max) {
-    const t = typeof value === 'string' ? tidy(value.replace(/ـ/g, '')) : '';
+    const t = typeof value === 'string' ? tidy(value.replace(/([ء-ي][A-Za-z])\s+(?=ـ)/g, '$1').replace(/ـ\s+(?=[A-Za-z][ء-ي])/g, 'ـ').replace(/ـ/g, '')) : '';
     return t ? t.slice(0, max) : null;
 }
 
@@ -402,9 +404,15 @@ export function readingToBrochure(result, media, meta = {}) {
             continue;
         }
         if (n === lastContact) {
-            const closing = text && text.title && !['cover', 'contact'].includes(role) ? { title: text.title, subtitle: text.subtitle, body: null, bullets: [], figures: [] } : null;
+            // سطر ختام وحده («افراغ فوري») يُطبع فوق شعار ملائم؛ وصفحة فيها نقاط أو فقرة أو أرقام (جدول أسعار) لا يبقى عنوانها
+            // يتيماً عليه، ويُنبَّه الموظف إلى كل كلام لم يُطبع منها، بعنوان أو بلا عنوان
+            const said = text && !['cover', 'contact'].includes(role);
+            const closing = said && text.title && !text.bullets.length && !text.body && !text.figures.length
+                ? { title: text.title, subtitle: text.subtitle, body: null, bullets: [], figures: [] } : null;
             pages.push(closing ? { kind: 'back', variant: 'brand', text: closing } : { kind: 'back', variant: 'brand' });
-            if (closing && (text.bullets.length || text.body)) notes.push('صفحة ' + n + ' الأخيرة فيها كلام للمطوّر صار مكانها غلاف ملائم الخلفي' + (closing ? ' وعليه عنوانها «' + closing.title + '»' : '') + ' — راجع ما لم يُطبع منها.');
+            if (said && !closing && (text.title || text.subtitle || text.body || text.bullets.length || text.figures.length)) {
+                notes.push('صفحة ' + n + ' الأخيرة' + (text.title ? ' («' + text.title + '»)' : '') + ' فيها كلام للمطوّر صار مكانها غلاف ملائم الخلفي — راجع ما لم يُطبع منها.');
+            }
             continue;
         }
         const m = page && page.model ? page.model : {};
@@ -700,8 +708,10 @@ export function readingToBrochure(result, media, meta = {}) {
         counts = { units: counts.units || c.units, areas: counts.areas || c.areas };
     }
 
-    // لون البروشور: لون هوية المطوّر المسطّح في صفحاته إن تكرر، وإلا عائلة صوره: صورة الغلاف أثقلها، ثم الواجهات وخلفيات المطوّر
-    // صفحةً صفحة، وصورة الغلاف صوتاً ونصفاً فوق صفحاتها، والداخلية عُشر صوت (جدران بيج لا هوية)، ولا تصوّت الطبقات اللونية ولا المخططات
+    // عائلة لون البروشور من صور المشروع: صورة الغلاف أثقلها، ثم الواجهات وخلفيات المطوّر صفحةً صفحة، وصورة الغلاف صوتاً ونصفاً فوق
+    // صفحاتها، والداخلية عُشر صوت (جدران بيج لا هوية)، ولا تصوّت الطبقات اللونية ولا المخططات. وبلا صور تقرر: عائلة لون هوية
+    // المطوّر المسطّح في صفحاته إن تكرر. العائلة اسمٌ يختار به الاتجاه الفني (brochure-art.js) ألوانه المختارة، ولا يُطبع لون
+    // المطوّر نفسه: «ما ابغا ذوق البروشور، ابغا ذوق المصمم اللي سويناه»
     const brand = brandColour(media && media.fills);
     const heroAt = pages[0] && pages[0].images ? pages[0].images[0] : null;
     const heroUrl = heroAt !== null && images[heroAt] ? images[heroAt].url : null;
@@ -718,9 +728,11 @@ export function readingToBrochure(result, media, meta = {}) {
         return { deep: m.deep, kind: m.kind, weight };
     });
     const heroDeep = heroUrl ? (all.find((m) => m && m.url === heroUrl) || {}).deep : null;
-    const family = brochureTone(votes, heroDeep);
-    if (brand) notes.push('ألوان البروشور من لون هوية المطوّر في صفحاته ' + brand.pages.join('، ') + ' (' + brand.hex + ').');
-    else if (family) notes.push('ألوان البروشور من صور المشروع (عائلة ' + ({ navy: 'الكحلي', forest: 'الأخضر', teal: 'الأزرق المخضر', bronze: 'البرونزي', plum: 'البنفسجي' }[family] || family) + ').');
+    const fromPhotos = brochureTone(votes, heroDeep);
+    const family = fromPhotos || (brand ? hueFamily(brand.hex) : null);
+    const FAMILY_AR = { navy: 'الكحلي', forest: 'الأخضر', teal: 'الأزرق المخضر', bronze: 'البرونزي', plum: 'البنفسجي' };
+    if (fromPhotos) notes.push('ألوان البروشور من صور المشروع (عائلة ' + (FAMILY_AR[family] || family) + ').');
+    else if (family) notes.push('ألوان البروشور من عائلة لون هوية المطوّر في صفحاته ' + brand.pages.join('، ') + ' (' + brand.hex + '، عائلة ' + (FAMILY_AR[family] || family) + ')، بألوان ملائم المختارة لا باللون نفسه.');
 
     const project = {
         id: meta.id ?? null,
@@ -728,7 +740,7 @@ export function readingToBrochure(result, media, meta = {}) {
         images,
         details: { developer: arDev || latinDev, name_en: str(p.name_latin, 60), tagline: str(p.tagline, 120), license: str(p.license, 120), models,
             units_count: counts.units, area_range: counts.areas,
-            palette: family, colours: brand ? { deep: brand.deep, pale: brand.pale } : null }
+            palette: family }
     };
     return { project, spec: { version: 3, pages }, notes };
 }

@@ -1,6 +1,6 @@
 // اختبار حقائق البروشور والتحقق من مخطط الصفحات (crm/js/brochure-plan.js): الحقائق من البيانات فقط، والمخطط فهارس موجودة.
 // التشغيل: node tests/brochure-plan.test.mjs   أو   deno run tests/brochure-plan.test.mjs
-import { brochureFacts, validateSpec, chaptersOf, splitFigure, guaranteePage, PALETTES, MAX_MODELS, MAX_PAGES } from '../crm/js/brochure-plan.js';
+import { brochureFacts, validateSpec, chaptersOf, splitFigure, guaranteePage, FAMILIES, MAX_MODELS, MAX_PAGES } from '../crm/js/brochure-plan.js';
 import { durationRow, numberRows, unprinted, restates, modelLabel } from '../crm/js/brochure-plan.js';
 
 let pass = 0, fail = 0;
@@ -57,10 +57,10 @@ t('validate: a models opener must point at models that exist, first before last'
   { kind: 'statement', variant: 'chapter', models: [0, 9] }, { kind: 'statement', variant: 'chapter' }] }, f).length === 3);
 t('validate: garbage', validateSpec(null, f).length === 1 && validateSpec({ pages: [] }, f).length === 1);
 
-// ---- ألوان المشروع: اسم عائلة من الجدول الثابت فقط، وإلا كحلي ملائم ----
-t('palette: a known family brings its fixed colours', JSON.stringify(brochureFacts({ details: { palette: 'forest' } }).palette) === JSON.stringify({ name: 'forest', ...PALETTES.forest }));
-t('palette: a free colour or an inherited key is refused (Mulaem navy)', brochureFacts({ details: { palette: '#ff0000' } }).palette.name === 'navy'
-  && brochureFacts({ details: { palette: 'constructor' } }).palette.name === 'navy' && brochureFacts(null).palette.name === 'navy');
+// ---- عائلة لون المشروع: اسم من القائمة الثابتة فقط (الألوان نفسها من الاتجاه الفني في brochure-art.js)، وإلا لا عائلة ----
+t('family: a known colour family is kept as a name', brochureFacts({ details: { palette: 'forest' } }).family === 'forest' && FAMILIES.includes('forest'));
+t('family: a free colour or an inherited key is refused (no family)', brochureFacts({ details: { palette: '#ff0000' } }).family === null
+  && brochureFacts({ details: { palette: 'constructor' } }).family === null && brochureFacts(null).family === null);
 t('image family kept only from the table', brochureFacts({ images: [{ url: u(1), deep: 'teal' }, { url: u(2), deep: 'red' }] }).images.map((i) => i.deep).join() === 'teal,');
 
 // ---- قصّ المخطط: نسب من 0 إلى 1 وأضلاع معقولة، وإلا يُعرض المخطط كاملاً ----
@@ -133,10 +133,9 @@ t('chapters: one model (with its floors) is «النموذج», and a contact pa
         { models: [{ name: null }] });
     return one.list.map((c) => c.name).join() === 'النموذج,تواصل';
 })());
-t('facts: the developer colours measured from its pages are used as they are; bad values fall back to the family', (() => {
+t('facts: no colour from the developer\'s file reaches the brochure — measured colours are dropped, only the family name stays', (() => {
     const a = brochureFacts({ name: 'x', details: { palette: 'navy', colours: { deep: '#212c2a', pale: '#E5ECE9' } } });
-    const b = brochureFacts({ name: 'x', details: { palette: 'forest', colours: { deep: 'red;}', pale: '#fff' } } });
-    return a.palette.name === 'brand' && a.palette.deep === '#212C2A' && b.palette.name === 'forest';
+    return a.family === 'navy' && !/#212c2a|#E5ECE9/i.test(JSON.stringify(a)) && a.palette === undefined;
 })());
 t('facts: an image keeps its crop focus, line-art flag and full-page flag; a model keeps its floor', (() => {
     const fx = brochureFacts({ name: 'x', images: [{ url: 'https://img.test/a.jpg', focus: [0.4, 0.7], alpha: true, raster: true, detail: 0.05 }, { url: 'https://img.test/b.jpg', focus: [2, 'x'] }],

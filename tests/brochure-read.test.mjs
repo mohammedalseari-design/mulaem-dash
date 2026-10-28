@@ -162,9 +162,9 @@ t('the page whose photo became the cover is the contents page; the about page ke
     lb.spec.pages[2].kind === 'statement' && lb.spec.pages[2].variant === 'contents' && lb.spec.pages[1].variant === 'split'
     && lb.project.images[lb.spec.pages[1].images[0]].url === u(2) && lb.spec.pages[1].stats === false, lb.spec.pages.slice(0, 3));
 t('a far page with the cover photo is not touched, and the brochure stays valid', lb.spec.pages[5].kind === 'photo' && validateSpec(lb.spec, lf).length === 0, validateSpec(lb.spec, lf));
-t('palette: the family the brochure wears page after page (its green background), not the warm cover photo', lb.project.details.palette === 'forest' && lf.palette.name === 'forest');
+t('palette: the family the brochure wears page after page (its green background), not the warm cover photo', lb.project.details.palette === 'forest' && lf.family === 'forest');
 t('the plan keeps its crop and ratio for the model page', lf.models[0].planUnit.join() === '0.09,0.04,0.49,0.93' && lf.models[0].planKey !== null && Math.abs(lf.models[0].planRatio - 2048 / 1448) < 1e-9, lf.models[0]);
-t('no family read anywhere: Mulaem navy', brochureFacts(readingToBrochure(reading, media, {}).project).palette.name === 'navy');
+t('no family read anywhere: none (the art direction keeps its calm default)', brochureFacts(readingToBrochure(reading, media, {}).project).family === null);
 const ownIndex = readingToBrochure({ ...lr, pages: lr.pages.map((x) => (x.page === 3 ? page(3, 'other', { title: 'المحتويات' }) : x)) }, lm, {});
 t('the developer\'s own contents page stays a contents page', ownIndex.spec.pages[2].variant === 'contents', ownIndex.spec.pages[2]);
 
@@ -308,6 +308,16 @@ const kindsOf = (b) => b.spec.pages.map((p) => p.kind + ':' + p.variant).join(' 
 t('areaIn: the Arabic decimal comma and decimal sign are decimals (١٦٨,١٥م٢ ← 168.15), not a room of 15 m²',
     areaIn('صالة معيشة ١٦٨,١٥م٢') === 168.15 && areaIn('١١٤,٢٣م٢') === 114.23 && areaIn('168,15 م2') === 168.15 && areaIn('١٦٨٫١٥ م2') === 168.15 && areaIn('مساحتها 97 م2') === 97);
 t('tidy: a Latin letter inside a stretched Arabic word moves to its end, brackets lose inner spaces', tidyText('نمBوذج') === 'نموذج B' && tidyText('( 4 ) غرف') === '(4) غرف');
+// «نقش»: «نـــمــC ـــوذج» عنوان صفحة النماذج كما قُرئ، بمسافة بين الحرف والكشيدة
+const stretched = build([pg(1, 'cover'), pg(2, 'other', { title: 'نـــمــC ـــوذج' }), pg(3, 'contact')], []);
+t('a space between a Latin letter and a kashida belongs to the stretched word («نـــمــC ـــوذج» ← «نموذج C»)',
+    JSON.stringify(stretched.spec.pages).includes('نموذج C') && !JSON.stringify(stretched.spec.pages).includes('نمC'), stretched.spec.pages.map((x) => x.text && x.text.title));
+const stretched2 = build([pg(1, 'cover'), pg(2, 'other', { title: 'نـــمــ Cـــوذج' }), pg(3, 'contact')], []);
+const dashed = build([pg(1, 'cover'), pg(2, 'other', { title: 'Tower A ـ B' }), pg(3, 'other', { title: 'النماذج A ـ B ـ C' }), pg(4, 'other', { title: 'www.lamer.sa ـ info@lamer.sa' }), pg(5, 'contact')], []);
+const dashedText = JSON.stringify(dashed.spec.pages);
+t('a kashida between Latin words is a dash: dropped, never joining them («Tower A ـ B» ← «Tower A B»); the other spacing still joins',
+    JSON.stringify(stretched2.spec.pages).includes('نموذج C') && dashedText.includes('Tower A B') && dashedText.includes('النماذج A B C')
+    && dashedText.includes('www.lamer.sa info@lamer.sa') && !dashedText.includes('AB') && !dashedText.includes('lamer.sainfo'), dashed.spec.pages.map((x) => x.text && x.text.title));
 
 // المخطط لا يُحذف لأن عليه مساحة غرفة: التناقض مساحةُ وحدة (60% من النموذج فأكثر)
 const roomLabel = build([pg(1, 'cover'), pg(2, 'model', { model: model('A', 168, 'غرفة نوم ١٥م٢'), images: [{ n: 1, role: 'plan', caption: null }] }), pg(3, 'contact')],
@@ -382,11 +392,21 @@ t('amenities: a list with headline figures is two fields (list and figures), not
 t('amenities: a figure whose label is a line of the list joins its line («2 مصعد أتوماتيك بالكامل»)', ap[3].variant === 'list' && ap[3].text.bullets[0] === '2 مصعد أتوماتيك بالكامل' && !ap[3].text.figures.length, ap[3]);
 t('amenities: numbers with a line that has no number keep that line under the numbers', ap[4].variant === 'numbers' && (ap[4].extra || []).join() === 'تأمين ضد العيوب الخفية', ap[4]);
 
-// التواصل قبل الأخيرة دعوة ملائم (الرقم وكلام المطوّر صغيراً)؛ وآخر صفحة فيها كلام تعطي الغلاف الخلفي عنوانها
+// التواصل قبل الأخيرة دعوة ملائم (الرقم وكلام المطوّر صغيراً)؛ وآخر صفحة فيها نقاط (جدول توفّر) لا يبقى عنوانها يتيماً على الغلاف الخلفي
 const ends = build([pg(1, 'cover', { title: 'نقش', subtitle: 'وحدات سكنية جاهزه' }), pg(2, 'contact', { title: 'للاسفسارات', body: 'نود الإحاطة بأن المخططات المعروضة لأغراض توضيحية.' }),
     pg(3, 'photos', { title: 'صورة' }), pg(4, 'other', { title: 'افراغ فوري', bullets: ['متاح', 'محجوز'] })], []);
-t('a contact page before the end is Mulaem\'s call page; the last page\'s headline is printed on the back cover', ends.spec.pages[1].kind === 'statement' && ends.spec.pages[1].call === true
-    && ends.spec.pages[3].kind === 'back' && ends.spec.pages[3].text.title === 'افراغ فوري' && ends.notes.some((n) => /صفحة 4 الأخيرة/.test(n)), kindsOf(ends));
+t('a contact page before the end is the Mulaem call page; a last page with a list leaves the back cover clean and a note names it', ends.spec.pages[1].kind === 'statement' && ends.spec.pages[1].call === true
+    && ends.spec.pages[3].kind === 'back' && !ends.spec.pages[3].text && ends.notes.some((n) => /صفحة 4 الأخيرة/.test(n)), kindsOf(ends));
+const endLine = build([pg(1, 'cover', { title: 'نقش' }), pg(2, 'contact', { title: 'للاسفسارات' }), pg(3, 'photos', { title: 'صورة' }), pg(4, 'other', { title: 'افراغ فوري' })], []);
+const endFigs = build([pg(1, 'cover', { title: 'نقش' }), pg(2, 'contact', { title: 'للاسفسارات' }), pg(3, 'photos', { title: 'صورة' }),
+    pg(4, 'other', { title: 'الأسعار', figures: [{ value: '435000', label: 'نموذج A' }] })], []);
+const endBare = build([pg(1, 'cover', { title: 'نقش' }), pg(2, 'contact', { title: 'للاسفسارات' }), pg(3, 'photos', { title: 'صورة' }),
+    pg(4, 'other', { bullets: ['متاح', 'محجوز'] })], []);
+t('a last page with figures, or with text but no title, leaves the back cover clean and a note says what was not printed',
+    !endFigs.spec.pages[3].text && endFigs.notes.some((n) => n.startsWith('صفحة 4 الأخيرة («الأسعار»)'))
+    && !endBare.spec.pages[3].text && endBare.notes.some((n) => /^صفحة 4 الأخيرة فيها كلام/.test(n)), [endFigs.notes, endBare.notes]);
+t('a last page that is only a closing line («افراغ فوري») is printed on the back cover', endLine.spec.pages[3].kind === 'back'
+    && endLine.spec.pages[3].text && endLine.spec.pages[3].text.title === 'افراغ فوري' && !endLine.notes.some((n) => /صفحة 4 الأخيرة/.test(n)), kindsOf(endLine));
 t('the cover carries the line the developer printed under the name, not the Latin name', ends.spec.pages[0].text.subtitle === 'وحدات سكنية جاهزه'
     && !build([pg(1, 'cover', { subtitle: 'NQSH' }), pg(2, 'contact')], [], { project: { name_latin: 'NQSH' } }).spec.pages[0].text);
 
@@ -412,10 +432,15 @@ const rv = run4.spec.pages.slice(1, 5);
 t('a run of portrait photos is not squeezed into strips: own ratio, alternating sides, and the weak shot as a small plate',
     rv.map((p) => p.variant).join() === 'tall,tall,plate,tall' && rv[0].side !== rv[1].side && validateSpec(run4.spec, brochureFacts(run4.project, {})).length === 0, rv);
 
-// لون البروشور: لون المطوّر المسطّح في صفحتين فأكثر يقرره؛ وإلا صور المشروع والداخلية عُشر صوت
+// عائلة لون البروشور من صور المشروع، والداخلية عُشر صوت؛ ولون المطوّر المسطّح في صفحتين فأكثر صوتٌ لعائلة حين لا صور تقرر،
+// ولا يُطبع اللون نفسه (الاتجاه الفني يختار ألوانه من مجموعاته: «ابغا ذوق المصمم اللي سويناه»)
 const brand = build([pg(1, 'cover'), pg(2, 'contact')], [], { fills: [{ page: 1, hex: '#212C2A', share: 0.96 }, { page: 2, hex: '#23302D', share: 0.77 }] });
-t('the developer\'s own flat colour on its pages is the brochure colour, with a note', brand.project.details.colours && brand.project.details.colours.deep === '#212C2A'
-    && brochureFacts(brand.project, {}).palette.name === 'brand' && brand.notes.some((n) => /#212C2A/.test(n)));
+t('without photos the developer\'s flat colour only names the family (teal for #212C2A), with a note; the colour itself is not kept',
+    brand.project.details.palette === 'teal' && !('colours' in brand.project.details) && brochureFacts(brand.project, {}).family === 'teal'
+    && brand.notes.some((n) => /#212C2A/.test(n) && /عائلة/.test(n)), brand.project.details);
+const branded = build([pg(1, 'cover', { images: [{ n: 1, role: 'exterior', caption: null }] }), pg(2, 'contact')],
+    [{ url: v(1), page: 1, kind: 'photo', w: 2400, h: 1600, deep: 'bronze', on: [{ page: 1, n: 1 }] }], { fills: [{ page: 1, hex: '#212C2A', share: 0.3 }, { page: 2, hex: '#23302D', share: 0.77 }] });
+t('the photos decide the family before the developer\'s layout colour', branded.project.details.palette === 'bronze' && branded.notes.some((n) => /صور المشروع/.test(n)), branded.notes);
 const rooms = build([pg(1, 'cover', { images: [{ n: 1, role: 'exterior', caption: null }] }), ...[2, 3, 4, 5, 6, 7].map((n) => pg(n, 'photos', { images: [{ n: 1, role: 'interior', caption: null }] })), pg(8, 'contact')],
     [{ url: v(1), page: 1, kind: 'photo', w: 1427, h: 1840, deep: 'navy', on: [{ page: 1, n: 1 }] }, ...[2, 3, 4, 5, 6, 7].map((n) => ({ url: v(n + 20), page: n, kind: 'photo', w: 960, h: 1280, deep: 'bronze', on: [{ page: n, n: 1 }] }))]);
 t('beige interiors do not outvote the cover: the palette follows the night render', rooms.project.details.palette === 'navy', rooms.project.details.palette);

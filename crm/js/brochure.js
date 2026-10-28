@@ -7,11 +7,13 @@
 // الرسم: عناصر DOM بـ el() لا HTML، فكل نص من البروشور يمرّ نصاً. الصفحة حاوية (container-type) وكل المقاسات بوحدة cqw،
 // فالتصميم نفسه يصغر في المعاينة ويُطبع بمقاسه. الطباعة: نسخة من الصفحات في #broPrint، وbrochure.css يخفي ما سواها،
 // ثم «حفظ كـ PDF» من نافذة المتصفح. الشعار ملف الشعار الرسمي نفسه (images/logo.jpg) كما هو، لا يُعاد رسمه.
+// الإخراج: لكل مشروع اتجاهه الفني (brochure-art.js) من المشروع نفسه — ألوانه وخطاه وغلافه وإيقاعه — وهوية ملائم ثابتة فيه بألوانه.
 
 import { supabase } from './supabase.js';
 import { brochureFacts, validateSpec, chaptersOf, groupOf, splitFigure, guaranteePage, numberRows, unprinted, restates, modelLabel } from './brochure-plan.js';
 import { readingToBrochure } from './brochure-read.js';
 import { readBrochurePdf, MAX_PAGES } from './brochure-pdf.js';
+import { artDirection, directionStyle, directionLabel } from './brochure-art.js';
 import { createRequest, startExtraction } from './agent.js';
 import { el, replace, loading, empty, errorBox, errorText, pageHead, notify, money, fmtDate, fmtDateTime, badge } from './ui.js';
 
@@ -170,9 +172,13 @@ export async function renderBrochureReading(root, requestId, lastStage) {
     const whatsapp = office && office.data ? office.data.value : null;
     // صور البروشور من مخزنه هو فقط (media.json في مخزن يرفع إليه الميداني أيضاً)
     const mediaPrefix = supabase.storage.from(MEDIA_BUCKET).getPublicUrl('brochures/' + requestId + '/').data.publicUrl;
+    // «تصميم آخر» (variation) ينتقل بين بدائل الاتجاه الفني المتّسقة؛ والقراءة نفسها لا تتغير
     const build = (variation) => {
-        const b = readingToBrochure(req.result, media || { images: [] }, { id: requestId, variation, mediaPrefix });
-        return b ? { facts: brochureFacts(b.project, { whatsapp }), spec: b.spec, notes: b.notes } : null;
+        const b = readingToBrochure(req.result, media || { images: [] }, { id: requestId, mediaPrefix });
+        if (!b) return null;
+        const facts = brochureFacts(b.project, { whatsapp });
+        const direction = artDirection({ facts, spec: b.spec }, variation);
+        return { facts, spec: directed(b.spec, direction), notes: b.notes, direction };
     };
     const first = build(0);
     if (!first) {
@@ -193,16 +199,21 @@ export async function renderBrochureReading(root, requestId, lastStage) {
 // عرض البروشور: زر PDF واحد في الرأس، و«تصميم آخر» رابطاً، وملاحظات القراءة إن وُجدت فوق الصفحات
 function showBrochure(root, opts) {
     let variation = 0;
+    let fontCheck = Promise.resolve();
     const pagesBox = el('div', { class: 'bro-pages' });
     const note = el('span', { class: 'crm-subtle' });
+    // الفكرة الإبداعية في سطرين للموظف (دستور المصمم): الوعد الرئيسي كما طُبع في بروشور المطوّر، وزاوية الإخراج. لا يُطبع منها شيء
+    const idea = el('p', { class: 'crm-subtle bro-idea' });
     const lost = el('ul', { class: 'agent-list' });
     const draw = () => {
-        const { facts, spec } = opts.build(variation);
+        const { facts, spec, direction } = opts.build(variation);
         const errors = validateSpec(spec, facts);
         if (errors.length) return void replace(pagesBox, el('div', { class: 'crm-error', text: 'المخطط غير صالح: ' + errors.join('، ') }));
-        note.textContent = pagesWord(spec.pages.length) + (facts.images.length ? '' : ' · بلا صور، فالغلاف بالخط وحده');
-        const nodes = renderPages(spec, facts);
+        note.textContent = pagesWord(spec.pages.length) + ' · ' + directionLabel(direction) + (facts.images.length ? '' : ' · بلا صور، فالغلاف بالخط وحده');
+        idea.textContent = 'الفكرة: ' + (direction.idea.promise ? '«' + direction.idea.promise + '» — ' : '') + direction.idea.angle;
+        const nodes = renderPages(spec, facts, direction);
         replace(pagesBox, nodes);
+        fontCheck = unscaleIfMissing(nodes, direction.type);
         // كل نص قرأه المساعد يُطبع: ما لم يظهر في صفحته (نص أو رقم أو مكوّن) يُكتب هنا ليراجعه المدير
         const items = unprinted(spec, facts, nodes.map((n) => n.textContent)).map((x) => 'صفحة ' + x.page + ': لم يُطبع «' + x.text + '»');
         const show = (list) => { replace(lost, list.slice(0, 8).map((t) => el('li', { text: t }))); lostBox.hidden = !list.length; };
@@ -222,14 +233,15 @@ function showBrochure(root, opts) {
     const lostBox = el('div', { class: 'crm-warn-box bro-notes bro-lost', hidden: true }, [el('strong', { text: 'نص من بروشور المطوّر لم يُطبع — راجعه' }), lost]);
     replace(root, [
         pageHead(opts.title, opts.sub, [
-            el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'تحميل PDF', onclick: () => printPages(pagesBox) })
+            el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'تحميل PDF', onclick: () => printPages(pagesBox, fontCheck) })
         ]),
         el('div', { class: 'bro-bar' }, [
             el('a', { class: 'link-btn', href: '#/studio', text: 'الاستوديو' }),
-            el('button', { type: 'button', class: 'link-btn', text: 'تصميم آخر', title: 'غلاف آخر بالقراءة نفسها',
+            el('button', { type: 'button', class: 'link-btn', text: 'تصميم آخر', title: 'إخراج آخر يناسب المشروع، بالقراءة نفسها',
                 onclick: () => { variation += 1; draw(); } }),
             note
         ]),
+        idea,
         opts.notes && opts.notes.length ? el('div', { class: 'crm-warn-box bro-notes' }, [
             el('strong', { text: 'ملاحظات القراءة — راجعها قبل المشاركة' }),
             el('ul', { class: 'agent-list' }, opts.notes.map((n) => el('li', { text: n })))
@@ -240,6 +252,13 @@ function showBrochure(root, opts) {
     draw();
 }
 
+// المخطط بغلاف الاتجاه الفني: نسق الغلاف (حتى خط القسمة، أو شريط، أو الصفحة كلها) لصورته نفسها؛ وغلاف بلا صورة يبقى بالخط
+function directed(spec, direction) {
+    const first = spec.pages[0];
+    if (!first || first.kind !== 'cover' || first.variant === 'type' || direction.rhythm.cover === 'type' || first.variant === direction.rhythm.cover) return spec;
+    return { ...spec, pages: [{ ...first, variant: direction.rhythm.cover }, ...spec.pages.slice(1)] };
+}
+
 // «12 صفحة»، «5 صفحات»
 function pagesWord(n) {
     return n + (n >= 3 && n <= 10 ? ' صفحات' : ' صفحة');
@@ -247,7 +266,9 @@ function pagesWord(n) {
 
 // الطباعة: الصفحات وحدها بمقاسها بلا هوامش. تنتظر الخطوط والصور حتى لا تُطبع صفحة ناقصة. التنظيف بعد afterprint لا بعد
 // window.print(): في Safari على الجوال ترجع print() فوراً قبل أن تُلتقط الصفحات، فحذفها بعدها مباشرة كان يطبع ورقة فارغة.
-async function printPages(pagesBox) {
+async function printPages(pagesBox, fontCheck) {
+    // مقاس العناوين قبل النسخ: خط الزوج حُمّل، أو رجع إلى سلّمه (unscaleIfMissing)؛ ولا تنتظر الطباعة شبكة معلّقة أكثر من 4 ثوانٍ
+    await Promise.race([fontCheck, new Promise((done) => setTimeout(done, 4000))]);
     document.getElementById('broPrint')?.remove();
     const holder = el('div', { id: 'broPrint' }, Array.from(pagesBox.querySelectorAll('.bro-page')).map((p) => p.cloneNode(true)));
     document.body.appendChild(holder);
@@ -264,28 +285,47 @@ async function printPages(pagesBox) {
 }
 
 
+// زوج خطوط بمقاس معدَّل (--dk: مركزي أصغر عيناً فيكبر 22%) يُعدَّل خطه هو لا البديل: إن لم يُحمَّل خط عناوينه (Google Fonts
+// محجوب، أو فشل الملف) رجع المقاس إلى سلّمه، وإلا كبُر خط النظام البديل وفاض العنوان من حقله في الصفحة وفي PDF. يُطلب بنص
+// عربي فيُحمَّل ملف العربية نفسه من أقسام الخط (unicode-range)
+function unscaleIfMissing(nodes, type) {
+    if (!type || type.k === 1 || !document.fonts || !document.fonts.load) return Promise.resolve();
+    return document.fonts.load(type.w.title + ' 1em "' + type.display + '"', 'ابجد')
+        .then((faces) => faces.some((f) => f.status === 'loaded'), () => false)
+        .then((ok) => {
+            if (!ok) nodes.forEach((n) => { n.style.setProperty('--dk', '1'); n.style.setProperty('--dl', '1'); });
+        });
+}
+
+
 /* ===================== رسم الصفحات ===================== */
 // نظام «مونوغراف» (brochure.css): حقل للكلام يميناً (60–96) وحقل للصورة أو المخطط أو الأرقام يساراً (4–52) يفصلهما خط
 // القسمة عند 56. البروشور كتاب: فهرس في صفحة صورتها صارت الغلاف، وفصول مرقّمة (المشروع، الموقع، المميزات، الضمانات، النماذج،
 // الملاحق، تواصل) يبدأ كل منها برقمه بلا رقم صفحة وعنوانه أكبر من أسماء الوحدات، وعنوان الفصل رأسُ كل صفحة فيه.
 // الخط سلّم واحد من سبع درجات (--fs1 … --fs7 في brochure.css)، فلا مقاس خارجه.
-// الألوان: ورق في أغلب الصفحات، ورمل للفهارس والفواصل، ولون المشروع العميق (عائلته من صوره: PALETTES) لصفحتين داكنتين على
-// الأكثر لا تتجاوران، وللغلاف الخلفي؛ ودرجته الفاتحة لكتل الفصل الثاني من النماذج، والحجري للمباعة.
+// الألوان والخطوط من الاتجاه الفني (brochure-art.js) خصائصَ CSS على كل صفحة: ورق في أغلب الصفحات، ورمل للفهارس والفواصل،
+// والحقل العميق لصفحات داكنة قليلة (عددها من الاتجاه) لا تتجاور، وللغلاف الخلفي؛ ودرجته الفاتحة لكتل الفصل الثاني من النماذج،
+// والحجري للمباعة. وإيقاعه أصنافاً على الصفحة: الطابع وزوج الخطوط، والصور لوحات بهوامش (bro-r-framed)، وكتلة الكلام فوق الصورة
+// الكاملة على الداكن (bro-pd)، ورقم الفصل الأكبر (bro-ob)؛ والغلاف على الحقل العميق حين يطلبه الاتجاه.
+// هوية ملائم في كل صفحة بألوان المشروع: علامة الشعار في رأس الصفحة، والشعار الرسمي لوناً واحداً على الغلافين.
 // لا تتجاور صفحتان بالتكوين نفسه: الثانية من لقطتين متتاليتين صورة كبيرة وصورتان صغيرتان، والثانية من صفحتي موقع تنعكس، وصفحات
 // «عن المشروع» بصورة تتناوب الصورة يساراً ثم يميناً. وصفحة واحدة على الأقل صورة تملأ الصفحة (افتتاح الموقع)، و«تواصل معنا» شريط
 // صورة الغلاف. ولا تُطبع صورة أكبر مما تحمل بكسلاتها: إطار أصغر بدل صورة لينة، والصورة المستعارة المعروضة في صفحة أخرى تفصيلٌ منها.
 
-export function renderPages(spec, facts) {
+export function renderPages(spec, facts, direction) {
     const total = spec.pages.length;
     const chapters = chaptersOf(spec, facts);
-    const palette = facts.palette || {};
-    const colours = palette.deep ? '--deep:' + palette.deep + ';--pale:' + palette.pale : null;
+    const d = direction || artDirection({ facts, spec }, 0);
+    const style = directionStyle(d);
+    const r = d.rhythm;
+    const look = ['bro-m-' + d.mood, 'bro-y-' + d.type.name, r.photos === 'framed' ? 'bro-r-framed' : null, r.panel === 'deep' ? 'bro-pd' : null,
+        r.opener === 'bold' ? 'bro-ob' : null].filter(Boolean);
     let group = -1, groupKey = null, lastTone = null, lastAlt = false, says = 0, dark = 0, splits = 0;
     return spec.pages.map((page, i) => {
         const prev = spec.pages[i - 1] || null;
         const at = chapters.of[i];
         const chapter = at >= 0 ? chapters.list[at] : null;
-        const ctx = { n: i + 1, total, prev, next: spec.pages[i + 1] || null, group: 0, say: 0, chapters, spec,
+        const ctx = { n: i + 1, total, prev, next: spec.pages[i + 1] || null, group: 0, say: 0, chapters, spec, framed: r.photos === 'framed',
             section: chapter ? chapter.name : null, chap: chapter && chapter.page === i + 1 ? chapter : null };
         if (page.kind === 'model') {
             const key = groupOf(facts.models[page.model]);
@@ -298,17 +338,20 @@ export function renderPages(spec, facts) {
         ctx.mirror = (page.kind === 'about' && page.variant === 'split' && splits++ % 2 === 1) || ((page.kind === 'location' || page.kind === 'pair') && ctx.alt)
             || (page.kind === 'photo' && page.side === 'right');
         let tone = toneOf(page);
-        // صفحتان داكنتان لا تتجاوران، ولا أكثر من صفحتين بلون المشروع غير الغلاف الخلفي
-        if (tone === 'deep' && page.kind !== 'back' && (lastTone === 'deep' || dark >= 2)) tone = 'sand';
-        if (tone === 'deep' && page.kind !== 'back') dark += 1;
+        // الغلاف بصورته على الحقل العميق حين يطلبه الاتجاه (الحضري)؛ وصفحتان داكنتان لا تتجاوران، ولا أكثر من عدد الاتجاه بالحقل
+        // العميق غير الغلافين
+        if (page.kind === 'cover' && page.variant !== 'type' && r.coverTone === 'deep') tone = 'deep';
+        const inner = page.kind !== 'back' && page.kind !== 'cover';
+        if (tone === 'deep' && inner && (lastTone === 'deep' || dark >= r.dark)) tone = 'sand';
+        if (tone === 'deep' && inner) dark += 1;
         ctx.tone = tone;
         lastTone = tone;
-        const cls = ['bro-page', 'bro-' + page.kind, 'bro-v-' + page.variant, 'bro-t-' + tone];
+        const cls = ['bro-page', 'bro-' + page.kind, 'bro-v-' + page.variant, 'bro-t-' + tone, ...look];
         if (ctx.alt) cls.push('bro-alt');
         if (ctx.mirror) cls.push('bro-mirror');
         if (ctx.chap) cls.push('is-chap');
         if (page.kind === 'model' && facts.models[page.model] && facts.models[page.model].sold) cls.push('bro-sold');
-        const node = el('section', { class: cls.join(' '), style: colours, 'aria-label': 'صفحة ' + (i + 1) });
+        const node = el('section', { class: cls.join(' '), style, 'aria-label': 'صفحة ' + (i + 1) });
         ctx.node = node;
         append(node, PAGES[page.kind](page, facts, ctx));
         return node;
@@ -419,10 +462,14 @@ function folio(ctx) {
 }
 function run(ctx, headText) {
     if (ctx.chap) {
-        return el('div', { class: 'bro-chap' }, [el('span', { class: 'bro-chap-n', text: ctx.chap.n }),
+        return el('div', { class: 'bro-chap' }, [mark(), el('span', { class: 'bro-chap-n', text: ctx.chap.n }),
             startsWith(headText, ctx.chap.name) ? null : el('span', { class: 'bro-chap-t', text: ctx.chap.name })]);
     }
-    return el('div', { class: 'bro-run' }, [el('span', { class: 'bro-num', text: folio(ctx) }), ctx.section ? el('span', { class: 'bro-run-t', text: ctx.section }) : null]);
+    return el('div', { class: 'bro-run' }, [mark(), el('span', { class: 'bro-num', text: folio(ctx) }), ctx.section ? el('span', { class: 'bro-run-t', text: ctx.section }) : null]);
+}
+// علامة ملائم قبل رقم الصفحة: رمز الشعار الرسمي نفسه (الجبال) مقصوصاً من ملفه بلون الإبراز، توقيعٌ في كل بروشور
+function mark() {
+    return el('span', { class: 'bro-mark', 'aria-hidden': 'true' }, el('img', { src: LOGO, alt: '' }));
 }
 function seam() {
     return el('div', { class: 'bro-seam', 'aria-hidden': 'true' });
@@ -471,9 +518,10 @@ function short(text) {
 function soldTag() {
     return el('div', { class: 'bro-sold-fig' }, [el('div', { class: 'bro-label', text: 'الحالة' }), el('div', { class: 'bro-sold-v', text: 'مباعة' })]);
 }
-// شعار ملائم الرسمي (الملف نفسه) لوناً واحداً: حبراً على الورق، وأبيض على الداكن — مرشّح على الصورة لا شعار يُعاد رسمه
+// شعار ملائم الرسمي (الملف نفسه) لوناً واحداً بألوان المشروع: بحبر اللوحة على الورق، وبلون الكلام على الداكن — مرشّح على الصورة
+// لا شعار يُعاد رسمه
 function logo(cls, light) {
-    return el('img', { class: cls + (light ? ' bro-logo-light' : ' bro-logo-ink'), src: LOGO, alt: 'ملائم العقارية' });
+    return el('span', { class: 'bro-logo ' + cls + (light ? ' is-light' : ''), role: 'img', 'aria-label': 'ملائم العقارية' }, el('img', { src: LOGO, alt: '' }));
 }
 // «ملائم العقارية.. حيث تجد ما يناسبك» سطرين بلا «..»
 function sloganLines() {
@@ -484,10 +532,13 @@ function sloganLines() {
 // low: الصورة البانورامية شريط عريض بعرض الصفحة والاسم كبيراً تحته؛ side: الصورة حتى خط القسمة والاسم في حقل الكلام؛
 // type: بلا صورة، حقل الصورة بلون المشروع. شعار ملائم صغيراً في هامش الورق
 // وسطر الغلاف ما طبعه المطوّر تحت اسم مشروعه («وحدات سكنية جاهزه»)، وإلا شعار المشروع. type: بلا صورة في البروشور كله، غلاف
-// بلون المشروع كله: الاسم كبيراً بعرض الصفحة، وسطره، وأرقام المشروع (السعر من، والمساحات، وعدد الوحدات) صفاً في أسفله
-function cover(page, facts) {
+// بلون المشروع كله: الاسم كبيراً بعرض الصفحة، وسطره، وأرقام المشروع (السعر من، والمساحات، وعدد الوحدات) صفاً في أسفله.
+// full: الصورة تملأ الصفحة، والاسم وبياناته وشعار ملائم على كتلة في زاويتها السفلى الأهدأ. والغلاف على الحقل العميق (الاتجاه
+// الحضري) شعاره بلون الكلام على الداكن
+function cover(page, facts, ctx) {
     const name = facts.name || 'مشروع';
     const line = page.text && page.text.subtitle ? page.text.subtitle : facts.tagline;
+    const dark = Boolean(ctx && ctx.tone === 'deep');
     if (page.variant === 'type') {
         const figs = [...projectFigures(facts), facts.units_count ? fig('عدد الوحدات', String(facts.units_count)) : null].filter(Boolean);
         return [
@@ -508,22 +559,28 @@ function cover(page, facts) {
         ];
     }
     const low = page.variant === 'low';
+    const nameBlock = el('div', { class: 'bro-cover-name' }, [
+        el('h1', { class: 'bro-title' + (name.length > 26 ? ' is-longer' : name.length > 14 ? ' is-long' : ''), text: name }),
+        facts.nameLatin ? el('div', { class: 'bro-latin', text: facts.nameLatin }) : null
+    ]);
+    const kicker = place(facts) ? el('div', { class: 'bro-kicker', text: place(facts) }) : null;
+    const tagline = line ? el('div', { class: 'bro-tagline', text: line }) : null;
+    const sold = facts.soldOut ? el('div', { class: 'bro-tag', text: 'نفدت الوحدات' }) : null;
+    const foot = facts.developer || facts.license ? el('div', { class: 'bro-cover-foot' }, [
+        facts.developer ? el('span', { text: 'تطوير ' + facts.developer }) : null,
+        facts.license ? el('span', { text: facts.license }) : null
+    ]) : null;
+    if (page.variant === 'full') {
+        const it = facts.images[page.images[0]];
+        return [img(facts, page.images[0], 'bro-cover-photo', ctx && ctx.framed ? { w: 92, h: 48.25 } : { w: 100, h: 56.25 }),
+            el('div', { class: 'bro-cover-card' + (it && it.quiet === 'left' ? ' is-left' : '') }, [kicker, nameBlock, tagline, sold,
+                el('div', { class: 'bro-cover-end' }, [foot, logo('bro-logo-tab', dark)])])];
+    }
     return [
         img(facts, page.images[0], 'bro-cover-photo', low ? { w: 100, h: 34 } : { w: 56, h: 56.25 }),
-        el('div', { class: 'bro-cover-name' }, [
-            el('h1', { class: 'bro-title' + (name.length > 26 ? ' is-longer' : name.length > 14 ? ' is-long' : ''), text: name }),
-            facts.nameLatin ? el('div', { class: 'bro-latin', text: facts.nameLatin }) : null
-        ]),
-        el('div', { class: 'bro-cover-meta' }, [
-            place(facts) ? el('div', { class: 'bro-kicker', text: place(facts) }) : null,
-            line ? el('div', { class: 'bro-tagline', text: line }) : null,
-            facts.soldOut ? el('div', { class: 'bro-tag', text: 'نفدت الوحدات' }) : null,
-            facts.developer || facts.license ? el('div', { class: 'bro-cover-foot' }, [
-                facts.developer ? el('span', { text: 'تطوير ' + facts.developer }) : null,
-                facts.license ? el('span', { text: facts.license }) : null
-            ]) : null
-        ]),
-        logo('bro-logo-tab', false)
+        nameBlock,
+        el('div', { class: 'bro-cover-meta' }, [kicker, tagline, sold, foot]),
+        logo('bro-logo-tab', dark)
     ];
 }
 
@@ -613,8 +670,8 @@ function about(page, facts, ctx) {
 function photoPage(page, facts, ctx) {
     const i = page.images[0], it = facts.images[i];
     const cap = captionOf(facts, i, page);
-    const head = ctx.chap ? [el('span', { class: 'bro-chap-n bro-strip-n', text: ctx.chap.n }), el('span', { class: 'bro-chap-t', text: ctx.chap.name })]
-        : [el('span', { class: 'bro-num', text: folio(ctx) })];
+    const head = ctx.chap ? [mark(), el('span', { class: 'bro-chap-n bro-strip-n', text: ctx.chap.n }), el('span', { class: 'bro-chap-t', text: ctx.chap.name })]
+        : [mark(), el('span', { class: 'bro-num', text: folio(ctx) })];
     if (page.variant === 'tall' && it && it.w && it.h) {
         // حتى خط القسمة (56) إن بقي ثلاثة أرباع ارتفاعها فأكثر وحملت بكسلاتها العرض، وإلا بنسبتها كاملة
         const own = 56.25 * (it.w / it.h);
@@ -623,11 +680,13 @@ function photoPage(page, facts, ctx) {
         if (photo) photo.style.width = w.toFixed(2) + 'cqw';
         return [photo, el('div', { class: 'bro-tall-field', style: '--w:' + w.toFixed(2) + 'cqw' }, [run(ctx, cap), cap ? el('p', { class: 'bro-tall-cap', text: cap }) : null])];
     }
-    if (page.variant === 'plate') {
-        // اللوحة في وسط الصفحة بين هامشين، وتعليقها تحتها على حافتها
-        const p = plate(facts, i, { w: 62, h: 42 }, 1, 'bro-plate-photo');
+    // اللوحة في وسط الصفحة بين هامشين، وتعليقها تحتها على حافتها. والطولية في المعرض (هدوء فاخر) بارتفاع الصفحة كله كغيرها:
+    // لوحةً في الوسط صغرت صور الجوال الطولية وتتابعت صفحاتٍ فارغة (حكما الجولة 2026-10-28)
+    if (page.variant === 'plate' || page.variant === 'tall') {
+        const box = page.variant === 'tall' ? { w: 62, h: 46, top: 5.4 } : { w: 62, h: 42, top: 7.4 };
+        const p = plate(facts, i, box, 1, 'bro-plate-photo');
         if (p) {
-            const top = 7.4 + (42 - p.h) / 2, right = (100 - p.w) / 2;
+            const top = box.top + (box.h - p.h) / 2, right = (100 - p.w) / 2;
             p.node.style.top = top.toFixed(2) + 'cqw';
             p.node.style.right = right.toFixed(2) + 'cqw';
             return [run(ctx, cap), p.node, cap ? el('p', { class: 'bro-plate-cap', style: 'top:' + (top + p.h + 0.8).toFixed(2) + 'cqw;right:' + right.toFixed(2) + 'cqw', text: cap }) : null];
@@ -1027,7 +1086,8 @@ function chapter(page, facts, ctx) {
     ]), seam(), table];
 }
 
-// الغلاف الخلفي بلون المشروع العميق: شعار ملائم أبيض بهواء حوله، وشعاره سطرين، ورقم المكتب إن لم تحمله صفحة «تواصل معنا» قبله
+// الغلاف الخلفي، توقيع ملائم بتركيب واحد في كل بروشور وبألوان مشروعه: الحقل العميق، وشعار ملائم بلون الكلام عليه بهواء حوله،
+// وسطره «ملائم العقارية.. حيث تجد ما يناسبك» سطرين، والدعوة الواحدة (واتساب المكتب) إن لم تحملها صفحة «تواصل معنا» قبله
 function back(page, facts, ctx) {
     const prev = ctx.prev;
     const called = prev && prev.kind === 'statement' && prev.variant === 'say' && prev.text && prev.text.title;
@@ -1038,7 +1098,8 @@ function back(page, facts, ctx) {
             closing ? el('div', { class: 'bro-back-line', text: closing }) : null,
             logo('bro-logo-back', true),
             el('div', { class: 'bro-slogan' }, sloganLines().map((s) => el('span', { text: s }))),
-            facts.office.whatsapp && !called ? phoneLink(facts.office.whatsapp, 'bro-phone') : null
+            // الدعوة الواحدة: واتساب المكتب رابطاً، إن لم تحمله صفحة «تواصل معنا» قبله
+            facts.office.whatsapp && !called ? el('div', { class: 'bro-back-call' }, [el('div', { class: 'bro-label', text: 'واتساب' }), phoneLink(facts.office.whatsapp, 'bro-phone')]) : null
         ]),
         el('p', { class: 'bro-fine', text: 'البيانات من بروشور المطوّر كما قُرئ لدى ملائم العقارية بتاريخ ' + fmtDate(new Date().toISOString())
             + '، والأسعار والتوفر قابلة للتغيير.' + (facts.developer ? ' المشروع من تطوير ' + facts.developer + '.' : '') })

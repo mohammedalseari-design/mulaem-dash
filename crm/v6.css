@@ -1000,3 +1000,71 @@ body.pal-open { overflow: hidden; }
 @media print {
     .skip-link, .offline-bar, .pal-scrim, .work-search, .sub-tabs, .f-chips, .pipe { display: none !important; }
 }
+
+/* ===================== ‎#/mortgage‎ — حاسبة التمويل العقاري (للمدير) ===================== */
+/* الشاشة الواسعة: النموذج يميناً، وفوق التفاصيل شريط الأرقام الثلاثة. الجوال: نموذج ثم أرقام ثم تفاصيل. */
+.mort-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-areas: "form kpis" "form result";
+    grid-template-rows: auto 1fr;
+    gap: 16px;
+    align-items: start;
+}
+.mort-grid > .crm-card { margin-bottom: 0; }
+.mort-form { grid-area: form; }
+.mort-kpis { grid-area: kpis; }
+.mort-result { grid-area: result; }
+.mort-form-head { flex-wrap: wrap; gap: 4px 12px; }
+.mort-form-tools { display: flex; gap: 4px; }
+.mort-group { margin: 6px 0 10px; color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em; }
+.mort-form .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.mort-params { margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.mort-params > summary, .mort-more > summary { cursor: pointer; color: var(--ink-2); font-size: 0.86rem; font-weight: 600; }
+.mort-params[open] > summary { margin-bottom: 12px; }
+.mort-more > summary { color: var(--brand-ink); }
+.mort-status { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; margin: 0 0 12px; color: var(--ink-2); font-size: 0.9rem; }
+.mort-table { width: 100%; border-collapse: collapse; }
+.mort-table th { padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.86rem; font-weight: 500; text-align: start; }
+.mort-table td { padding: 8px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; text-align: end; }
+.mort-more { margin-top: 12px; }
+.mort-sched-wrap { max-height: 320px; margin-top: 8px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.mort-sched-table td { text-align: end; font-variant-numeric: tabular-nums; }
+.mort-sched-table td:first-child { text-align: start; }
+.mort-sources ul { margin: 8px 0 0; padding-inline-start: 18px; color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+.mort-copy { width: 100%; font-family: var(--font); }
+@media (min-width: 861px) {
+    .mort-kpis .kpi-num { font-size: 1.45rem; }
+}
+@media (max-width: 860px) {
+    .mort-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "form" "kpis" "result"; grid-template-rows: none; }
+    .mort-status { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 360px) {
+    .mort-form .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ===================== ‎#/financing‎ — جهات التمويل، وجدول المقارنة في الحاسبة ===================== */
+.fin-rows { list-style: none; margin: 0; padding: 0; }
+.fin-row { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fin-row:last-child { border-bottom: 0; }
+.fin-row.is-off { opacity: 0.7; }
+.fin-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.fin-name { font-size: 0.98rem; }
+.fin-rate { margin-inline-start: auto; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fin-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--muted); font-size: 0.84rem; }
+.fin-meta a { color: var(--brand-ink); direction: ltr; unicode-bidi: isolate; }
+.fin-when { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fin-prop { margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.fin-prop-title { margin: 0 0 6px; color: var(--ink-2); font-size: 0.88rem; font-weight: 600; }
+.fin-quote { margin: 0 0 8px; padding-inline-start: 10px; border-inline-start: 2px solid var(--line-2); color: var(--ink-2); font-size: 0.86rem; line-height: 1.7; overflow-wrap: anywhere; }
+.fin-cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.fin-error { margin: 2px 0 0; color: var(--amber); font-size: 0.84rem; }
+.fin-note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+.fin-form .fin-active { justify-self: start; }
+.fin-remove { color: var(--danger); }
+.mort-compare-table th:nth-child(n+2), .mort-compare-table td:nth-child(n+2) { text-align: end; font-variant-numeric: tabular-nums; }
+.mort-compare-table td:first-child .badge { margin-inline-start: 6px; }
+.mort-compare-table tr.is-on > td { background: var(--brand-soft); }
+.mort-compare-table tr:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }

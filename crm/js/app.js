@@ -23,6 +23,8 @@ import { renderUsers } from './users.js';
 import { renderActivity } from './activity.js';
 import { renderAdmin } from './admin.js';
 import { renderHelp } from './help.js';
+import { renderMortgage } from './mortgage.js';
+import { renderFinancing } from './financing.js';
 import { renderRequests } from './requests.js';
 import { renderMatches } from './matches.js';
 import { renderCommissions } from './commissions.js';
@@ -60,6 +62,8 @@ const ROUTES = [
     { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/admin', admin: true },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/admin', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/admin', admin: true },
+    { pattern: /^#\/mortgage\/?$/, view: renderMortgage, nav: '#/admin', admin: true },
+    { pattern: /^#\/financing\/?$/, view: renderFinancing, nav: '#/admin', admin: true },
     { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/admin', admin: true },
     { pattern: /^#\/activity\/?$/, view: renderActivity, nav: '#/admin', admin: true },
     { pattern: /^#\/studio\/?$/, view: renderStudio, nav: '#/admin', admin: true },

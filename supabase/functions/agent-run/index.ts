@@ -21,7 +21,10 @@ import {
   DEFAULT_MAX_REJECT_RATIO, DEFAULT_REASONING_THRESHOLD, deepStart, defaultTiers, type Effort, firstStep, isFailure, nextStep,
   parseJson, reasoningFor, Redactor, resumeLadder, scoreEffort, shouldSaveLadder, type Step, type Tier, type TierId, type Tiers,
 } from "../_shared/effort-router/mod.ts";
-import { fetchUrlSource } from "./fetch.ts";
+import { fetchUrlSource, LINK_BUDGET_MS, UrlError } from "./fetch.ts";
+import {
+  checkRates, dueEntities, type Entity, ENTITIES_KEY, MAX_ON_DEMAND, MAX_PER_SWEEP, mergeProposals, type Proposal, PROPOSALS_KEY,
+} from "./rates.ts";
 import { LinkRetry, openLinks } from "./links.ts";
 import { BROCHURE_SCHEMA, BROCHURE_SYSTEM_PROMPT, kindPrompt, schemaFor, SYSTEM_PROMPT } from "./schema.ts";
 import { allUnread, buildParts, estimateTokens, hasFiles, type Loaded, loadSources, MAX_BROCHURE_PAGES, MAX_FILES, pdfPages, SourceError, type SourceRow } from "./sources.ts";
@@ -128,6 +131,8 @@ Deno.serve(async (req) => {
           if (i > 0 && left < (await needsHeavyWindow(db, id) ? HEAVY_WINDOW_MS : FAST_WINDOW_MS) + 5_000) continue;
           await processRequest(db, id, deadline);
         }
+        // نسب جهات التمويل (rates.ts): ما مضى على فحصه أسبوع، في الوقت الباقي بعد الطلبات
+        if (deadline - Date.now() > LINK_BUDGET_MS + 10_000) await refreshRates(db, deadline, false);
       })());
       return json({ status: "accepted", count: list.length, enabled: apiKey() !== "", secrets: configured() }, 202);
     }
@@ -171,6 +176,13 @@ Deno.serve(async (req) => {
       if (!done) return fail("تعذّر قراءة المسودات المعلّقة — لم يتغيّر شيء", 500);
       if (done.failed) return json({ status: "error", message: "تعذّرت كتابة بعض سطور التوائم", ...done }, 500);
       return json({ status: "success", ...done });
+    }
+
+    // «حدّث من المصادر» في صفحة جهات التمويل (crm/js/financing.js): للمدير وحده، والقراءة في الخلفية
+    if (action === "refresh_rates") {
+      if (me.role !== "admin") return fail("غير مصرح", 403);
+      EdgeRuntime.waitUntil(refreshRates(db, Date.now() + RUN_BUDGET_MS, true));
+      return json({ status: "accepted" }, 202);
     }
 
     return fail("إجراء غير معروف");
@@ -1215,4 +1227,38 @@ async function buildUpdateDrafts(
     }
   }
   return drafts;
+}
+
+/* ===================== نسب جهات التمويل ===================== */
+
+// يقرأ الجهات واقتراحاتها من crm_settings، ويفحص المستحق منها (rates.ts)، ويكتب ما وجد في مفتاح المساعد.
+// لا يرمي أبداً: خطؤه لا يمس دورة الطلبات
+async function refreshRates(db: SupabaseClient, deadline: number, force: boolean): Promise<void> {
+  try {
+    const { data, error } = await db.from("crm_settings").select("key, value").in("key", [ENTITIES_KEY, PROPOSALS_KEY]);
+    if (error) return void console.error("rates read", error.message);
+    const value = (key: string) => (data ?? []).find((row) => row.key === key)?.value;
+    const entities = Array.isArray(value(ENTITIES_KEY)) ? value(ENTITIES_KEY) as Entity[] : [];
+    const saved = value(PROPOSALS_KEY);
+    const proposals = saved && typeof saved === "object" && !Array.isArray(saved) ? saved as Record<string, Proposal> : {};
+    const due = dueEntities(entities, proposals, new Date(), { force, max: force ? MAX_ON_DEMAND : MAX_PER_SWEEP });
+    if (!due.length) return;
+    const found = await checkRates(due, {
+      fetchText: async (url, budgetMs) => {
+        const page = await fetchUrlSource(url, (u, init) => fetch(u, init), { budgetMs });
+        if (page.kind !== "text" || !page.text) throw new UrlError("الرابط ملف وليس صفحة ويب — ضع رابط صفحة المنتج في موقع الجهة");
+        return page.text;
+      },
+      left: () => deadline - Date.now(),
+    });
+    if (!Object.keys(found).length) return;
+    // يُعاد قراءة المحفوظ قبل الكتابة مباشرة: قد يكون المدير غيّر شيئاً في أثناء الفحص
+    const { data: latest } = await db.from("crm_settings").select("value").eq("key", PROPOSALS_KEY).maybeSingle();
+    const merged = mergeProposals(latest?.value, found, entities);
+    const { error: writeErr } = await db.from("crm_settings")
+      .upsert({ key: PROPOSALS_KEY, value: merged, updated_at: new Date().toISOString() });
+    if (writeErr) console.error("rates write", writeErr.message);
+  } catch (e) {
+    console.error("rates", e);
+  }
 }

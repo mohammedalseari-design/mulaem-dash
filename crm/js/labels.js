@@ -299,14 +299,15 @@ export function label(map, key, fallback = '—') {
 
 // أسماء المراحل تأتي من جدول deal_stages نفسه (name_ar)، فلا تُكرَّر هنا.
 // هذه ألوان العرض فقط، مفتاحها معرّف المرحلة الثابت 1..7.
+// اللون للمعنى فقط (قاعدة المالك): المراحل الجارية محايدة، «تمت» أخضر (منجزة)، «خسرت» رمادي (مغلقة)
 export const DEAL_STAGE_TONE = {
-    1: 'blue',
-    2: 'gold',
-    3: 'orange',
-    4: 'gold',
-    5: 'blue',
+    1: 'neutral',
+    2: 'neutral',
+    3: 'neutral',
+    4: 'neutral',
+    5: 'neutral',
     6: 'green',
-    7: 'red'
+    7: 'neutral'
 };
 
 export const COMMISSION_STATUS = {

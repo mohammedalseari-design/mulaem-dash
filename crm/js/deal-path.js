@@ -3,6 +3,8 @@
 // القواعد التي لا يغيّرها هذا الملف وتفرضها القاعدة: «خسرت» تحتاج سبباً، و«تمت» تحتاج القيمة النهائية (منها تُنشأ العمولة)،
 // وإعادة فتح صفقة «تمت» للمدير وحده (034).
 
+import { COMMISSION_STATUS } from './labels.js';
+
 const byOrder = (a, b) => (Number(a.sort_order) - Number(b.sort_order)) || (Number(a.id) - Number(b.id));
 
 // المراحل الجارية بالترتيب (بلا «تمت» و«خسرت»)
@@ -84,7 +86,18 @@ export function commissionState(stage) {
     return stage.is_won ? 'due' : 'lost';
 }
 export const COMMISSION_STATE_TEXT = { expected: 'متوقعة', due: 'مستحقة', lost: 'فائتة' };
-export const COMMISSION_STATE_TONE = { expected: 'amber', due: 'ok', lost: 'muted' };
+// اللون معنى: «متوقعة» محايدة (لم يحن شيء بعد)، «مستحقة» كهرمانية (حانت ولم تُحصَّل)، «فائتة» باهتة. الأخضر لـ«محصّلة» وحدها
+// (dueCommissionLook)، فلا يبدو مالٌ لم يصل كأنه وصل.
+export const COMMISSION_STATE_TONE = { expected: 'neutral', due: 'amber', lost: 'muted' };
+
+// عمولة صفقة «تمت» بحسب صفّها في commissions، كما تعرضها صفحة الصفقة وقائمة الصفقات معاً: «محصّلة» خضراء، و«معفاة» باهتة،
+// وما بقي منها شيء (مستحقة، صدرت فاتورة، محصّلة جزئياً) «مستحقة» كهرمانية. بلا صف مقروء: محايدة بنص «مستحقة»، لا أخضر.
+export function dueCommissionLook(row) {
+    if (!row) return { label: COMMISSION_STATE_TEXT.due, tone: 'neutral' };
+    if (row.status === 'collected') return { label: COMMISSION_STATUS.collected, tone: 'ok' };
+    if (row.status === 'waived') return { label: COMMISSION_STATUS.waived, tone: 'muted' };
+    return { label: COMMISSION_STATE_TEXT.due, tone: COMMISSION_STATE_TONE.due };
+}
 
 // العمولة المتوقعة لصفقة جارية: القيمة × النسبة، مقرّبة لهللتين كما تحسبها القاعدة. null بلا قيمة أو نسبة.
 export function expectedCommission(amount, rate) {
@@ -94,12 +107,15 @@ export function expectedCommission(amount, rate) {
     return Math.round(a * r) / 100;
 }
 
-// «6 أيام» و«يومان» و«يوم واحد» و«اليوم»
+// «6 أيام» و«يومان» و«يوم واحد» و«اليوم». بعد المئة يتبع التمييز آخر رقمين (n % 100): «103 أيام» و«111 يوماً»،
+// و«100 يوم» و«102 يوم» حين ينتهي العدد بمئة أو مئة وواحد أو مئة واثنين
 export function daysText(days) {
     if (days === null || days === undefined) return '';
     if (days <= 0) return 'اليوم';
     if (days === 1) return 'يوم واحد';
     if (days === 2) return 'يومان';
-    if (days >= 3 && days <= 10) return days + ' أيام';
-    return days + ' يوماً';
+    const tail = days % 100;
+    if (tail >= 3 && tail <= 10) return days + ' أيام';
+    if (tail >= 11) return days + ' يوماً';
+    return days + ' يوم';
 }

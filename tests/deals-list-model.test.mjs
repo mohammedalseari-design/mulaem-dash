@@ -171,14 +171,22 @@ t('rate: project rate first', rateFor(4, rates, 2.5) === 3);
 t('rate: a project rate of 0 is a rate', rateFor('8', rates, 2.5) === 0);
 t('rate: falls back to the general rate', rateFor(5, rates, 2.5) === 2.5 && rateFor(null, rates, '2') === 2);
 t('rate: none known', rateFor(5, rates, null) === null && rateFor(5, null, undefined) === null);
+// صف commission_policy لم يصل (أخفى المدير العمولة بعد الدخول، 037): لا نسبة ولو وصلت نسبة مشروع، فلا رقم من نسب ناقصة
+t('rate: no general rate = no rate at all, even with a project rate', rateFor(4, rates, null) === null && rateFor('8', rates, undefined) === null
+    && rateFor(4, rates, '') === null);
 
-t('commission: open = expected amber', same(commissionFacts({ amount: 1480000 }, stage(3), 3, null),
-    { state: 'expected', amount: 44400, label: 'متوقعة', tone: 'amber' }));
+t('commission: open = expected, neutral (no colour)', same(commissionFacts({ amount: 1480000 }, stage(3), 3, null),
+    { state: 'expected', amount: 44400, label: 'متوقعة', tone: 'neutral' }));
 t('commission: open without amount or rate → no amount', commissionFacts({ amount: null }, stage(3), 3, null).amount === null
     && commissionFacts({ amount: 900000 }, stage(1), null, null).amount === null);
-t('commission: won = due green from the commission row', same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, { gross_amount: '30000.00', status: 'collected' }),
-    { state: 'due', amount: 30000, label: 'مستحقة', tone: 'ok' }));
-t('commission: won without a row → no amount', commissionFacts({ amount: 1000000 }, stage(6), 2.5, null).amount === null);
+t('commission: won, unpaid = amber «مستحقة» from the commission row', same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, { gross_amount: '30000.00', status: 'due' }),
+    { state: 'due', amount: 30000, label: 'مستحقة', tone: 'amber' }));
+t('commission: won, invoiced or partly collected = still amber «مستحقة»', ['invoiced', 'partial'].every((status) =>
+    same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, { gross_amount: 30000, status }), { state: 'due', amount: 30000, label: 'مستحقة', tone: 'amber' })));
+t('commission: won, collected = green «محصّلة» (as the deal page box)', same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, { gross_amount: '30000.00', status: 'collected' }),
+    { state: 'due', amount: 30000, label: 'محصّلة', tone: 'ok' }));
+t('commission: won without a row → no amount, neutral, never green', same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, null),
+    { state: 'due', amount: null, label: 'مستحقة', tone: 'neutral' }));
 t('commission: waived says so, muted', same(commissionFacts({ amount: 1000000 }, stage(6), 2.5, { gross_amount: 25000, status: 'waived' }),
     { state: 'due', amount: 25000, label: 'معفاة', tone: 'muted' }));
 t('commission: lost = missed, muted', same(commissionFacts({ amount: 850000 }, stage(7), 1.5, null),

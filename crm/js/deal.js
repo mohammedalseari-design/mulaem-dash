@@ -14,10 +14,13 @@
 // بطاقة «مسار الصفقة» (2026-11-03) بدل شريط المراحل وزر لكل مرحلة: خطوات مرقّمة، وفوقها كم بقيت الصفقة في
 // مرحلتها، وتحتها زر رئيسي واحد للمرحلة التالية وروابط نصية للباقي، وصندوق عمولة صغير لمن يرى العمولة. ما تعرضه
 // يحسبه deal-page-model.js (يُختبر وحده)؛ هنا القراءة والرسم والانتقال نفسه (moveTo / applyStage كما كانا).
+// أزرار المراحل لمن يكتب الصفقة وحده (المدير أو وسيطها، deals_update)؛ منشئها الذي صار وسيطها غيره يقرؤها (deals_select)
+// فيرى المسار وملاحظة تقول من يغيّر مرحلتها.
+// الجوال: بيانات الترويسة مطوية تحت «تفاصيل الصفقة»، فيلي «مسار الصفقة» العنوانَ وأزراره في أول الشاشة.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName, dealStages, lostReasons, brokerStaff } from './data.js';
-import { isAdmin, canSeeCommission } from './auth.js';
+import { isAdmin, myId, canSeeCommission } from './auth.js';
 import { formatRate } from './commission-rate.js';
 import { DEAL_STAGE_TONE } from './labels.js';
 import {
@@ -66,10 +69,13 @@ export async function renderDeal(root, dealId) {
     const stage = stages.find((s) => s.id === deal.stage_id) || null;
     const reload = () => renderDeal(root, dealId);
     const seeCommission = canSeeCommission();
+    // من يكتب الصفقة: المدير أو وسيطها (deals_update). منشئها يقرؤها ولو صار وسيطها غيره، ولا يكتبها
+    const me = myId();
+    const canMove = isAdmin() || (me !== null && deal.broker_id === me);
 
     const historyBody = el('div');
     const commissionHost = el('div');
-    const path = pathCard(deal, stages, firstHistory, seeCommission, reload);
+    const path = pathCard(deal, stages, firstHistory, seeCommission, canMove, reload);
     append(root, [
         headerCard(deal, stage, names, reload),
         path.card,
@@ -83,7 +89,7 @@ export async function renderDeal(root, dealId) {
     // العمولة لمن يراها فقط (037)؛ القاعدة لا تعطي غيره صفها أصلاً، ولا يُطلب له شيء منها
     await Promise.all([
         renderHistory(historyBody, deal, stages, names, firstHistory),
-        seeCommission ? loadCommission(path.commission, commissionHost, deal, stage, reload) : null
+        seeCommission ? loadCommission(path.commission, commissionHost, deal, stage, canMove, reload) : null
     ]);
 }
 
@@ -142,8 +148,20 @@ function headerCard(deal, stage, names, reload) {
             ])
         ]),
         // سبب الخسارة صار مع حالة «خسرت» في بطاقة المسار (lostState)، فلا يتكرر هنا
+        detailsFold(rows)
+    ]);
+}
+
+// الجوال: البيانات تسعة سطور فوق «مسار الصفقة» تدفعه وزره الرئيسي تحت الشاشة الأولى، فتُطوى تحت «تفاصيل الصفقة» (مغلقة).
+// الكمبيوتر: الطيّة مفتوحة وعنوانها مخفي (crm/v6.css، قسم dp-)، فتبقى البطاقة كما كانت. إن فُتحت الصفحة على الجوال ثم
+// اتسعت الشاشة (تدوير) يظهر العنوان ما دامت مغلقة، فلا تختفي البيانات بلا باب.
+function detailsFold(rows) {
+    const fold = el('details', { class: 'dp-details' }, [
+        el('summary', { text: 'تفاصيل الصفقة' }),
         el('div', { class: 'kv-grid' }, rows)
     ]);
+    if (!window.matchMedia('(max-width: 700px)').matches) fold.open = true;
+    return fold;
 }
 
 // «تعديل الصفقة»: القيمة والوحدة والإغلاق المتوقع، والوسيط للمدير وحده (الخادم يُبقي وسيط الوسيط كما هو).
@@ -314,13 +332,14 @@ function escapeHtml(value) {
 
 // البطاقة: رأسها الاسم وسطر المدة، ثم حالة «خسرت» إن خسرت، ثم الخطوات، ثم الإجراءات وصندوق العمولة.
 // firstHistory: أول صفحة من سجل المراحل ({ data, error }) — إن تعذّرت قراءتها يُعامل السجل كمجهول لا كفارغ.
+// canMove: هل يكتب المستخدم الصفقة؛ وإلا فلا أزرار مراحل، بل ملاحظة (pathActions).
 // يرجع البطاقة وصندوق العمولة (فارغاً حتى تصل أرقامه في loadCommission، أو null لمن لا يرى العمولة).
 // مرحلة لا تُعرف (تعذّر تحميل المراحل) لا حالة عمولة لها، فلا صندوق: لا «جارٍ الحساب…» يختفي بعدها.
-function pathCard(deal, stages, firstHistory, seeCommission, reload) {
+function pathCard(deal, stages, firstHistory, seeCommission, canMove, reload) {
     const history = firstHistory && !firstHistory.error ? (firstHistory.data || []) : null;
     const model = pathSteps(stages, deal.stage_id);
     const since = sinceLine(stages, deal, history);
-    const actions = pathActions(stages, deal.stage_id, isAdmin());
+    const actions = pathActions(stages, deal.stage_id, isAdmin(), canMove);
 
     const commission = seeCommission && model.status !== 'unknown'
         ? el('div', { class: 'dp-com dp-loading', role: 'group', 'aria-label': 'العمولة', 'aria-busy': 'true' }, [
@@ -380,8 +399,8 @@ function stepList(model) {
 }
 
 // زر رئيسي واحد (المرحلة التالية)، والباقي روابط نصية. المغلقة: «أعد فتحها…» زر بإطار (ليس الإجراء المعتاد)،
-// أو لا شيء حين تكون «تمت» والمستخدم غير المدير (الملاحظة تقول لماذا). الزر الذي يفتح نافذة يقول ذلك لقارئ الشاشة
-// (aria-haspopup) قبل الضغط.
+// أو لا شيء حين تكون «تمت» والمستخدم غير المدير، أو حين لا يكتب الصفقة أصلاً (الملاحظة تقول لماذا). الزر الذي يفتح نافذة
+// يقول ذلك لقارئ الشاشة (aria-haspopup) قبل الضغط.
 function actionButtons(deal, stages, actions, reload) {
     const list = [];
     const dialog = 'dialog';
@@ -483,34 +502,39 @@ async function lostReasonName(id) {
 // (قيمة الصفقة، وإلا سعر الوحدة من v_units)؛ «مستحقة» من صف العمولة نفسه. البطاقة المفصّلة للصفقة التي تمت، ولأي صفقة
 // بقي لها صف: صفقة خرجت من «تمت» بعد تحصيل شيء من عمولتها يبقى صفها «تحتاج مراجعة» (031) وعلى المدير أن يراه.
 // صفقة جارية بلا صف لا بطاقة لها بعد اليوم: كانت تقول «لا توجد عمولة» تحت صندوق يقول المتوقعة.
-async function loadCommission(box, cardHost, deal, stage, reload) {
-    const won = commissionState(stage) === 'due';
-    // للصفقة التي تمت تبدأ البطاقة المفصّلة فوراً مع الصندوق، لا بعده
-    const card = won ? renderCommission(cardHost, deal) : null;
-    const key = won || Number(deal.amount) > 0 ? null : unitPriceKey(deal);
+// canMove: من لا يكتب الصفقة لا يُعرض له رابط «اكتب قيمة الصفقة…» (commissionBox: canEdit).
+async function loadCommission(box, cardHost, deal, stage, canMove, reload) {
+    // «تمت»: البطاقة المفصّلة تقرأ الصف، وكل قراءة لها (الأولى، وبعد «تعديل العمولة» و«إضافة دفعة» و«تمت المراجعة») تملأ
+    // الصندوق من الصف نفسه، فلا يبقى فيه مبلغ أو نسبة أو حالة قديمة. تبدأ فوراً مع الصندوق، لا بعده. «مستحقة» رقمها من
+    // الصف وحده: إن تعذّرت قراءته يقال ذلك، لا «لم تُسجَّل عمولة»
+    if (commissionState(stage) === 'due') {
+        await renderCommission(cardHost, deal, ({ data, error }) => {
+            if (!box || !box.isConnected) return;
+            fillCommissionBox(box, error ? null : commissionBox({ stage, amount: deal.amount, row: data || null }), deal, stage, reload);
+        });
+        return;
+    }
+    const key = Number(deal.amount) > 0 ? null : unitPriceKey(deal);
     const [rowResult, found, unitPrice] = await Promise.all([
         Promise.resolve(supabase
             .from('commissions')
-            .select('gross_amount, base_amount, rate_percent, status')
+            .select('id')
             .eq('deal_id', deal.id)
             .maybeSingle()).catch((error) => ({ data: null, error })),
-        won ? null : effectiveDealRate(deal.project_id).catch(() => null),
+        effectiveDealRate(deal.project_id).catch(() => null),
         key ? unitPriceOf(key) : null
     ]);
-    const row = rowResult.error ? null : rowResult.data;
 
     if (box && box.isConnected) {
-        // «مستحقة» رقمها من الصف وحده: إن تعذّرت قراءته يقال ذلك، لا «لم تُسجَّل عمولة»
-        if (won && rowResult.error) fillCommissionBox(box, null, deal, stage, reload);
-        else fillCommissionBox(box, commissionBox({
-            stage, amount: deal.amount, unitPrice, row,
+        fillCommissionBox(box, commissionBox({
+            stage, amount: deal.amount, unitPrice, row: null, canEdit: canMove,
             rate: found && Number.isFinite(found.rate) ? found.rate : null,
             rateFrom: found ? found.from : ''
         }), deal, stage, reload);
     }
-    // تعذّرت قراءة الصف: لا يُعرف أله عمولة، فتُعرض البطاقة كما كانت تُعرض دائماً (تقول خطأها بنفسها)
-    if (!won && cardHost.isConnected && (rowResult.error || row)) await renderCommission(cardHost, deal);
-    await card;
+    // صف باقٍ لصفقة غير «تمت» (031) تُعرض بطاقته. وتعذّرت قراءة الصف: لا يُعرف أله عمولة، فتُعرض البطاقة كما كانت تُعرض
+    // دائماً (تقول خطأها بنفسها)
+    if (cardHost.isConnected && (rowResult.error || rowResult.data)) await renderCommission(cardHost, deal);
 }
 
 // سعر الوحدة المعروض: صف واحد من v_units بمفتاح unitPriceKey. أي خطأ = لا سعر، فيطلب الصندوق قيمة الصفقة
@@ -525,7 +549,8 @@ async function unitPriceOf(key) {
     }
 }
 
-// model: من commissionBox (null لمرحلة لا تُعرف: لا صندوق)، أو null مع صفقة تمت تعذّرت قراءة عمولتها
+// model: من commissionBox (null لمرحلة لا تُعرف: لا صندوق)، أو null مع صفقة تمت تعذّرت قراءة عمولتها.
+// يُستدعى مرة لكل قراءة لصف العمولة (loadCommission)، فيُعاد رسم الصندوق كله في كل مرة.
 function fillCommissionBox(box, model, deal, stage, reload) {
     box.removeAttribute('aria-busy');
     const failed = !model && commissionState(stage) === 'due';
@@ -536,8 +561,9 @@ function fillCommissionBox(box, model, deal, stage, reload) {
         if (foot && foot.classList.contains('dp-foot') && !foot.childNodes.length) foot.remove();
         return;
     }
-    // dp-amber | dp-ok | dp-muted (COMMISSION_STATE_TONE)
-    box.className = 'dp-com dp-' + (model ? model.tone : 'muted');
+    // dp-neutral | dp-amber | dp-ok | dp-muted (COMMISSION_STATE_TONE وdueCommissionLook). صف «تمت» لم يُقرأ: محايد،
+    // لا أخضر ولا باهت
+    box.className = 'dp-com dp-' + (model ? model.tone : 'neutral');
     const head = el('div', { class: 'dp-com-head' }, [
         el('span', { class: 'dp-com-title', text: 'العمولة' }),
         model ? el('span', { class: 'dp-com-state', text: model.label }) : null
@@ -621,11 +647,15 @@ async function openLostForm(deal, stage, reload) {
 }
 
 // المعاينة تحسب كما يحسب الخادم: العمولة تُنشأ عند «تمت» بنسبة مشروع الصفقة أو النسبة العامة (commissions_apply_rate
-// في 037)، والضريبة 15% (007). النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة. 2.5 احتياط إن تعذّرت القراءة.
-const DEFAULT_RATE = 2.5;
+// في 037)، والضريبة 15% (007). النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة. لا نسبة احتياطية: ما لم تُقرأ
+// النسبة فعلاً لا تُعرض أرقام، بل سطر يقول إن العمولة تُحسب بنسبة المشروع عند الإتمام.
 const DEFAULT_VAT = 15;
 const round2 = (n) => Math.round(n * 100) / 100;
+const NO_RATE_LINE = 'العمولة تُحسب بنسبة المشروع عند الإتمام';
 
+// نسبة الصفقة: نسبة مشروعها إن كانت له نسبة خاصة، وإلا النسبة العامة. لا شيء ما لم يصل صف commission_policy: 037 يحجبه
+// مع نسب المشاريع عمّن أخفى المدير عنه العمولة (ولو بعد دخوله)، فلا يُحسب رقم من نسب ناقصة (كما expectedTotal في
+// work-queue.js وrateFor في deals-list-model.js)
 async function effectiveDealRate(projectId) {
     const [policy, project] = await Promise.all([
         supabase.from('commission_policy').select('default_rate').maybeSingle(),
@@ -633,9 +663,9 @@ async function effectiveDealRate(projectId) {
             ? Promise.resolve({ data: null, error: null })
             : supabase.from('project_commission').select('rate').eq('project_id', projectId).maybeSingle()
     ]);
+    if (policy.error || !policy.data) return null;
     if (!project.error && project.data) return { rate: Number(project.data.rate), from: 'نسبة المشروع' };
-    if (!policy.error && policy.data) return { rate: Number(policy.data.default_rate), from: 'النسبة العامة' };
-    return null;
+    return { rate: Number(policy.data.default_rate), from: 'النسبة العامة' };
 }
 
 // نموذج الإتمام: السعر النهائي أساس العمولة، ولا إتمام بلا قيمة، ومعه معاينة العمولة قبل التأكيد
@@ -644,8 +674,10 @@ function openAmountForm(deal, stage, reload) {
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-success btn-sm', text: 'تأكيد الإتمام' });
     // من لا يرى العمولة (037) يؤكد السعر فقط، بلا معاينة عمولة
     const seeCommission = canSeeCommission();
-    const preview = seeCommission ? el('dl', { class: 'won-preview', 'aria-live': 'polite' }) : null;
-    let rate = DEFAULT_RATE;
+    // أسطر المعاينة (dl) حين تُقرأ النسبة، وقبلها أو إن تعذّرت سطر واحد بلا أرقام (يُوضع مرة، فلا يُعاد إعلانه مع كل حرف)
+    const preview = seeCommission ? el('div', { class: 'won-preview-host', 'aria-live': 'polite' }) : null;
+    const noRate = seeCommission ? el('p', { class: 'won-preview won-preview-none', text: NO_RATE_LINE }) : null;
+    let rate = null;
     let rateFrom = '';
 
     const line = (label, value, strong) => el('div', { class: 'won-line' + (strong ? ' won-total' : '') }, [
@@ -654,15 +686,19 @@ function openAmountForm(deal, stage, reload) {
     ]);
     function updatePreview() {
         if (!preview) return;
+        if (rate === null) {
+            if (preview.firstChild !== noRate) replace(preview, noRate);
+            return;
+        }
         const value = parseNumber(amount.value);
         const base = value !== null && value > 0 ? value : null;
         const gross = base === null ? null : round2(base * rate / 100);
         const vat = base === null ? null : round2(base * rate / 100 * DEFAULT_VAT / 100);
-        replace(preview, [
+        replace(preview, el('dl', { class: 'won-preview' }, [
             line('العمولة (' + formatRate(rate) + (rateFrom ? ' ' + rateFrom : '') + ')', gross),
             line('ضريبة العمولة (' + DEFAULT_VAT + '%)', vat),
             line('العمولة مع الضريبة', gross === null ? null : round2(gross + vat), true)
-        ]);
+        ]));
     }
     amount.addEventListener('input', updatePreview);
     updatePreview();

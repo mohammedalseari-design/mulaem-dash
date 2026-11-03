@@ -2,7 +2,8 @@
 //
 // لا يوجد أي ترشيح بالمستخدم هنا: سياسات RLS على follow_ups وdeals وprojects وclients تتكفّل بالباقي (وv_my_work معرّف
 // security_invoker)، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً. إلا الصفقات: deals_select تُري الوسيط أيضاً صفقة
-// أنشأها ثم جعل المدير وسيطها غيره، فيُبقي ownDeals (work-queue.js) صفقاته وحده للعدّ و«واقف» و«عمولتي».
+// أنشأها ثم جعل المدير وسيطها غيره، فيُبقي ownDeals (work-queue.js) صفقاته وحده للعدّ و«واقف» و«عمولتي»، وتُعدّ خطوات
+// الصفقات في «مساري» («معاينة» بالصفقة، و«عربون»، و«تمت») بوسيط الصفقة نفسه (broker_id).
 //
 // حدود اليوم: v_my_work تحسب "اليوم" بتوقيت Asia/Riyadh (006_inventory_quality.sql)، والقوائم هنا ترسل بداية اليوم
 // المحلي وبداية الغد نصّاً ISO بإزاحة المتصفح، فيطابق كل رقم طول قائمته.
@@ -123,13 +124,17 @@ export async function renderWork(root) {
     ].filter(Boolean));
     kpis.node.classList.add('wq-kpis');
 
-    function showMasked() {
-        if (!maskCommission) return;
+    // الخانة المقفلة: قفل و«••••» للعين، و«مخفية بقرار الإدارة» سطرها الصغير يُقرأ ويظهر حتى على الجوال (crm/v6.css:
+    // .wq-kpi-masked). تُرسم مع الصفحة لمن أُخفيت عنه العمولة عند دخوله، وفي loadWork لمن أخفاها المدير بعد دخوله.
+    function setMasked() {
         kpis.set('commission', {
-            value: [icon('key', 'ico wq-lock'), el('span', { 'aria-hidden': 'true', text: '••••' }), el('span', { class: 'w4-sr', text: 'مخفية' })],
+            value: [icon('key', 'ico wq-lock'), el('span', { 'aria-hidden': 'true', text: '••••' })],
             sub: 'مخفية بقرار الإدارة',
             className: 'wq-kpi-masked'
         });
+    }
+    function showMasked() {
+        if (maskCommission) setMasked();
     }
 
     /* ---------- القائمة الواحدة ---------- */
@@ -343,12 +348,23 @@ export async function renderWork(root) {
 
         if (seeCommission) {
             const rateError = dealError || (policy && policy.error) || (rates && rates.error) || null;
+            const projectRates = new Map(((rates && rates.data) || []).map((row) => [Number(row.project_id), row.rate]));
+            const defaultRate = policy && policy.data ? policy.data.default_rate : null;
+            // openDeals صفقاتي وحدها (ownDeals أعلاه)، وللمدير صفقات الفريق كله فيُقال ذلك كما في «مساري». null: لم يصل صف
+            // commission_policy — العمولة رآها عند دخوله وأخفاها المدير بعده (037 يحجب الصف ونسب المشاريع معاً)، فلا رقم
+            const sum = rateError ? null : expectedTotal(openDeals, projectRates, defaultRate);
             if (rateError) kpis.set('commission', failed(rateError));
-            else {
-                const projectRates = new Map(((rates && rates.data) || []).map((row) => [Number(row.project_id), row.rate]));
-                const defaultRate = policy && policy.data ? policy.data.default_rate : null;
-                // openDeals صفقاتي وحدها (ownDeals أعلاه)، وللمدير صفقات الفريق كله فيُقال ذلك كما في «مساري»
-                const sum = expectedTotal(openDeals, projectRates, defaultRate);
+            else if (!sum) {
+                if (!team) setMasked();
+                else {
+                    kpis.set('commission', {
+                        value: '—',
+                        tone: 'failed',
+                        sub: 'لا نسبة عامة للعمولة',
+                        title: 'لم تصل النسبة العامة للعمولة، فلا يُحسب مجموع من نسب ناقصة.'
+                    });
+                }
+            } else {
                 kpis.set('commission', {
                     value: money(sum.total),
                     unit: 'ر.س',
@@ -389,7 +405,8 @@ export async function renderWork(root) {
         const v = queueView(queue.items, t, view.filter, view.expanded);
         const errors = queue.errors.filter((e) => view.filter === 'all' || e.kind === view.filter);
         const parts = errors.map((e) => errorBox(e.error, e.prefix, () => reloadAll()));
-        if (v.shown.length) parts.push(el('ol', { class: 'wq-list' }, v.shown.map(itemRow)));
+        // list-style: none يُسقط معنى القائمة في Safari، فيُعاد صريحاً (وكذلك خطوات «مساري»)
+        if (v.shown.length) parts.push(el('ol', { class: 'wq-list', role: 'list' }, v.shown.map(itemRow)));
         else if (!errors.length) parts.push(emptyQueue(view.filter));
         for (const kind of Object.keys(v.more)) parts.push(moreRow(kind, v.more[kind]));
         replace(listHost, parts);
@@ -512,16 +529,25 @@ export async function renderWork(root) {
     }
 
     // نقل الصفقة إلى المرحلة التالية: update واحد كما في صفحة الصفقة، والخادم يكتب السجل والحجز (007 و030).
-    // شرط المرحلة الحالية يمنع نقلها مرتين بضغطتين أو من صفحة قديمة.
+    // شرط المرحلة الحالية يمنع نقلها مرتين بضغطتين أو من صفحة قديمة، والزر يبقى معطلاً حتى تُرسم القائمة من جديد (السطر
+    // يختفي معها عادةً)، فلا تُرسل ضغطة ثانية تحديثاً ثانياً قبل ذلك.
     async function moveDeal(button, deal, stage) {
+        if (button.disabled) return;
         button.disabled = true;
         const { data, error } = await safe(supabase.from('deals').update({ stage_id: stage.id })
             .eq('id', deal.id).eq('stage_id', deal.stage_id).select('id'));
-        button.disabled = false;
-        if (error) return void fail(error, 'تعذّر نقل الصفقة');
-        if (!data || data.length === 0) return void notify('لم تُنقل الصفقة: تغيّرت مرحلتها، أو لا تملك تعديلها', 'error', 8000);
+        const moved = !error && data && data.length > 0;
+        if (!moved) {
+            button.disabled = false;
+            if (error) return void fail(error, 'تعذّر نقل الصفقة');
+            return void notify('لم تُنقل الصفقة: تغيّرت مرحلتها، أو لا تملك تعديلها', 'error', 8000);
+        }
         notify('تم الانتقال إلى: ' + stage.name_ar, 'success');
-        reloadAll();
+        try {
+            await reloadAll();
+        } finally {
+            if (button.isConnected) button.disabled = false;
+        }
     }
 
     /* ---------- «مساري» ---------- */
@@ -541,17 +567,22 @@ export async function renderWork(root) {
         const viewingId = stageId(stages, 'viewing', 2);
         const depositId = stageId(stages, 'deposit', 4);
         const wonIds = stages ? stages.filter((s) => s.is_won).map((s) => s.id) : [6];
+        // خطوات الصفقات لغير المدير بصفقات هو وسيطها وحده (كـ ownDeals): السياسة تُريه سجل صفقة أنشأها ووسيطها غيره، فتُربط
+        // سطور السجل بصفقتها (!inner) وتُرشَّح بوسيطها. المدير: الفريق كله كما كان
+        const ownOnly = (query, column) => (team ? query : query.eq(column, me));
+        const dealOf = (columns) => (team ? (columns ? ', deal:deals(' + columns + ')' : '')
+            : ', deal:deals!inner(' + (columns ? columns + ', ' : '') + 'broker_id)');
 
         const [shared, clients, visits, moves, deposits, won] = await Promise.all([
             safe(supabase.from('property_matches').select('id', { count: 'exact', head: true }).gte('created_at', since)),
             safe(supabase.from('clients').select('id', { count: 'exact', head: true }).gte('created_at', since)),
             safe(fetchAll(() => supabase.from('follow_ups').select('id, client_id')
                 .eq('status', 'done').eq('channel', 'visit').gte('done_at', since).order('id', { ascending: true }))),
-            safe(fetchAll(() => supabase.from('deal_stage_history').select('id, deal_id, deal:deals(client_id)')
-                .eq('to_stage', viewingId).gte('changed_at', since).order('id', { ascending: true }))),
-            safe(fetchAll(() => supabase.from('deal_stage_history').select('id, deal_id')
-                .eq('to_stage', depositId).gte('changed_at', since).order('id', { ascending: true }))),
-            safe(supabase.from('deals').select('id', { count: 'exact', head: true }).in('stage_id', wonIds).gte('closed_at', since))
+            safe(fetchAll(() => ownOnly(supabase.from('deal_stage_history').select('id, deal_id' + dealOf('client_id'))
+                .eq('to_stage', viewingId).gte('changed_at', since), 'deal.broker_id').order('id', { ascending: true }))),
+            safe(fetchAll(() => ownOnly(supabase.from('deal_stage_history').select('id, deal_id' + dealOf(''))
+                .eq('to_stage', depositId).gte('changed_at', since), 'deal.broker_id').order('id', { ascending: true }))),
+            safe(ownOnly(supabase.from('deals').select('id', { count: 'exact', head: true }).in('stage_id', wonIds).gte('closed_at', since), 'broker_id'))
         ]);
         if (mine !== pathSeq || !stepsHost.isConnected) return;
 
@@ -563,7 +594,7 @@ export async function renderWork(root) {
             deposit: deposits.error ? null : distinctCount((deposits.data || []).map((row) => row.deal_id)),
             won: won.error ? null : won.count || 0
         });
-        replace(stepsHost, el('ol', { class: 'wq-steps' }, steps.map((step, i) => stepRow(step, i ? steps[i - 1] : null))));
+        replace(stepsHost, el('ol', { class: 'wq-steps', role: 'list' }, steps.map((step, i) => stepRow(step, i ? steps[i - 1] : null))));
         const firstError = [shared, clients, visits, moves, deposits, won].map((r) => r.error).find(Boolean);
         if (firstError) append(stepsHost, errorBox(firstError, 'تعذّر حساب بعض الخطوات', () => loadPath()));
         stepsHost.removeAttribute('aria-busy');

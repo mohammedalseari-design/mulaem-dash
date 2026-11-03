@@ -4,6 +4,7 @@
 // قراءة فقط لكل الأدوار، والسياسات تقرّر ما يُرى: projects (المعتمد غير المحذوف، وما أضافه الوسيط بنفسه)، و v_units
 // بالسياسات نفسها (security_invoker)، و unit_holds يقرؤها كل موظف (030). قسمة كل نموذج بين متاح ومحجوز ومباع في
 // units-board.js بقاعدة v_units نفسها. العمولة لمن يرى العمولة (037)، ولغيره «••••» مخفية؛ والقاعدة لا تعطيه الأرقام أصلاً.
+// مركز الاتصال لا عمولة له أصلاً (لا صفقات له): لا خانة «عمولتي» عنده ولو مخفية، ولو شغّل المدير إظهار العمولة للموظفين.
 // زر التسجيل لا يُبنى لمركز الاتصال (لا صفقات له، والقاعدة ترفضها له)، ولا على عقار محذوف.
 // التعديل في صفحة المشاريع (‎../projects.html‎) كما في «العقارات»، وهذه نافذة عليه.
 
@@ -29,7 +30,9 @@ export async function renderProject(root, projectId) {
     // رقم العقار عدد صحيح دائماً (projects.id integer): رابط غيره خاطئ، فلا يُسأل الخادم عنه ولا تظهر رسالته الإنجليزية
     const pid = /^\d{1,10}$/.test(id) ? Number(id) : NaN;
     if (!(pid <= 2147483647)) return void replace(root, notFound());
-    const seeCommission = canSeeCommission();
+    // show: الأرقام، masked: «••••» مخفية، none: لا خانة (مركز الاتصال)
+    const commission = myRole() === 'callcenter' ? 'none' : canSeeCommission() ? 'show' : 'masked';
+    const seeCommission = commission === 'show';
 
     const [projectResult, unitsResult, holdsResult] = await Promise.all([
         settle(supabase.from('projects')
@@ -67,7 +70,7 @@ export async function renderProject(root, projectId) {
     // اختيار نموذج: يُضغط زره وحده، وتُرسم تفاصيله في اللوحة الجانبية. byUser: ضغطة الموظف (لا الاختيار الأول)
     function select(ord, byUser) {
         for (const [key, button] of buttons) button.setAttribute('aria-pressed', key === ord ? 'true' : 'false');
-        replace(panel, panelBody(project, rows.find((row) => row.ord === ord), seeCommission));
+        replace(panel, panelBody(project, rows.find((row) => row.ord === ord), commission));
         if (byUser) revealPanel(panel);
     }
 
@@ -78,10 +81,12 @@ export async function renderProject(root, projectId) {
     });
 
     // بلا زر رئيسي في الترويسة: الإجراء الرئيسي في لوحة النموذج المختار
+    const mapLink = actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' });
+    mapLink.classList.add('pj-head-link');
     replace(root, [
-        pageHead(dash(project.name), subLine(project), [actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' })]),
+        pageHead(dash(project.name), subLine(project), [mapLink]),
         statusNote(project),
-        rows.length ? summaryStrip(boardSummary(rows), seeCommission) : null,
+        rows.length ? summaryStrip(boardSummary(rows), commission) : null,
         el('div', { class: 'pj-layout' + (rows.length ? '' : ' pj-layout-empty') }, [
             boardCard(rows, list),
             rows.length ? panel : null
@@ -125,11 +130,12 @@ function constructionLabel(value) {
     return text === 'تحت_الإنشاء' ? 'تحت الإنشاء' : text;
 }
 
-// ما يغيّر معنى الصفحة يُقال تحت الترويسة: عقار محذوف (لا صفقات عليه)، أو لم يُعتمد بعد، أو نفد بالكامل
+// ما يغيّر معنى الصفحة يُقال تحت الترويسة: عقار محذوف (لا صفقات عليه)، أو لم يُعتمد بعد، أو نفد بالكامل.
+// غير المعتمد والمرفوض يراهما المدير ومن أضافهما وحدهما (سياسة projects)، وهما من يفتح الصفحة: الجملة تقول ما يصدق عليهما
 function statusNote(project) {
     if (project.deleted_at) return note('هذا العقار محذوف من المخزون، فلا تُفتح عليه صفقات جديدة.', 'danger');
-    if (project.status === 'pending') return note('هذا العقار بانتظار اعتماد المدير، ولا يظهر في «العقارات» قبل اعتماده.', 'amber');
-    if (project.status === 'rejected') return note('هذا العقار مرفوض، ولا يظهر في «العقارات».', 'danger');
+    if (project.status === 'pending') return note('هذا العقار بانتظار اعتماد المدير؛ لا يراه بقية الموظفين حتى يُعتمد.', 'amber');
+    if (project.status === 'rejected') return note('هذا العقار مرفوض؛ لا يراه بقية الموظفين.', 'danger');
     if (project.availability && project.availability !== 'available') return note('هذا العقار «نفد بالكامل»، فكل وحداته خارج البيع.', 'muted');
     return null;
 }
@@ -141,22 +147,24 @@ function note(text, tone) {
 function notFound() {
     return el('div', { class: 'crm-denied' }, [
         el('div', { class: 'crm-error', text: 'العقار غير موجود أو لا تملك صلاحية الاطلاع عليه.' }),
-        el('a', { class: 'btn btn-outline btn-sm', href: '#/properties', text: 'رجوع إلى العقارات' })
+        el('a', { class: 'btn btn-outline btn-sm pj-back', href: '#/properties', text: 'رجوع إلى العقارات' })
     ]);
 }
 
 /* ===================== شريط الأرقام ===================== */
 
-// خمس خانات ثابتة: المتاح من الكل، والمحجوز، والمباع، وأقل سعر بين المتاح، وعمولة الوحدة
-function summaryStrip(s, seeCommission) {
-    return el('div', { class: 'pj-sum', role: 'group', 'aria-label': 'ملخص وحدات العقار' }, [
+// خمس خانات ثابتة: المتاح من الكل، والمحجوز، والمباع، وأقل سعر بين المتاح، وعمولة الوحدة — وأربع لمركز الاتصال (لا
+// عمولة له): pj-sum-4 يوزّع الخانات الأربع فلا تبقى خانة فارغة في الشريط. commission: show | masked | none
+function summaryStrip(s, commission) {
+    const none = commission === 'none';
+    return el('div', { class: 'pj-sum' + (none ? ' pj-sum-4' : ''), role: 'group', 'aria-label': 'ملخص وحدات العقار' }, [
         sumCell('متاح', [number(s.available), unit('من ' + number(s.total))], { tone: s.available > 0 ? 'ok' : null }),
         sumCell('محجوز', number(s.reserved), { tone: s.reserved > 0 ? 'amber' : null }),
         sumCell('مباع', number(s.sold)),
         sumCell('يبدأ من', s.fromPrice === null ? '—' : [money(s.fromPrice), unit(SAR)], {
             wide: true, sub: s.fromPrice !== null ? null : s.available > 0 ? 'بلا سعر مسجّل' : 'لا وحدة متاحة'
         }),
-        commissionCell(s, seeCommission)
+        none ? null : commissionCell(s, commission === 'show')
     ]);
 }
 
@@ -189,8 +197,9 @@ function commissionCell(s, seeCommission) {
 
 const KINDS = [['available', 'متاح'], ['reserved', 'محجوز'], ['sold', 'مباع']];
 
+// list-style: none يُسقط معنى القائمة في Safari، فيُعاد صريحاً
 function legend() {
-    return el('ul', { class: 'pj-legend', 'aria-label': 'معنى الألوان' }, KINDS.map(([kind, text]) => el('li', {}, [
+    return el('ul', { class: 'pj-legend', role: 'list', 'aria-label': 'معنى الألوان' }, KINDS.map(([kind, text]) => el('li', {}, [
         el('span', { class: 'pj-sq pj-sq-' + kind, 'aria-hidden': 'true' }),
         el('span', { text })
     ])));
@@ -251,7 +260,8 @@ function fact(title, value) {
     return el('div', { class: 'pj-fact' }, [el('dt', { text: title }), el('dd', {}, value)]);
 }
 
-function panelBody(project, row, seeCommission) {
+// commission: show | masked | none (مركز الاتصال: لا سطر «عمولتي» أصلاً)
+function panelBody(project, row, commission) {
     if (!row) return null;
     // صف «كامل العقار» (unit_ord 0) ليس نموذجاً: العقار كله وحدة واحدة
     const whole = row.ord === 0;
@@ -270,7 +280,7 @@ function panelBody(project, row, seeCommission) {
                 el('span', { class: 'pj-tone-' + toneOf(row), text: availabilityText(row, number) }),
                 taken ? el('small', { text: taken }) : null
             ]),
-            fact('عمولتي', seeCommission
+            commission === 'none' ? null : fact('عمولتي', commission === 'show'
                 ? (row.commission === null ? '—' : money(row.commission) + NBSP + SAR)
                 : [masked(), el('small', { text: 'مخفية' })])
         ]),

@@ -28,7 +28,9 @@ import {
     moneyInput, parseNumber, openModal, closeModal, money, number, fmtDate, dash, notify, fail
 } from './ui.js';
 
-export async function renderCommission(host, deal) {
+// onRow (اختياري): يُستدعى بـ { data, error } بعد كل قراءة للصف — الأولى، وبعد «تعديل العمولة» و«إضافة دفعة» و«تمت
+// المراجعة» — فيتبعه ما يعرض الصف نفسه خارج البطاقة (صندوق العمولة في «مسار الصفقة») ولا يبقى على أرقام قديمة.
+export async function renderCommission(host, deal, onRow = null) {
     const body = el('div');
     replace(host, el('div', { class: 'crm-card' }, [
         el('div', { class: 'crm-card-head' }, [el('h2', { text: 'العمولة' })]),
@@ -37,13 +39,20 @@ export async function renderCommission(host, deal) {
 
     async function load() {
         replace(body, loading());
-        const { data, error } = await supabase
+        const { data, error } = await Promise.resolve(supabase
             .from('commissions')
             .select('*')
             .eq('deal_id', deal.id)
-            .maybeSingle();
+            .maybeSingle()).catch((thrown) => ({ data: null, error: thrown }));
 
         if (!body.isConnected) return;
+        if (onRow) {
+            try {
+                onRow({ data: error ? null : data, error: error || null });
+            } catch (failure) {
+                console.error(failure);
+            }
+        }
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العمولة'));
         if (!data) {
             return void replace(body, empty('لا توجد عمولة لهذه الصفقة — تُسجَّل تلقائياً عند إتمامها بقيمة معلومة'));

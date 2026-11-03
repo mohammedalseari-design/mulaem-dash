@@ -4,8 +4,8 @@
 // تبويب لكل مرحلة بعددها («الكل» = الجارية كلها، ثم المراحل الخمس، ثم «تمت» و«خسرت»)، وبحث باسم العميل أو جواله أو
 // اسم المشروع، والوسيط للمدير، والترتيب أوله «الأقدم تحديثاً» (الصفقة المتروكة أولاً؛ لماذا لا «الأقدم في المرحلة»: في
 // deals-list-model.js). الجدول مرقّم من الخادم (‎.range()‎ بحجم PAGE_SIZE) ويُعرض بترتيبه، وأيام كل صفقة في مرحلتها من
-// استعلام واحد على deal_stage_history لصفوف الصفحة وحدها (بالأحمر حين تقف)، و«تجاوز موعد الإغلاق» تحت اسم الجارية التي
-// فات موعدها المتوقع — «عملي اليوم» يعدّها ويحيل إلى هنا.
+// استعلام واحد على deal_stage_history لصفوف الصفحة وحدها (بالكهرماني حين تقف)، و«تجاوز موعد الإغلاق» بالأحمر تحت
+// اسم الجارية التي فات موعدها المتوقع — «عملي اليوم» يعدّها ويحيل إلى هنا.
 // الحساب نفسه (التبويبات، الترتيب، ما يُحدَّد وإلى أين يُنقل، والنصوص) في deals-list-model.js ويُختبر وحده.
 //
 // التحديد ينقل عدة صفقات معاً إلى المرحلة التالية، أو يسجّلها «خسرت» بسبب واحد. كل صفقة تعديل مستقل يُعدّ نجاحه
@@ -557,8 +557,8 @@ export async function renderBoard(root) {
         if (focusAfter) { focusAfter = false; focusQuiet(line.querySelector('.result-count') || line); }
     }
 
-    // الصف: على الكمبيوتر سطر جدول، وعلى الجوال بطاقة (step2-deals-list.css): الاسم (وتحته «تجاوز موعد الإغلاق» إن
-    // فات)، ثم العقار، ثم المسار والأيام، ثم القيمة، ثم العمولة، ثم الوسيط
+    // الصف: على الكمبيوتر سطر جدول، وعلى الجوال بطاقة (crm/v6.css، قسم «الصفقات»، البادئة dl-): الاسم (وتحته «تجاوز
+    // موعد الإغلاق» إن فات)، ثم العقار، ثم المسار والأيام، ثم القيمة، ثم العمولة، ثم الوسيط
     function rowNode(deal, pick, extras, now, today) {
         const facts = stageFacts(deal, stages, extras.history, now);
         const name = deal.client && deal.client.full_name ? deal.client.full_name : 'عميل';
@@ -600,7 +600,8 @@ function pathNode(facts) {
     ]);
 }
 
-// الأيام في المرحلة، وبالأحمر مع علامة (لا باللون وحده) حين تتجاوز الحد وهي جارية
+// الأيام في المرحلة، وبالكهرماني مع علامة (لا باللون وحده) حين تتجاوز الحد وهي جارية: «واقفة» تنتظر حركة، كما في صفحة
+// الصفقة و«عملي اليوم»؛ الأحمر لما فات موعده (موعد الإغلاق المتوقع، المتابعات المتأخرة)
 function daysNode(facts) {
     if (facts.days === null) return el('span', { class: 'dl-muted', text: EM_DASH });
     if (!facts.stuck) return el('span', { class: 'dl-days', text: daysText(facts.days) });
@@ -629,6 +630,7 @@ function valueNode(amount) {
     return el('span', { class: 'dl-value' }, [el('span', { class: 'dl-num', text }), el('span', { class: 'dl-cur', text: ' ر.س' })]);
 }
 
+// العمولة بلونها من commissionFacts (dl-tone-neutral | amber | ok | muted)، كصندوق صفحة الصفقة
 function commissionNode(deal, stage, extras) {
     const rate = rateFor(deal.project_id, extras.projectRates, extras.defaultRate);
     const facts = commissionFacts(deal, stage, rate, extras.commissions.get(deal.id) || null);

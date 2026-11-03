@@ -3,7 +3,7 @@
 // التشغيل: node tests/deal-path.test.mjs   أو   deno run tests/deal-path.test.mjs
 import {
     openStages, wonStage, lostStage, stageOf, nextStage, prevStage, progress, enteredAt, daysSince, isStuck, STUCK_DAYS,
-    commissionState, COMMISSION_STATE_TEXT, expectedCommission, daysText
+    commissionState, COMMISSION_STATE_TEXT, COMMISSION_STATE_TONE, dueCommissionLook, expectedCommission, daysText
 } from '../crm/js/deal-path.js';
 
 let pass = 0, fail = 0;
@@ -67,6 +67,16 @@ t('commission: open = expected', commissionState(stageOf(STAGES, 4)) === 'expect
 t('commission: won = due', commissionState(stageOf(STAGES, 6)) === 'due' && COMMISSION_STATE_TEXT.due === 'مستحقة');
 t('commission: lost = lost', commissionState(stageOf(STAGES, 7)) === 'lost' && COMMISSION_STATE_TEXT.lost === 'فائتة');
 t('commission: no stage', commissionState(null) === null);
+// اللون معنى: المتوقعة لم يحن منها شيء (محايدة)، والمستحقة تنتظر التحصيل (كهرمانية)، والفائتة باهتة. لا أخضر قبل التحصيل
+t('commission tones: expected neutral, due amber, lost muted', COMMISSION_STATE_TONE.expected === 'neutral'
+    && COMMISSION_STATE_TONE.due === 'amber' && COMMISSION_STATE_TONE.lost === 'muted');
+const look = (status) => dueCommissionLook({ gross_amount: 37000, status });
+t('won commission: due, invoiced and partial are an amber «مستحقة»', ['due', 'invoiced', 'partial'].every((st) =>
+    look(st).label === 'مستحقة' && look(st).tone === 'amber'));
+t('won commission: collected is a green «محصّلة»', look('collected').label === 'محصّلة' && look('collected').tone === 'ok');
+t('won commission: waived is a muted «معفاة»', look('waived').label === 'معفاة' && look('waived').tone === 'muted');
+t('won commission: no readable row is neutral with «مستحقة», never green', dueCommissionLook(null).label === 'مستحقة'
+    && dueCommissionLook(null).tone === 'neutral' && dueCommissionLook(undefined).tone === 'neutral');
 t('expected 1,480,000 at 3% = 44,400', expectedCommission(1480000, 3) === 44400);
 t('expected 850,000 at 1.5% = 12,750', expectedCommission(850000, 1.5) === 12750);
 t('expected rounds to halalas', expectedCommission(999999, 2.5) === 24999.98);
@@ -74,6 +84,15 @@ t('expected needs amount and rate', expectedCommission(null, 2.5) === null && ex
 
 t('days text', daysText(0) === 'اليوم' && daysText(1) === 'يوم واحد' && daysText(2) === 'يومان' && daysText(6) === '6 أيام' && daysText(15) === '15 يوماً');
 t('days text empty', daysText(null) === '');
+t('days text: 3..10 days, 11..99 days', daysText(3) === '3 أيام' && daysText(10) === '10 أيام' && daysText(11) === '11 يوماً'
+    && daysText(99) === '99 يوماً');
+// بعد المئة يتبع التمييز آخر رقمين (n % 100)
+t('days text: 100 يوم', daysText(100) === '100 يوم', daysText(100));
+t('days text: 103 أيام', daysText(103) === '103 أيام', daysText(103));
+t('days text: 111 يوماً', daysText(111) === '111 يوماً', daysText(111));
+t('days text: 102 يوم', daysText(102) === '102 يوم', daysText(102));
+t('days text: 101 يوم, 110 أيام, 200 يوم, 365 يوماً', daysText(101) === '101 يوم' && daysText(110) === '110 أيام'
+    && daysText(200) === '200 يوم' && daysText(365) === '365 يوماً');
 
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) {

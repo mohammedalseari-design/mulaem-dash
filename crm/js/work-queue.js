@@ -190,7 +190,10 @@ const rateValue = (v) => (v === null || v === undefined || v === '' || !Number.i
 
 // نسبة الصفقة كما يحسبها الخادم عند «تمت» (commissions_apply_rate في 037، وeffectiveDealRate في deal.js): نسبة مشروعها
 // إن كانت له نسبة خاصة، وإلا النسبة العامة. projectRates: Map أو كائن من project_id إلى النسبة.
+// defaultRate هي النسبة العامة من صف commission_policy، وبدونه لا نسبة: 037 يحجب الصف ونسب المشاريع معاً عمّن أخفى المدير
+// عنه العمولة (ولو بعد دخوله)، فغياب الصف يعني أن الأرقام ليست له، لا أن تُحسب من نسب ناقصة.
 export function effectiveRate(projectId, projectRates, defaultRate) {
+    if (rateValue(defaultRate) === null) return null;
     if (projectId !== null && projectId !== undefined && projectRates) {
         const own = projectRates instanceof Map
             ? (projectRates.has(Number(projectId)) ? projectRates.get(Number(projectId)) : projectRates.get(String(projectId)))
@@ -202,8 +205,10 @@ export function effectiveRate(projectId, projectRates, defaultRate) {
 }
 
 // مجموع العمولة المتوقعة لصفقات جارية: القيمة × نسبتها لكل صفقة. counted ما دخل المجموع، وmissing ما لا قيمة له أو لا
-// نسبة، فلا يُقال رقم أكبر مما هو.
+// نسبة، فلا يُقال رقم أكبر مما هو. null حين لم تصل النسبة العامة (صف commission_policy): لا رقم أصلاً، والشاشة تقول
+// «مخفية» بدل مجموعٍ من نسب ناقصة.
 export function expectedTotal(deals, projectRates, defaultRate) {
+    if (rateValue(defaultRate) === null) return null;
     let total = 0;
     let counted = 0;
     let missing = 0;

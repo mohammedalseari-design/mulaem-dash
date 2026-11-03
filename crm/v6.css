@@ -1160,8 +1160,36 @@ body.pal-open { overflow: hidden; }
 /* ===================== ‎#/deals/:id‎ — بطاقة «مسار الصفقة» (crm/js/deal.js) ===================== */
 /* تُلحق بآخر v6.css. بدل شريط المراحل وزر لكل مرحلة: سطر المدة في رأس البطاقة، ثم خطوات مرقّمة (الجارية + «تمت»)، ثم زر
    رئيسي واحد للمرحلة التالية وروابط نصية، وصندوق عمولة صغير لمن يراها. اللون بمعناه وحده: لون الشعار للخطوة الحالية
-   والإجراء الرئيسي، الأخضر لما تم، الكهرماني للعمولة المتوقعة، الأحمر للصفقة الواقفة ولـ«خسرت». خطوط رفيعة لا ظلال.
-   الجوال (≤700px): الخطوات قائمة رأسية والزر الرئيسي بعرض البطاقة. كل لون من متغيرات v6.css فيصح في الوضع الليلي. */
+   والإجراء الرئيسي، الأخضر لما تم ولعمولة «محصّلة»، الكهرماني لما ينتظر (الصفقة الواقفة، والعمولة المستحقة غير المحصّلة)،
+   المحايد للعمولة المتوقعة، الباهت للفائتة والمعفاة، والأحمر لشارة «خسرت». خطوط رفيعة لا ظلال.
+   الجوال (≤700px): بيانات الترويسة مطوية تحت «تفاصيل الصفقة» فيأتي المسار بعد العنوان، والخطوات قائمة رأسية والزر الرئيسي
+   بعرض البطاقة. كل لون من متغيرات v6.css فيصح في الوضع الليلي. */
+
+/* ---------- ترويسة الصفقة: البيانات مطوية على الجوال (deal.js: detailsFold) ---------- */
+/* الكمبيوتر: الطيّة مفتوحة وعنوانها مخفي، فالبطاقة كما كانت. العنوان يظهر ما دامت مغلقة (فُتحت الصفحة على الجوال ثم اتسعت) */
+.dp-details > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+    color: var(--brand-ink);
+    font-size: 0.9rem;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+}
+.dp-details > summary::-webkit-details-marker { display: none; }
+/* العلامة للعين وحدها (الحالة يعلنها summary نفسه): النص البديل الفارغ بعد «/» حيث يُفهم، وإلا تبقى العلامة كما هي */
+.dp-details > summary::before { content: '+'; content: '+' / ''; display: inline-block; width: 1em; text-align: center; font-weight: 700; }
+.dp-details[open] > summary::before { content: '−'; content: '−' / ''; }
+@media (min-width: 701px) {
+    .dp-details[open] > summary { display: none; }
+}
+@media (max-width: 700px) {
+    .dp-details[open] > .kv-grid { margin-top: 0; padding-top: 6px; border-top: 0; }
+}
 
 .dp-head { align-items: baseline; }
 .dp-since {
@@ -1175,13 +1203,14 @@ body.pal-open { overflow: hidden; }
     font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
-/* «واقفة»: أكثر من 14 يوماً في المرحلة (isStuck) — السطر أحمر وبجانبه الكلمة، فلا يعتمد المعنى على اللون وحده */
-.dp-since.dp-late { color: var(--danger); font-weight: 600; }
+/* «واقفة»: أكثر من 14 يوماً في المرحلة (isStuck) — تنتظر حركة، فهي كهرمانية كما في «عملي اليوم» وقائمة الصفقات (الأحمر
+   لما فات موعده)، وبجانب السطر الكلمة، فلا يعتمد المعنى على اللون وحده */
+.dp-since.dp-late { color: var(--amber); font-weight: 600; }
 .dp-flag {
     padding: 0 8px;
     border-radius: 999px;
-    background: var(--danger-soft);
-    color: var(--danger);
+    background: var(--amber-soft);
+    color: var(--amber);
     font-size: 0.74rem;
     font-weight: 700;
 }
@@ -1312,13 +1341,16 @@ body.pal-open { overflow: hidden; }
 }
 .dp-com-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; }
 .dp-com-state { padding: 0 9px; border: 1px solid transparent; border-radius: 999px; font-size: 0.76rem; font-weight: 700; }
+/* «متوقعة» (ولـ«تمت» بلا صف مقروء): محايدة بلا لون — لم يحن شيء بعد */
+.dp-com.dp-neutral .dp-com-state { border-color: var(--line-2); background: var(--surface); color: var(--ink-2); }
+/* «مستحقة» لم تُحصَّل: كهرمانية؛ «محصّلة»: خضراء */
 .dp-com.dp-amber .dp-com-state { background: var(--amber-soft); color: var(--amber); }
 .dp-com.dp-ok .dp-com-state { background: var(--ok-soft); color: var(--ok); }
 .dp-com.dp-muted .dp-com-state { border-color: var(--line-2); background: var(--surface); color: var(--muted); }
 .dp-com-value { color: var(--ink); font-size: 1.3rem; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
 .dp-com.dp-amber .dp-com-value { color: var(--amber); }
 .dp-com.dp-ok .dp-com-value { color: var(--ok); }
-/* «فائتة»: ما كانت ستكونه، باهتاً */
+/* «فائتة» و«معفاة»: ما كانت ستكونه، باهتاً */
 .dp-com.dp-muted .dp-com-value { color: var(--muted); font-weight: 600; }
 .dp-com-detail { color: var(--muted); font-size: 0.8rem; line-height: 1.6; font-variant-numeric: tabular-nums; }
 .dp-com-ask {
@@ -1365,6 +1397,9 @@ body.pal-open { overflow: hidden; }
     font-variant-numeric: tabular-nums;
 }
 .dp-pick-hint { margin-inline-start: auto; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+
+/* نموذج الإتمام: ما لم تُقرأ نسبة العمولة فعلاً، سطر واحد بلا أرقام مكان أسطر المعاينة (deal.js: openAmountForm) */
+.won-preview.won-preview-none { color: var(--ink-2); font-size: 0.88rem; line-height: 1.7; }
 
 /* ---------- الجوال: قائمة رأسية، والخيط بين الدوائر عمودي ---------- */
 @media (max-width: 700px) {
@@ -1439,13 +1474,15 @@ body.pal-open { overflow: hidden; }
 
 /* ---------- القائمة ---------- */
 
+/* رقم في الشريط ينزل إلى القائمة (focusQueue): عنوانها يقف تحت الشريط العلوي الملتصق (60px، v5.css) بفسحة 16 لا خلفه.
+   الجوال بلا شريط علوي (easy.css)، فقيمته في قسم الجوال أدناه */
 .wq-queue {
     display: grid;
     min-width: 0;
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
     background: var(--surface);
-    scroll-margin-top: 16px;
+    scroll-margin-top: calc(60px + 16px);
 }
 .wq-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 0; min-width: 0; }
 .wq-head h2 {
@@ -1607,7 +1644,7 @@ body.pal-open { overflow: hidden; }
 .wq-path-title h2 { margin: 0; color: var(--ink); font-size: 1.02rem; font-weight: 600; }
 .wq-path-sub { margin: 0; color: var(--muted); font-size: 0.8rem; }
 
-/* المدة: مفتاح صغير، والمختارة بلون الشعار */
+/* المدة: مفتاح صغير كبقية المفاتيح (.pc-seg): المختارة بيضاء بخط الحبر الأثقل وإطار داكن */
 .wq-period {
     display: inline-flex;
     gap: 2px;
@@ -1616,7 +1653,7 @@ body.pal-open { overflow: hidden; }
     border-radius: 999px;
     background: var(--surface-2);
 }
-/* حدّ شفاف لكل زر يصير خطاً رفيعاً للمختار (بلا ظل)، فلا يتغيّر مقاس أي زر حين يُختار */
+/* حدّ شفاف لكل زر يصير إطار المختار (بلا ظل)، فلا يتغيّر مقاس أي زر حين يُختار */
 .wq-period-btn {
     min-height: 30px;
     padding: 0 10px;
@@ -1630,10 +1667,12 @@ body.pal-open { overflow: hidden; }
     cursor: pointer;
 }
 .wq-period-btn:hover { color: var(--ink); }
+/* إطار المختار --muted على خلفية المفتاح (--surface-2): نحو 5.5:1 نهاراً وأكثر من 6:1 ليلاً (≥ 3:1 لمؤشر غير نصي)؛ كان
+   --line-2 نحو 1.5:1 فلا يكاد يُرى أيّ المدد مختارة */
 .wq-period-btn[aria-pressed="true"] {
-    border-color: var(--line-2);
+    border-color: var(--muted);
     background: var(--surface);
-    color: var(--brand-ink);
+    color: var(--ink);
     font-weight: 600;
 }
 
@@ -1682,8 +1721,12 @@ body.pal-open { overflow: hidden; }
 @media (max-width: 700px) {
     .wq .wq-layout { gap: 14px; }
 
-    /* القائمة بلا إطار حولها: كل سطر بطاقة وحده */
-    .wq-queue { border: 0; border-radius: 0; background: transparent; }
+    /* العمولة المخفية: «مخفية بقرار الإدارة» تبقى ظاهرة هنا وحدها (سطور الأرقام الأخرى تُخفى على الجوال)، فلا تبقى «••••»
+       بلا سبب */
+    .wq-kpis .wq-kpi-masked .kpi-sub { display: block; }
+
+    /* القائمة بلا إطار حولها: كل سطر بطاقة وحده. لا شريط علوي على الجوال، فالقفز إليها يترك فسحة الصفحة وحدها */
+    .wq-queue { border: 0; border-radius: 0; background: transparent; scroll-margin-top: 12px; }
     .wq-head { padding: 0; }
     .wq-head h2 { font-size: 1rem; }
     .wq-head-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
@@ -1704,7 +1747,9 @@ body.pal-open { overflow: hidden; }
     }
     .wq-item:hover { background: var(--surface); }
     .wq-top { gap: 6px 8px; }
-    .wq-name { flex: 1 1 100%; font-size: 1rem; }
+    /* اسم العميل رابط: مساحة لمسه 44px على الأقل (سطره نحو 26) بحاشية تمتد فوقه وتحته وهامش سالب بقدرها، فلا يتحرك
+       شيء في البطاقة. position: relative يرسمه فوق سطر السياق تحته، وإلا غطّى ذلك السطر أسفل مساحة اللمس */
+    .wq-name { position: relative; flex: 1 1 100%; padding-block: 10px; margin-block: -10px; font-size: 1rem; }
     .wq-ctx { white-space: normal; }
 
     /* الأزرار بعرض البطاقة: اتصال وواتساب مربعان، والإجراء الرئيسي يملأ الباقي */
@@ -1813,6 +1858,8 @@ body.pal-open { overflow: hidden; }
     background: var(--line);
     overflow: hidden;
 }
+/* مركز الاتصال لا عمولة له: أربع خانات، فلا يبقى مكان الخامسة فارغاً بلون الخط */
+.pj-sum.pj-sum-4 { grid-template-columns: repeat(3, minmax(0, 0.8fr)) minmax(0, 1.3fr); }
 .pj-sum-cell {
     display: grid;
     align-content: start;
@@ -1981,15 +2028,19 @@ body.pal-open { overflow: hidden; }
     .pj-panel > * { max-width: 560px; }
 }
 
-/* الأرقام سطران بلا خانة فارغة: العدّادات الثلاثة، ثم السعر والعمولة */
+/* الأرقام سطران بلا خانة فارغة: العدّادات الثلاثة، ثم السعر والعمولة (أو السعر وحده بعرض السطر لمركز الاتصال) */
 @media (max-width: 900px) {
-    .pj-sum { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .pj-sum,
+    .pj-sum.pj-sum-4 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .pj-sum-cell { grid-column: span 2; }
     .pj-sum-cell.pj-sum-wide { grid-column: span 3; }
+    .pj-sum-4 .pj-sum-cell.pj-sum-wide { grid-column: 1 / -1; }
 }
 
 /* الجوال: المربعات سطر كامل تحت الاسم والعدد، وتلتف */
 @media (max-width: 700px) {
+    /* «المشاريع والخريطة» في الترويسة و«رجوع إلى العقارات» (عقار لا يُرى): بحجم الإصبع، 44 لا 40 */
+    .btn.pj-head-link, .btn.pj-back { min-height: 44px; }
     .pj-note { margin: -4px 0 12px; }
     .pj-sum { margin-bottom: 12px; }
     .pj-sum-cell { padding: 10px 12px; }
@@ -2017,9 +2068,10 @@ body.pal-open { overflow: hidden; }
 /* ===================== «الصفقات»: قائمة بالمراحل ونقل عدة صفقات (dl-) ===================== */
 /* ===================== ‎#/deals‎ — قائمة الصفقات حسب المرحلة (crm/js/board.js) ===================== */
 /* تُلحق بآخر crm/v6.css فتغلب ما قبلها عند التساوي. البادئة dl-، والألوان كلها من متغيرات v6 (تتبدل في الوضع الليلي).
-   اللون للمعنى وحده: الأحمر للواقفة ولما فات موعد إغلاقه، والكهرماني لما يُنتظر (العمولة المتوقعة)، والأخضر لما تم،
-   ولون الشعار للمرحلة الحالية والإجراء الرئيسي. خطوط رفيعة بدل الظلال. على الجوال يصير كل صف بطاقة، والتبويبات تُسحب
-   وحدها أفقياً، وشريط التحديد يلتصق بأسفل الشاشة فوق الشريط السفلي. */
+   اللون للمعنى وحده: الأحمر لما فات موعد إغلاقه، والكهرماني لما ينتظر (الواقفة، والعمولة المستحقة غير المحصّلة)، والأخضر
+   لما تم (والعمولة المحصّلة)، والمحايد للعمولة المتوقعة، ولون الشعار للمرحلة الحالية والإجراء الرئيسي. خطوط رفيعة بدل
+   الظلال. على الجوال يصير كل صف بطاقة، والتبويبات تُسحب وحدها أفقياً، وشريط التحديد يلتصق بأسفل الشاشة فوق الشريط
+   السفلي. */
 
 /* ---------- تبويبات المراحل ---------- */
 
@@ -2125,7 +2177,8 @@ body.pal-open { overflow: hidden; }
 .dl-path.dl-path-lost .dl-stage { color: var(--muted); }
 
 .dl-days { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.dl-days.dl-stuck { color: var(--danger); font-weight: 600; }
+/* «واقفة» تنتظر حركة: كهرمانية كما في صفحة الصفقة و«عملي اليوم»، والأحمر لـ«تجاوز موعد الإغلاق» وحده */
+.dl-days.dl-stuck { color: var(--amber); font-weight: 600; }
 .dl-days .ico { width: 15px; height: 15px; flex: none; }
 
 .dl-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -2136,6 +2189,8 @@ body.pal-open { overflow: hidden; }
 .dl-com { display: inline-grid; gap: 1px; }
 .dl-com .dl-num { color: var(--ink); }
 .dl-com-tag { font-size: 0.74rem; font-weight: 600; }
+/* كصندوق صفحة الصفقة (dueCommissionLook): «متوقعة» محايدة، «مستحقة» كهرمانية، «محصّلة» خضراء، «معفاة» و«فائتة» باهتتان */
+.dl-com.dl-tone-neutral .dl-com-tag { color: var(--ink-2); }
 .dl-com.dl-tone-amber .dl-com-tag { color: var(--amber); }
 .dl-com.dl-tone-ok .dl-com-tag { color: var(--ok); }
 .dl-com.dl-tone-muted .dl-num, .dl-com.dl-tone-muted .dl-com-tag { color: var(--muted); }

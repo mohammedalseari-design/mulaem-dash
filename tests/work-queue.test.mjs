@@ -182,6 +182,8 @@ t('rate: zero project rate is a rate', effectiveRate(9, rates, 2.5) === 0);
 t('rate: else the general rate', effectiveRate(8, rates, 2.5) === 2.5 && effectiveRate(null, rates, '2.5') === 2.5);
 t('rate: plain object works too', effectiveRate(7, { 7: '1.5' }, 2.5) === 1.5);
 t('rate: nothing known = null', effectiveRate(8, rates, null) === null && effectiveRate(8, null, '') === null);
+// لا صف commission_policy (037 يحجبه مع نسب المشاريع عمّن أخفى المدير عنه العمولة): لا نسبة ولو وصلت نسبة مشروع
+t('rate: no general rate = no rate, even with a project rate', effectiveRate(7, rates, null) === null && effectiveRate(7, { 7: '1.5' }, undefined) === null);
 const OPEN = [
     { id: 'a', amount: 1480000, project_id: 7 },   // 3% = 44,400
     { id: 'b', amount: 1000000, project_id: 8 },   // 2.5% = 25,000
@@ -190,9 +192,12 @@ const OPEN = [
 ];
 let total = expectedTotal(OPEN, rates, 2.5);
 t('expected: sum of amount × rate', total.total === 94399.98 && total.counted === 3 && total.missing === 1, total);
-total = expectedTotal(OPEN, rates, null);
-t('expected: no general rate counts project rates only', total.total === 44400 && total.counted === 1 && total.missing === 3, total);
+// الصف لم يصل: لا رقم أصلاً (الشاشة تقول «مخفية» للوسيط) بدل مجموع من نسب المشاريع وحدها أو صفر كاذب
+t('expected: no general rate (no commission_policy row) = no number at all', expectedTotal(OPEN, rates, null) === null
+    && expectedTotal(OPEN, rates, undefined) === null && expectedTotal(OPEN, new Map(), '') === null && expectedTotal([], rates, null) === null);
 t('expected: empty', JSON.stringify(expectedTotal([], rates, 2.5)) === JSON.stringify({ total: 0, counted: 0, missing: 0 }));
+t('expected: a general rate of 0 is a rate', JSON.stringify(expectedTotal([{ amount: 500000, project_id: 8 }], rates, 0))
+    === JSON.stringify({ total: 0, counted: 1, missing: 0 }));
 
 /* ---------- «مساري» ---------- */
 

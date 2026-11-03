@@ -1,10 +1,10 @@
 // اختبار crm/js/deal-page-model.js: خطوات «مسار الصفقة» وحالة كل خطوة، ومتى تُعرض حالة «خسرت»، وسطر المدة فوق المسار
-// بأيام التقويم (مع «واقفة» والمغلقة)، ومن أي مرحلة خسرت، والإجراءات المسموحة لكل حالة ودور، وأساس العمولة وصندوقها.
-// المراحل كما في 007_deals_commissions.sql وتصل من القاعدة بأي ترتيب.
+// بأيام التقويم (مع «واقفة» والمغلقة)، ومن أي مرحلة خسرت، والإجراءات المسموحة لكل حالة ودور (ولمن يقرأ الصفقة ولا
+// يكتبها)، وأساس العمولة وصندوقها ولونه. المراحل كما في 007_deals_commissions.sql وتصل من القاعدة بأي ترتيب.
 // التشغيل: node tests/deal-page-model.test.mjs   أو   deno run tests/deal-page-model.test.mjs
 import {
     sar, pathOrder, pathSteps, showLost, calendarDays, lostFrom, sinceLine, pathActions, commissionBase, unitPriceKey, commissionBox,
-    LOST_STAGE_ID, LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, NO_BASE_HINT
+    LOST_STAGE_ID, LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, OTHER_BROKER_NOTE, NO_BASE_HINT, NO_AMOUNT_TEXT
 } from '../crm/js/deal-page-model.js';
 
 let pass = 0, fail = 0;
@@ -154,6 +154,24 @@ t('unknown stage: no primary, every step to choose, خسرت still possible', un
     && ids(unknown.other.stages) === '1,2,3,4,5,6' && unknown.lose.stage.id === 7);
 t('no stages: no actions', JSON.stringify(pathActions([], 3, true)) === JSON.stringify({ primary: null, back: null, other: null, lose: null, reopen: null, note: null }));
 
+// من يقرأ الصفقة ولا يكتبها: وسيط أنشأها ثم صار وسيطها غيره (deals_select تُريه إياها، وdeals_update لا تكتبها له)
+const none = (a) => !a.primary && !a.back && !a.other && !a.lose && !a.reopen;
+t('the note for a deal held by another broker', OTHER_BROKER_NOTE === 'الصفقة عند وسيط آخر: يغيّر مرحلتها وسيطها أو المدير.');
+const otherOpen = pathActions(STAGES, 3, false, false);
+t('open, not my deal: no stage buttons or links, only the note', none(otherOpen) && otherOpen.note === OTHER_BROKER_NOTE, otherOpen);
+t('first and last open stage, not my deal: still nothing to press', none(pathActions(STAGES, 1, false, false))
+    && none(pathActions(STAGES, 5, false, false)) && pathActions(STAGES, 5, false, false).note === OTHER_BROKER_NOTE);
+const otherLost = pathActions(STAGES, 7, false, false);
+t('lost, not my deal: no «أعد فتحها…», the note says who can', none(otherLost) && otherLost.note === OTHER_BROKER_NOTE, otherLost);
+const otherWon = pathActions(STAGES, 6, false, false);
+t('won, not my deal: the won lock note (only the admin reopens)', none(otherWon) && otherWon.note === LOCKED_NOTE, otherWon);
+const otherUnknown = pathActions(STAGES, 99, false, false);
+t('unknown stage, not my deal: nothing to press', none(otherUnknown) && otherUnknown.note === OTHER_BROKER_NOTE);
+t('my deal (canMove true) = the actions as before', JSON.stringify(pathActions(STAGES, 3, false, true)) === JSON.stringify(a3)
+    && JSON.stringify(pathActions(STAGES, 7, false, true)) === JSON.stringify(lostAny));
+t('the admin always moves, whoever the broker', JSON.stringify(pathActions(STAGES, 3, true, false)) === JSON.stringify(a3)
+    && JSON.stringify(pathActions(STAGES, 6, true, false)) === JSON.stringify(wonAdmin));
+
 /* ---------- أساس العمولة ---------- */
 t('base: the deal amount first', JSON.stringify(commissionBase(1480000, 900000)) === JSON.stringify({ base: 1480000, from: 'deal' }));
 t('base: amount as text', commissionBase('1500000.00', null).base === 1500000);
@@ -168,7 +186,7 @@ t('unit key: no project = nothing to read', unitPriceKey({ project_id: null, uni
 /* ---------- صندوق العمولة ---------- */
 const s = (id) => STAGES.find((x) => x.id === id);
 const exp = commissionBox({ stage: s(3), amount: 1480000, unitPrice: null, rate: 3, rateFrom: 'نسبة المشروع', row: null });
-t('open: «متوقعة» amber = amount × rate', exp.state === 'expected' && exp.label === 'متوقعة' && exp.tone === 'amber'
+t('open: «متوقعة» neutral (no colour) = amount × rate', exp.state === 'expected' && exp.label === 'متوقعة' && exp.tone === 'neutral'
     && exp.value === 44400 && exp.valueText === '44,400 ر.س', exp);
 t('open: the line says rate, its source and the base', exp.detail === '3٪ (نسبة المشروع) من قيمة الصفقة 1,480,000 ر.س' && exp.hint === null, exp.detail);
 const fromUnit = commissionBox({ stage: s(1), amount: null, unitPrice: '900000', rate: 2.5, rateFrom: 'النسبة العامة', row: null });
@@ -176,17 +194,22 @@ t('open without amount: from the listed unit price', fromUnit.value === 22500 &&
 const noBase = commissionBox({ stage: s(2), amount: null, unitPrice: null, rate: 2.5, row: null });
 t('open without any base: ask for the deal amount', noBase.value === null && noBase.valueText === '—' && noBase.hint === NO_BASE_HINT
     && noBase.askAmount === true && NO_BASE_HINT === 'اكتب قيمة الصفقة لتظهر العمولة المتوقعة');
+const noBaseOther = commissionBox({ stage: s(2), amount: null, unitPrice: null, rate: 2.5, row: null, canEdit: false });
+t('open without a base, not my deal: no «اكتب قيمة الصفقة…» link, just no amount', noBaseOther.askAmount === false
+    && noBaseOther.hint === NO_AMOUNT_TEXT && NO_AMOUNT_TEXT === 'لا قيمة مسجّلة لهذه الصفقة', noBaseOther);
+t('canEdit true or left out keeps the ask', commissionBox({ stage: s(2), amount: null, rate: 2.5, row: null, canEdit: true }).askAmount === true);
 const noRate = commissionBox({ stage: s(2), amount: 500000, rate: null, row: null });
 t('open, rate unreadable: say so, no number', noRate.value === null && noRate.hint === 'تعذّرت قراءة نسبة العمولة' && noRate.askAmount === false);
 const due = commissionBox({ stage: s(6), row: { gross_amount: 37000, base_amount: 1480000, rate_percent: 2.5, status: 'due' } });
-t('won: «مستحقة» green = the commission row gross', due.state === 'due' && due.label === 'مستحقة' && due.tone === 'ok'
+t('won, unpaid: amber «مستحقة» = the commission row gross', due.state === 'due' && due.label === 'مستحقة' && due.tone === 'amber'
     && due.value === 37000 && due.valueText === '37,000 ر.س' && due.detail === '2.5٪ من 1,480,000 ر.س', due);
 const dueText = commissionBox({ stage: s(6), row: { gross_amount: '37000.00', base_amount: '1480000.00', rate_percent: '2.50', status: 'partial' } });
 t('won: numbers as text, and the collection state when past «مستحقة»', dueText.value === 37000
     && dueText.detail === '2.5٪ من 1,480,000 ر.س · محصّلة جزئياً', dueText.detail);
+t('won, partly collected: still an amber «مستحقة» (money is still due)', dueText.label === 'مستحقة' && dueText.tone === 'amber');
 const rowOf = (status) => ({ gross_amount: 37000, base_amount: 1480000, rate_percent: 2.5, status });
 const invoiced = commissionBox({ stage: s(6), row: rowOf('invoiced') });
-t('won, invoiced: still green «مستحقة», the invoice in the line', invoiced.label === 'مستحقة' && invoiced.tone === 'ok'
+t('won, invoiced: still an amber «مستحقة», the invoice in the line', invoiced.label === 'مستحقة' && invoiced.tone === 'amber'
     && invoiced.detail === '2.5٪ من 1,480,000 ر.س · صدرت فاتورة', invoiced);
 const waived = commissionBox({ stage: s(6), row: rowOf('waived') });
 t('won, commission waived: muted «معفاة», never a green «مستحقة»', waived.state === 'due' && waived.label === 'معفاة' && waived.tone === 'muted'
@@ -197,6 +220,7 @@ t('won, commission collected: green «محصّلة», said once', collected.labe
 t('won: the deal amount is not used for «مستحقة»', commissionBox({ stage: s(6), amount: 999, rate: 50, row: null }).value === null);
 const noRow = commissionBox({ stage: s(6), row: null });
 t('won without a commission row', noRow.value === null && noRow.hint === 'لم تُسجَّل عمولة لهذه الصفقة' && noRow.askAmount === false);
+t('won without a commission row: neutral with its text, never a green chip', noRow.tone === 'neutral' && noRow.label === 'مستحقة', noRow);
 const missed = commissionBox({ stage: s(7), amount: 1000000, rate: 2.5, rateFrom: 'النسبة العامة', row: null });
 t('lost: «فائتة» muted = what it would have been', missed.state === 'lost' && missed.label === 'فائتة' && missed.tone === 'muted'
     && missed.value === 25000 && missed.detail === '2.5٪ (النسبة العامة) من قيمة الصفقة 1,000,000 ر.س', missed);

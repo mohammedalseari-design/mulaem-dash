@@ -8,7 +8,8 @@
 //     حرفياً كما يطابقها العرض (unit_key، وبلا اسم لصف «كامل العقار»)، والباقي متاح. حجوزات أكثر من عدد الوحدات
 //     لا تنزل بالمتاح تحت الصفر، والمباع لا يتجاوز العدد.
 // وزيادة على v_units: عقار «نفد بالكامل» (projects.availability) لا يبقى فيه متاح ولو بقيت نماذجه «متاحة»، لأن
-// «العقارات» والمطابقة تستبعدانه أصلاً (availability = 'available'). فاللوحة لا تُري وحدة خضراء لا تُعرض في مكان آخر.
+// «العقارات» والمطابقة تستبعدانه أصلاً (availability = 'available'). ومثله العقار المحذوف (deleted_at): خارج المخزون
+// ولا تُفتح عليه صفقات. فاللوحة لا تُري وحدة خضراء ولا «يبدأ من» لما لا يُعرض في مكان آخر.
 
 const num = (value) => {
     if (value === null || value === undefined || value === '') return null;
@@ -44,11 +45,12 @@ export function holdTally(holds) {
 }
 
 // الحالة اليدوية لصف من v_units: details.models[ord-1].status للنموذج (فارغة = متاحة، كما في v_units)، و
-// projects.availability لصف «كامل العقار» (ord 0). عقار غير «متاح» يغطي نماذجه كلها.
+// projects.availability لصف «كامل العقار» (ord 0). عقار غير «متاح» يغطي نماذجه كلها، والمحذوف ('deleted') مثله.
 // null حين لا تُعرف (تغيّرت النماذج بين قراءة العقار وقراءة وحداته)، فتُستنتج من حالة v_units (inferManual).
 export function manualStatus(project, ord) {
     const p = project || {};
-    const availability = p.availability === null || p.availability === undefined || p.availability === '' ? 'available' : String(p.availability);
+    const availability = p.deleted_at ? 'deleted'
+        : p.availability === null || p.availability === undefined || p.availability === '' ? 'available' : String(p.availability);
     const n = Number(ord);
     if (n === 0) return availability;
     if (availability !== 'available') return availability;
@@ -129,7 +131,7 @@ function scaleCounts(counts, max) {
 }
 
 // صفوف اللوحة بترتيب unit_ord: صف لكل صف من v_units (النماذج، أو «كامل العقار» حين لا نماذج) بقسمته ومربعاته.
-// units: صفوف v_units للعقار، holds: صفوف unit_holds له، project: صفه من projects (availability و details.models).
+// units: صفوف v_units للعقار، holds: صفوف unit_holds له، project: صفه من projects (availability و deleted_at و details.models).
 export function buildBoard(units, holds, project) {
     const tally = holdTally(holds);
     return (units || [])

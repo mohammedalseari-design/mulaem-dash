@@ -7,9 +7,8 @@
 
 import {
     openStages, wonStage, lostStage, stageOf, nextStage, progress, enteredAt, daysSince, isStuck,
-    commissionState, COMMISSION_STATE_TEXT, COMMISSION_STATE_TONE, expectedCommission
+    commissionState, COMMISSION_STATE_TEXT, COMMISSION_STATE_TONE, dueCommissionLook, expectedCommission
 } from './deal-path.js';
-import { COMMISSION_STATUS } from './labels.js';
 import { countText } from './ui.js';
 
 /* ===================== التبويبات ===================== */
@@ -53,7 +52,7 @@ export function tabCounts(tabs, counts) {
 // «الأقدم في المرحلة» لا يُعرض هنا: لا عمود في deals لوقت دخول المرحلة يُرتَّب به على الخادم، وupdated_at يتجدد مع كل
 // تعديل (القيمة، الوحدة، موعد الإغلاق، الوسيط)، فالصفقة الواقفة التي عُدّلت أمس كانت تهبط إلى آخر الصفحات تحت اسمٍ
 // يَعِد بغير ذلك. يعود حين يُضاف عمود stage_entered_at يملؤه deals_guard ويُفهرس. حتى ذلك فالاسم ما يفعله الترتيب:
-// الصفقة التي لم يمسّها أحد منذ أطول مدة أولاً (أيامها في مرحلتها ظاهرة في عمودها، والواقفة بالأحمر).
+// الصفقة التي لم يمسّها أحد منذ أطول مدة أولاً (أيامها في مرحلتها ظاهرة في عمودها، والواقفة بالكهرماني).
 export const DEFAULT_SORT = 'updated';
 export const SORTS = {
     updated: 'الأقدم تحديثاً أولاً',
@@ -231,27 +230,31 @@ export function lateClose(deal, stage, today) {
 
 const finite = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 
-// النسبة الفعلية لصفقة: نسبة مشروعها إن وُجدت، وإلا النسبة العامة (كما يحسبها commissions_apply_rate في 037)
+// النسبة الفعلية لصفقة: نسبة مشروعها إن وُجدت، وإلا النسبة العامة (كما يحسبها commissions_apply_rate في 037). لا نسبة
+// أصلاً ما لم تصل النسبة العامة (صف commission_policy): 037 يحجبه مع نسب المشاريع عمّن أُخفيت عنه العمولة، فغيابه يعني
+// أن الأرقام ليست له، لا أن يُحسب من نسب ناقصة.
 export function rateFor(projectId, projectRates, defaultRate) {
+    if (!finite(defaultRate)) return null;
     if (projectId !== null && projectId !== undefined && projectRates) {
         const rate = projectRates.get(Number(projectId));
         if (finite(rate)) return Number(rate);
     }
-    return finite(defaultRate) ? Number(defaultRate) : null;
+    return Number(defaultRate);
 }
 
-// خانة العمولة: الجارية «متوقعة» (القيمة × النسبة)، و«تمت» «مستحقة» من صف العمولة نفسه (قد تكون نسبتها عُدّلت بعد
-// الإتمام)، والمعفاة تقول ذلك بدل «مستحقة»، و«خسرت» «فائتة» بما كانت ستكونه. amount = null: لا قيمة أو لا نسبة أو لا صف.
+// خانة العمولة: الجارية «متوقعة» (القيمة × النسبة)، و«تمت» من صف العمولة نفسه (قد تكون نسبتها عُدّلت بعد الإتمام) بشكل
+// dueCommissionLook كصندوق صفحة الصفقة: «مستحقة» كهرمانية، و«محصّلة» خضراء، و«معفاة» باهتة. و«خسرت» «فائتة» بما كانت
+// ستكونه. amount = null: لا قيمة أو لا نسبة أو لا صف.
 export function commissionFacts(deal, stage, rate, commission) {
     const state = commissionState(stage);
     if (!state) return null;
     if (state === 'due') {
-        const waived = Boolean(commission) && commission.status === 'waived';
+        const look = dueCommissionLook(commission);
         return {
             state,
             amount: commission && finite(commission.gross_amount) ? Number(commission.gross_amount) : null,
-            label: waived ? COMMISSION_STATUS.waived : COMMISSION_STATE_TEXT.due,
-            tone: waived ? 'muted' : COMMISSION_STATE_TONE.due
+            label: look.label,
+            tone: look.tone
         };
     }
     return {

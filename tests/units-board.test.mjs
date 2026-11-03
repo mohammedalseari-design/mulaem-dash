@@ -1,5 +1,6 @@
 // اختبار crm/js/units-board.js: قسمة كل نموذج بين متاح ومحجوز ومباع بقاعدة v_units (030_unit_holds.sql)، ومطابقة
-// الحجوزات باسم الوحدة، والحالة اليدوية من تفاصيل المشروع، والمربعات وترتيبها وتصغيرها، وأرقام الشريط والنموذج الأول.
+// الحجوزات باسم الوحدة، والحالة اليدوية من تفاصيل المشروع (والعقار المحذوف خارج البيع كله)، والمربعات وترتيبها وتصغيرها،
+// وأرقام الشريط والنموذج الأول.
 // القاعدة نفسها مكتوبة هنا مرة ثانية (vUnits) كما في العرض، وكل قسمة تُقارن بها على شبكة من الحالات.
 // التشغيل: node tests/units-board.test.mjs   أو   deno run tests/units-board.test.mjs
 import {
@@ -131,6 +132,20 @@ const whole = buildBoard([{ unit_ord: 0, unit_key: 'كامل العقار', pric
 t('whole-property row matches null-key holds', parts(whole[0]) === '0/1/0' && whole[0].status === 'reserved' && whole[0].price === 2500000);
 const soldOut = buildBoard(UNITS, [], { availability: 'sold_out', details: { models: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] } });
 t('sold-out project: nothing available', soldOut.every((r) => r.available === 0 && r.status === 'sold'));
+// عقار محذوف (deleted_at) خارج المخزون كالذي نفد بالكامل: لا مربع أخضر ولا «متاح» ولا «يبدأ من» ولو بقيت نماذجه «متاحة»
+const DELETED = { availability: 'available', deleted_at: '2026-10-30T09:00:00Z', details: { models: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] } };
+const deleted = buildBoard(UNITS, HOLDS, DELETED);
+t('deleted project: no unit is available, every square out of sale', deleted.length === 3
+    && deleted.every((r) => r.available === 0 && r.status === 'sold' && !r.cells.includes('available')), deleted.map(parts));
+t('deleted project: the manual status covers models and the whole-property row', manualStatus(DELETED, 1) === 'deleted'
+    && manualStatus(DELETED, 0) === 'deleted' && manualStatus(Object.assign({}, DELETED, { details: {} }), 4) === 'deleted');
+const deletedSum = boardSummary(deleted);
+t('deleted project: no «يبدأ من» and no commission range', deletedSum.available === 0 && deletedSum.fromPrice === null
+    && deletedSum.commission === null && deletedSum.total === 13);
+const deletedWhole = buildBoard([{ unit_ord: 0, unit_key: 'كامل العقار', price: 2500000, unit_count: 1, unit_status: 'available' }], [],
+    { availability: 'available', deleted_at: '2026-10-30T09:00:00Z', details: {} });
+t('deleted single-unit property: not «متاح»', deletedWhole[0].available === 0 && availabilityText(deletedWhole[0]) !== 'متاح', availabilityText(deletedWhole[0]));
+t('not deleted (deleted_at null) is unchanged', parts(buildBoard(UNITS, HOLDS, Object.assign({}, DELETED, { deleted_at: null }))[0]) === '3/2/3');
 const twins = buildBoard([{ unit_ord: 1, unit_key: 'A', unit_count: 2 }, { unit_ord: 2, unit_key: 'A', unit_count: 2 }],
     [{ unit_key: 'A', status: 'reserved' }], { availability: 'available', details: { models: [{ name: 'A' }, { name: 'A' }] } });
 t('two models with the same name share their holds (as v_units)', parts(twins[0]) === '1/1/0' && parts(twins[1]) === '1/1/0');

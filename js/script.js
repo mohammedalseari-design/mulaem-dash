@@ -730,6 +730,8 @@ function renderSalesOverview() {
     if (!shell) return;
     if (!shell.dataset.wired) {
         shell.dataset.wired = '1';
+        const searchBox = document.getElementById('searchBox');
+        if (searchBox && currentUser.role === 'admin') searchBox.placeholder = 'ابحث بالحي أو اسم المشروع أو المطور...';
         document.getElementById('salesShowAll')?.addEventListener('click', () => {
             document.querySelector('.projects-section')?.scrollIntoView({ behavior: 'smooth' });
         });
@@ -1134,7 +1136,10 @@ function displayProjects() {
             const nameMatch = (p.name && p.name.toLowerCase().includes(searchText));
             const addressMatch = (p.address && p.address.toLowerCase().includes(searchText));
             const modelMatch = (p.type === 'شقة' && details.models && Array.isArray(details.models) && details.models.some(m => m.name && m.name.toLowerCase().includes(searchText)));
-            return nameMatch || addressMatch || modelMatch;
+            // البحث باسم المطور للمدير وحده (طلب المالك 2026-11-04)
+            const developer = details.developer || details.developer_name || details.developerName;
+            const developerMatch = Boolean(currentUser && currentUser.role === 'admin' && developer && String(developer).toLowerCase().includes(searchText));
+            return nameMatch || addressMatch || modelMatch || developerMatch;
         });
     }
 

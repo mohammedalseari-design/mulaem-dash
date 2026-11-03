@@ -173,7 +173,7 @@ function schedule() {
 
 async function search(term, actions, mine) {
     const needle = phoneNeedle(term) || term;
-    const [clients, properties] = await Promise.all([
+    const [clients, properties, byDeveloper] = await Promise.all([
         supabase.from('clients')
             .select('id, full_name, phone, client_type')
             .or('full_name.ilike.%' + term + '%,phone.ilike.%' + needle + '%')
@@ -185,7 +185,17 @@ async function search(term, actions, mine) {
             .eq('status', 'approved')
             .is('deleted_at', null)
             .order('name', { ascending: true })
-            .range(0, LIMIT - 1)
+            .range(0, LIMIT - 1),
+        // البحث باسم المطور للمدير وحده (طلب المالك 2026-11-04). صف لكل نموذج، فالمدى أوسع ويُدمج بالمشروع أدناه
+        isAdmin()
+            ? supabase.from('v_units')
+                .select('project_id, project_name, project_type, district, city, purpose, developer')
+                .ilike('developer', '%' + term + '%')
+                .eq('status', 'approved')
+                .is('deleted_at', null)
+                .order('project_name', { ascending: true })
+                .range(0, LIMIT * 8 - 1)
+            : { data: [], error: null }
     ].map((query) => Promise.resolve(query).catch((error) => ({ data: null, error }))));
     if (mine !== token || !root || root.hidden) return;
     root.querySelector('.pal').removeAttribute('aria-busy');
@@ -195,13 +205,23 @@ async function search(term, actions, mine) {
         clientRows.push({ icon: 'search', title: 'كل العملاء المطابقين لـ «' + term + '»', more: true,
             run: () => { presetClientSearch(term); go('#/clients'); } });
     }
-    const propertyRows = (properties.data || []).map(propertyRow);
+    // مشاريع المطور بعد مشاريع الاسم والحي، بلا تكرار، ومعها اسم المطور ليعرف المدير لماذا ظهرت
+    const seenProjects = new Set((properties.data || []).map((row) => String(row.id)));
+    const developerRows = [];
+    for (const row of byDeveloper.data || []) {
+        if (seenProjects.has(String(row.project_id)) || developerRows.length >= LIMIT) continue;
+        seenProjects.add(String(row.project_id));
+        const item = propertyRow({ id: row.project_id, name: row.project_name, type: row.project_type, purpose: row.purpose, district: row.district, city: row.city });
+        item.meta = [item.meta[0], 'المطور: ' + row.developer].filter(Boolean);
+        developerRows.push(item);
+    }
+    const propertyRows = (properties.data || []).map(propertyRow).concat(developerRows);
     if (propertyRows.length) {
         propertyRows.push({ icon: 'search', title: 'كل الوحدات المطابقة في «العقارات»', more: true,
             run: () => { presetPropertySearch(term); go('#/properties'); } });
     }
-    const found = (clients.data || []).length + (properties.data || []).length;
-    const failed = clients.error || properties.error;
+    const found = (clients.data || []).length + propertyRows.length;
+    const failed = clients.error || properties.error || byDeveloper.error;
 
     const groups = [
         { title: 'العملاء', rows: clientRows },

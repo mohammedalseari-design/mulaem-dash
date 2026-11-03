@@ -73,8 +73,9 @@ export async function renderProperties(root) {
     if (!root.isConnected) return;
 
     const searchBox = el('input', {
-        type: 'search', class: 'crm-search', placeholder: 'ابحث باسم العقار أو الحي…', autocomplete: 'off',
-        value: view.search, 'aria-label': 'بحث باسم العقار أو الحي'
+        // البحث باسم المطور للمدير وحده (طلب المالك 2026-11-04)
+        type: 'search', class: 'crm-search', placeholder: isAdmin() ? 'ابحث باسم العقار أو الحي أو المطور…' : 'ابحث باسم العقار أو الحي…', autocomplete: 'off',
+        value: view.search, 'aria-label': isAdmin() ? 'بحث باسم العقار أو الحي أو المطور' : 'بحث باسم العقار أو الحي'
     });
     const districtField = vocabFilter(vocabulary.districts, vocabulary.districtsError, 'كل الأحياء', 'الحي');
     const typeField = vocabFilter(vocabulary.propertyTypes, vocabulary.propertyTypesError, 'كل الأنواع', 'نوع الوحدة');
@@ -192,7 +193,8 @@ export async function renderProperties(root) {
             const term = sanitizeSearch(view.search);
             // عقار بعينه من البحث السريع: بمعرّفه. وإلا الكلمة في اسم العقار أو حيّه، كما يبحث البحث السريع
             if (view.projectId !== null) query = query.eq('project_id', view.projectId);
-            else if (term) query = query.or('project_name.ilike.%' + term + '%,district.ilike.%' + term + '%');
+            else if (term) query = query.or('project_name.ilike.%' + term + '%,district.ilike.%' + term + '%'
+                + (isAdmin() && withUnitFields ? ',developer.ilike.%' + term + '%' : ''));
             if (view.purpose) query = query.eq('purpose', view.purpose);
             if (view.district) query = districtField.filter(query, 'district', view.district);
             if (view.unitType) query = typeField.filter(query, 'unit_type', view.unitType);

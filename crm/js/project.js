@@ -124,7 +124,7 @@ function backLink() {
 function headActions(project) {
     const mapLink = actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' });
     mapLink.classList.add('pj-head-link');
-    if (project.deleted_at || project.status !== 'approved') return [mapLink];
+    if (project.deleted_at || project.status !== 'approved' || openShareSheet.stub) return [mapLink];
     const share = actionBtn('مشاركة مع عميل', null, { onclick: () => openShareSheet(project) }, true);
     share.insertBefore(svgIcon(PATHS.share), share.firstChild);
     share.classList.add('pj-share');

@@ -4,3 +4,5 @@
 import { notify } from './ui.js';
 
 export function openShareSheet(project) { /* filled by the sharing feature */ notify('المشاركة قيد الإعداد', 'info'); }
+// علامة النسخة المؤقتة: صفحة العقار لا ترسم زر المشاركة ما دامت المشاركة الفعلية لم تُنشر بعد
+openShareSheet.stub = true;

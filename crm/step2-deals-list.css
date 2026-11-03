@@ -1,22 +1,21 @@
 /* ===================== ‎#/deals‎ — قائمة الصفقات حسب المرحلة (crm/js/board.js) ===================== */
 /* تُلحق بآخر crm/v6.css فتغلب ما قبلها عند التساوي. البادئة dl-، والألوان كلها من متغيرات v6 (تتبدل في الوضع الليلي).
-   اللون للمعنى وحده: الأحمر للواقفة، والكهرماني لما يُنتظر (العمولة المتوقعة)، والأخضر لما تم، ولون الشعار للمرحلة
-   الحالية والإجراء الرئيسي. خطوط رفيعة بدل الظلال. على الجوال يصير كل صف بطاقة، والتبويبات تُسحب وحدها أفقياً،
-   وشريط التحديد يلتصق بأسفل الشاشة فوق الشريط السفلي. */
+   اللون للمعنى وحده: الأحمر للواقفة ولما فات موعد إغلاقه، والكهرماني لما يُنتظر (العمولة المتوقعة)، والأخضر لما تم،
+   ولون الشعار للمرحلة الحالية والإجراء الرئيسي. خطوط رفيعة بدل الظلال. على الجوال يصير كل صف بطاقة، والتبويبات تُسحب
+   وحدها أفقياً، وشريط التحديد يلتصق بأسفل الشاشة فوق الشريط السفلي. */
 
 /* ---------- تبويبات المراحل ---------- */
 
+/* فوق الجوال تلتف التبويبات إلى سطر ثانٍ حين يضيق العرض (من 701 إلى نحو 860px، كاللوحي العمودي): لا تبويب مخفي خلف
+   شريط تمرير لا يظهر، والفأرة تصل إلى «تمت» و«خسرت». السحب الأفقي بلا شريط للجوال وحده (في آخر الملف). */
 .dl-tabs {
     display: flex;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: 2px;
     margin: 0 0 14px;
     border-bottom: 1px solid var(--line);
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
 }
-.dl-tabs::-webkit-scrollbar { display: none; }
 .dl-tab {
     position: relative;
     display: inline-flex;
@@ -36,7 +35,7 @@
 .dl-tab:hover { background: var(--hover); color: var(--ink); }
 .dl-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .dl-tab[aria-current="true"] { color: var(--brand-ink); font-weight: 600; }
-/* الخط تحت التبويب الحالي داخل حدّه (الشريط يقصّ ما يخرج منه لأنه يُسحب) */
+/* الخط تحت التبويب الحالي داخل حدّه (على الجوال الشريط يقصّ ما يخرج منه لأنه يُسحب) */
 .dl-tab[aria-current="true"]::after {
     content: '';
     position: absolute;
@@ -81,6 +80,19 @@
 
 .dl-name { color: var(--ink); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
 .dl-name:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+/* تحت الاسم: فات موعد الإغلاق المتوقع (ساعة ونص، لا اللون وحده). يلتف عند الحاجة، والتاريخ لا ينقسم */
+.dl-late {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    margin-top: 3px;
+    color: var(--danger);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.5;
+}
+.dl-late .ico { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.dl-late-date { white-space: nowrap; }
 /* .crm-table مع البادئة: يغلب لون الخانات الثابت الذي يكتبه crm.css في الوضع الليلي */
 .crm-table.dl-table td.dl-c-place { color: var(--ink-2); font-size: 0.88rem; overflow-wrap: anywhere; }
 .crm-table.dl-table td.dl-c-broker { color: var(--ink-2); font-size: 0.88rem; }
@@ -179,7 +191,16 @@ html:has(.dl-selbar:not([hidden])) { scroll-padding-bottom: 110px; }
 /* ---------- الجوال: بطاقات ---------- */
 
 @media (max-width: 700px) {
-    .dl-tabs { margin-inline: -14px; padding-inline: 10px; }
+    /* سطر واحد يُسحب أفقياً داخل حدّه (لا الصفحة)، وrevealTab يُظهر التبويب الحالي */
+    .dl-tabs {
+        flex-wrap: nowrap;
+        margin-inline: -14px;
+        padding-inline: 10px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+    }
+    .dl-tabs::-webkit-scrollbar { display: none; }
     .dl-tab { padding-inline: 10px; font-size: 0.88rem; }
 
     /* crm-table-keep يُبقي الجدول خارج قالب البطاقات العام (css/theme.css)، فهذه بطاقته كاملة */
@@ -205,16 +226,20 @@ html:has(.dl-selbar:not([hidden])) { scroll-padding-bottom: 110px; }
         grid-template-columns: 44px minmax(0, 1fr) auto;
         padding-inline-start: 6px;
     }
-    /* الاسم بعرض البطاقة (لا يُضغط بجانب القيمة على 320)، ثم العقار، ثم المسار والأيام، ثم القيمة والعمولة، ثم الوسيط */
+    /* سطر بعرض البطاقة لكل خانة إلا المسار والأيام: يتشاركان سطراً، والعمود الأخير للأيام وحدها فيبقى بعرضها القصير.
+       (كانت العمولة بعلامتها «العمولة:» فيه فتأخذ نصف البطاقة، فيتراكب المسار على الأيام والقيمةُ على العمولة على 320.)
+       الاسم (وتحته «تجاوز موعد الإغلاق» إن فات)، ثم العقار، ثم المسار والأيام، ثم القيمة، ثم العمولة، ثم الوسيط */
     #view table.dl-table > tbody > tr > td { display: block; min-width: 0; padding: 0; border: 0; background: none; }
     #view table.dl-table > tbody > tr > td.dl-c-check { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
     #view table.dl-table > tbody > tr > td.dl-c-client { grid-column: var(--dl-a) / -1; grid-row: 1; font-size: 1.02rem; }
     #view table.dl-table > tbody > tr > td.dl-c-place { grid-column: var(--dl-a) / -1; grid-row: 2; }
     #view table.dl-table > tbody > tr > td.dl-c-path { grid-column: var(--dl-a); grid-row: 3; }
     #view table.dl-table > tbody > tr > td.dl-c-days { grid-column: var(--dl-b); grid-row: 3; text-align: end; }
-    #view table.dl-table > tbody > tr > td.dl-c-value { grid-column: var(--dl-a); grid-row: 4; }
-    #view table.dl-table > tbody > tr > td.dl-c-com { grid-column: var(--dl-b); grid-row: 4; text-align: end; }
-    #view table.dl-table > tbody > tr > td.dl-c-broker { grid-column: var(--dl-a) / -1; grid-row: 5; font-size: 0.84rem; }
+    #view table.dl-table > tbody > tr > td.dl-c-value { grid-column: var(--dl-a) / -1; grid-row: 4; }
+    #view table.dl-table > tbody > tr > td.dl-c-com { grid-column: var(--dl-a) / -1; grid-row: 5; text-align: start; }
+    #view table.dl-table > tbody > tr > td.dl-c-broker { grid-column: var(--dl-a) / -1; grid-row: 6; font-size: 0.84rem; }
+    /* المسار يلتف (اسم المرحلة تحت الخطوات) بدل أن يمتد فوق الأيام حين يضيق عموده */
+    #view table.dl-table .dl-path { display: flex; flex-wrap: wrap; row-gap: 2px; white-space: normal; }
     #view table.dl-table > tbody > tr > td.dl-c-broker[data-label]::before,
     #view table.dl-table > tbody > tr > td.dl-c-com[data-label]::before {
         content: attr(data-label) ': ';

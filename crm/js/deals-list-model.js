@@ -49,17 +49,20 @@ export function tabCounts(tabs, counts) {
 
 /* ===================== الترتيب ===================== */
 
-export const DEFAULT_SORT = 'stage';
+// الترتيب كله من الخادم (القائمة مرقّمة صفحات فيه)، والصفحة تُعرض بترتيبه كما هو، فيصدق اسمه على الصفحات كلها.
+// «الأقدم في المرحلة» لا يُعرض هنا: لا عمود في deals لوقت دخول المرحلة يُرتَّب به على الخادم، وupdated_at يتجدد مع كل
+// تعديل (القيمة، الوحدة، موعد الإغلاق، الوسيط)، فالصفقة الواقفة التي عُدّلت أمس كانت تهبط إلى آخر الصفحات تحت اسمٍ
+// يَعِد بغير ذلك. يعود حين يُضاف عمود stage_entered_at يملؤه deals_guard ويُفهرس. حتى ذلك فالاسم ما يفعله الترتيب:
+// الصفقة التي لم يمسّها أحد منذ أطول مدة أولاً (أيامها في مرحلتها ظاهرة في عمودها، والواقفة بالأحمر).
+export const DEFAULT_SORT = 'updated';
 export const SORTS = {
-    stage: 'الأقدم في المرحلة أولاً',
+    updated: 'الأقدم تحديثاً أولاً',
     newest: 'الأحدث أولاً',
     amount: 'الأعلى قيمة'
 };
 
-// ترتيب الخادم (القائمة مرقّمة صفحات فيه). لا عمود في deals لوقت دخول المرحلة، فـ«الأقدم في المرحلة» في الجارية
-// بآخر تعديل (updated_at): لا يسبق دخولَ المرحلة أبداً، ويساويه ما لم تُعدَّل الصفقة بعد نقلها؛ ثم تُرتَّب الصفحة نفسها
-// بالوقت الدقيق من سجل المراحل (orderPage). في «تمت» و«خسرت» وقت الإغلاق (closed_at) هو وقت دخول المرحلة بالضبط.
-// «الأحدث» في الجارية أحدث الصفقات فتحاً، وفي المغلقة أحدثها إغلاقاً. id آخراً حتى لا يتكرر صف بين صفحتين.
+// «الأقدم تحديثاً» بآخر تعديل (updated_at) في كل تبويب. «الأحدث» في الجارية أحدث الصفقات فتحاً، وفي المغلقة أحدثها
+// إغلاقاً. id آخراً حتى لا يتكرر صف بين صفحتين.
 export function sortOrder(sortKey, tab) {
     const closed = Boolean(tab) && tab.kind !== 'open';
     const tie = { column: 'id', ascending: true };
@@ -67,27 +70,7 @@ export function sortOrder(sortKey, tab) {
     if (sortKey === 'newest') {
         return [closed ? { column: 'closed_at', ascending: false, nullsFirst: false } : { column: 'created_at', ascending: false }, tie];
     }
-    return [closed ? { column: 'closed_at', ascending: true, nullsFirst: false } : { column: 'updated_at', ascending: true }, tie];
-}
-
-// «الأقدم في المرحلة أولاً» داخل الصفحة بوقت دخول المرحلة الفعلي (أحدث انتقال إليها في deal_stage_history). بلا سجل
-// (تعذّرت قراءته) يبقى ترتيب الخادم. الترتيبات الأخرى من الخادم كما هي. ترتيب ثابت: المتساويان يبقيان كما وصلا.
-export function orderPage(rows, history, sortKey) {
-    const list = (rows || []).slice();
-    if (sortKey !== 'stage' || !history) return list;
-    const at = new Map(list.map((row) => [row.id, Date.parse(enteredAt(row, history))]));
-    return list
-        .map((row, i) => ({ row, i }))
-        .sort((a, b) => {
-            const x = at.get(a.row.id);
-            const y = at.get(b.row.id);
-            const xs = Number.isFinite(x);
-            const ys = Number.isFinite(y);
-            if (xs && ys && x !== y) return x - y;
-            if (xs !== ys) return xs ? -1 : 1;
-            return a.i - b.i;
-        })
-        .map((entry) => entry.row);
+    return [{ column: 'updated_at', ascending: true }, tie];
 }
 
 /* ===================== البحث ===================== */
@@ -233,6 +216,17 @@ export function stageFacts(deal, stages, history, now = Date.now()) {
     const stage = stageOf(stages, stageId);
     const days = history ? daysSince(enteredAt(deal, history), now) : null;
     return { stage, path: progress(stages, stageId), days, stuck: isStuck(stage, days) };
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+// موعد الإغلاق المتوقع فات والصفقة ما زالت جارية: يُعاد تاريخه (YYYY-MM-DD) ليُكتب «تجاوز موعد الإغلاق»، وإلا null.
+// today: اليوم المحلي بالصيغة نفسها. الموعد تاريخ بلا وقت، فيومه نفسه ليس تأخراً — كما يعدّ «عملي اليوم» المتأخرةَ
+// (‎.lt('expected_close_date', today)‎) ويحيل إلى هذه القائمة. المغلقة («تمت» و«خسرت») لا تُعدّ متأخرة: لا موعد تنتظره.
+export function lateClose(deal, stage, today) {
+    const date = deal && deal.expected_close_date ? String(deal.expected_close_date).slice(0, 10) : '';
+    if (!ISO_DAY.test(date) || !ISO_DAY.test(String(today || '')) || !stage || stage.is_terminal) return null;
+    return date < today ? date : null;
 }
 
 const finite = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));

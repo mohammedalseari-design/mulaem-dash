@@ -2,8 +2,10 @@
 // خمسة أعمدة ضيقة لا تُقرأ على الجوال، ولا تقول أيّ صفقة واقفة، ولا تنقل صفقتين معاً.
 //
 // تبويب لكل مرحلة بعددها («الكل» = الجارية كلها، ثم المراحل الخمس، ثم «تمت» و«خسرت»)، وبحث باسم العميل أو جواله أو
-// اسم المشروع، والوسيط للمدير، والترتيب أوله «الأقدم في المرحلة» لأن الصفقة الواقفة هي ما يحتاج عملاً. الجدول مرقّم من
-// الخادم (‎.range()‎ بحجم PAGE_SIZE)، وأيام كل صفقة في مرحلتها من استعلام واحد على deal_stage_history لصفوف الصفحة وحدها.
+// اسم المشروع، والوسيط للمدير، والترتيب أوله «الأقدم تحديثاً» (الصفقة المتروكة أولاً؛ لماذا لا «الأقدم في المرحلة»: في
+// deals-list-model.js). الجدول مرقّم من الخادم (‎.range()‎ بحجم PAGE_SIZE) ويُعرض بترتيبه، وأيام كل صفقة في مرحلتها من
+// استعلام واحد على deal_stage_history لصفوف الصفحة وحدها (بالأحمر حين تقف)، و«تجاوز موعد الإغلاق» تحت اسم الجارية التي
+// فات موعدها المتوقع — «عملي اليوم» يعدّها ويحيل إلى هنا.
 // الحساب نفسه (التبويبات، الترتيب، ما يُحدَّد وإلى أين يُنقل، والنصوص) في deals-list-model.js ويُختبر وحده.
 //
 // التحديد ينقل عدة صفقات معاً إلى المرحلة التالية، أو يسجّلها «خسرت» بسبب واحد. كل صفقة تعديل مستقل يُعدّ نجاحه
@@ -19,18 +21,18 @@ import { staffMap, staffName, dealStages, lostReasons, brokerStaff, sanitizeSear
 import { isAdmin, canSeeCommission } from './auth.js';
 import { daysText, STUCK_DAYS } from './deal-path.js';
 import {
-    TAB_ALL, listTabs, findTab, tabCounts, DEFAULT_SORT, SORTS, sortOrder, orderPage, searchOr,
+    TAB_ALL, listTabs, findTab, tabCounts, DEFAULT_SORT, SORTS, sortOrder, searchOr,
     canSelect, tabSelectable, MOVE_BLOCKED, moveTarget, lostTarget, tallyResults,
-    dealsCount, selectionText, bulkMessage, lostIntro, emptyText, placeText, stageFacts, rateFor, commissionFacts
+    dealsCount, selectionText, bulkMessage, lostIntro, emptyText, placeText, stageFacts, lateClose, rateFor, commissionFacts
 } from './deals-list-model.js';
 import {
     el, replace, loading, empty, errorBox, pager, select, field, openModal, closeModal, notify, fail, errorText,
-    money, number, pageHead, actionBtn, resultLine, icon, EM_DASH
+    money, number, fmtDate, localDayStart, pageHead, actionBtn, resultLine, icon, EM_DASH
 } from './ui.js';
 import { dealTabs } from './commissions.js';
 
-const DEAL_FIELDS = 'id, client_id, project_id, unit_key, stage_id, amount, broker_id, created_at, updated_at, closed_at,'
-    + ' client:clients(full_name), project:projects(name)';
+const DEAL_FIELDS = 'id, client_id, project_id, unit_key, stage_id, amount, expected_close_date, broker_id, created_at, updated_at,'
+    + ' closed_at, client:clients(full_name), project:projects(name)';
 
 // أقصى عدد من العملاء أو المشاريع المطابقة للبحث: معرّفاتها تُكتب في عنوان كل طلب، فلا تطول بلا حد
 const LOOKUP_CAP = 100;
@@ -258,12 +260,16 @@ export async function renderBoard(root) {
     }
 
     function finishBulk(message) {
+        // التركيز يُنقل بعد التحميل إن ضاع (كان على زر في الشريط أو في النموذج، واختفى)، لا إن انتقل الموظف أثناء
+        // التعديل إلى غيره (أغلق النموذج وكتب في البحث مثلاً)
+        const active = document.activeElement;
+        const lostFocus = !active || active === document.body || active === document.documentElement || selbar.contains(active);
         busy = false;
         selected.clear();
         syncSelection(false);
         notify(message.text, message.kind, message.kind === 'error' ? 9000 : 4500);
         if (!root.isConnected) return;
-        focusAfter = true;
+        focusAfter = lostFocus;
         countedKey = null;   // تغيّرت أعداد التبويبات
         load();
     }
@@ -334,7 +340,9 @@ export async function renderBoard(root) {
             const outcome = await eachDeal(list,
                 (deal) => supabase.from('deals').update(patch).eq('id', deal.id).eq('stage_id', deal.stage_id).select('id'),
                 (i, n) => { progressLine.textContent = 'جارٍ التسجيل… ' + i + ' من ' + n; });
-            closeModal();
+            // × وEsc يغلقان النافذة أثناء التسجيل (الحقول وحدها معطلة)، ولعل نافذة أخرى فُتحت بعدها: تُغلق هذه إن بقيت
+            // مفتوحة ولا يُمسّ غيرها، والنتيجة تصل بالإشعار في الحالين
+            if (form.isConnected) closeModal();
             finishBulk(bulkMessage('lost', outcome.ok, outcome.failed, target.stage.name_ar, outcome.error ? errorText(outcome.error) : null));
         });
 
@@ -454,7 +462,7 @@ export async function renderBoard(root) {
         const extras = await pageExtras(data, tab);
         if (mine !== seq || !body.isConnected) return;
         const total = count === null || count === undefined ? data.length : count;
-        render(tab, orderPage(data, extras.history, view.sort), total, extras, filtered, Boolean(found && found.capped));
+        render(tab, data, total, extras, filtered, Boolean(found && found.capped));
     }
 
     // ما يحتاجه صف الصفحة من غير جدول الصفقات، كله معاً: سجل المراحل (استعلام واحد لصفوف الصفحة)، ولمن يرى العمولة
@@ -515,6 +523,7 @@ export async function renderBoard(root) {
         pageRows = rows;
         const pick = tabSelectable(tab, admin);
         const now = Date.now();
+        const today = localDayStart(0).slice(0, 10);
 
         const line = resultLine(dealsCount(total), filtered ? reset : null);
         if (capped) line.appendChild(el('span', { class: 'dl-hint', text: 'نتائج كثيرة: تظهر أول المطابقات، فاكتب أكثر لتضييق البحث.' }));
@@ -535,7 +544,7 @@ export async function renderBoard(root) {
         const table = el('table', { class: 'users-table crm-table crm-table-keep dl-table' + (pick ? ' dl-pick' : '') }, [
             el('caption', { class: 'dl-sr', text: (tab.key === TAB_ALL ? 'الصفقات الجارية' : 'صفقات «' + tab.label + '»') + '، الترتيب: ' + SORTS[view.sort] }),
             el('thead', {}, head),
-            el('tbody', {}, rows.map((deal) => rowNode(deal, pick, extras, now)))
+            el('tbody', {}, rows.map((deal) => rowNode(deal, pick, extras, now, today)))
         ]);
 
         replace(body, [
@@ -548,8 +557,9 @@ export async function renderBoard(root) {
         if (focusAfter) { focusAfter = false; focusQuiet(line.querySelector('.result-count') || line); }
     }
 
-    // الصف: على الكمبيوتر سطر جدول، وعلى الجوال بطاقة (step2-deals-list.css): الاسم، ثم العقار، ثم المسار والأيام، ثم القيمة
-    function rowNode(deal, pick, extras, now) {
+    // الصف: على الكمبيوتر سطر جدول، وعلى الجوال بطاقة (step2-deals-list.css): الاسم (وتحته «تجاوز موعد الإغلاق» إن
+    // فات)، ثم العقار، ثم المسار والأيام، ثم القيمة، ثم العمولة، ثم الوسيط
+    function rowNode(deal, pick, extras, now, today) {
         const facts = stageFacts(deal, stages, extras.history, now);
         const name = deal.client && deal.client.full_name ? deal.client.full_name : 'عميل';
         const place = placeText(deal);
@@ -558,7 +568,10 @@ export async function renderBoard(root) {
             : null;
         const tr = el('tr', { class: 'dl-row' }, [
             pick ? el('td', { class: 'dl-c-check' }, box ? el('label', { class: 'dl-check' }, box) : null) : null,
-            el('td', { class: 'dl-c-client' }, el('a', { class: 'dl-name', href: '#/deals/' + deal.id, text: name })),
+            el('td', { class: 'dl-c-client' }, [
+                el('a', { class: 'dl-name', href: '#/deals/' + deal.id, text: name }),
+                lateNode(lateClose(deal, facts.stage, today))
+            ]),
             el('td', { class: 'dl-c-place', text: place }),
             el('td', { class: 'dl-c-path' }, pathNode(facts)),
             admin ? el('td', { class: 'dl-c-broker', text: staffName(names, deal.broker_id) }) : null,
@@ -595,6 +608,17 @@ function daysNode(facts) {
         icon('alert'),
         el('span', { text: daysText(facts.days) }),
         el('span', { class: 'dl-sr', text: '، واقفة' })
+    ]);
+}
+
+// فات موعد الإغلاق المتوقع والصفقة جارية: بالأحمر مع علامة الساعة ونص بالتاريخ (لا باللون وحده، ولا يُخلط بعلامة
+// «واقفة»). مكانه تحت اسم العميل لا تحت الأيام: على الجوال خانة الأيام عمود ضيق بجانب المسار، وسطر طويل فيها يوسّعه
+// حتى يتراكب المسار عليه على 320px، أما تحت الاسم فيأخذ عرض البطاقة كله، وعلى الكمبيوتر هو أول ما يُقرأ في الصف.
+function lateNode(date) {
+    if (!date) return null;
+    return el('span', { class: 'dl-late' }, [
+        icon('clock'),
+        el('span', {}, ['تجاوز موعد الإغلاق: ', el('span', { class: 'dl-late-date', text: fmtDate(date) })])
     ]);
 }
 

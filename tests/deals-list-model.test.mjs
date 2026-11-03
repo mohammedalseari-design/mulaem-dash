@@ -1,11 +1,11 @@
-// اختبار crm/js/deals-list-model.js: تبويبات المراحل وأعدادها، وترتيب الخادم والصفحة، وشرط البحث، وما يُحدَّد وإلى أين
-// يُنقل، ونتائج التعديل الجماعي ونصوصها، وخانات الصف (العقار، الأيام في المرحلة، العمولة). المراحل كما في
-// 007_deals_commissions.sql، وتصل من القاعدة بأي ترتيب.
+// اختبار crm/js/deals-list-model.js: تبويبات المراحل وأعدادها، وترتيب الخادم، وشرط البحث، وما يُحدَّد وإلى أين
+// يُنقل، ونتائج التعديل الجماعي ونصوصها، وخانات الصف (العقار، الأيام في المرحلة، تجاوز موعد الإغلاق، العمولة). المراحل
+// كما في 007_deals_commissions.sql، وتصل من القاعدة بأي ترتيب.
 // التشغيل: node tests/deals-list-model.test.mjs
 import {
-    TAB_ALL, listTabs, findTab, tabCounts, DEFAULT_SORT, SORTS, sortOrder, orderPage, searchOr,
+    TAB_ALL, listTabs, findTab, tabCounts, DEFAULT_SORT, SORTS, sortOrder, searchOr,
     canSelect, tabSelectable, MOVE_BLOCKED, moveTarget, lostTarget, tallyResults,
-    dealsCount, selectionText, bulkMessage, lostIntro, emptyText, placeText, stageFacts, rateFor, commissionFacts
+    dealsCount, selectionText, bulkMessage, lostIntro, emptyText, placeText, stageFacts, lateClose, rateFor, commissionFacts
 } from '../crm/js/deals-list-model.js';
 
 let pass = 0, fail = 0;
@@ -51,36 +51,21 @@ t('tabCounts does not change its input', !counts.has(TAB_ALL));
 /* ---------- الترتيب ---------- */
 const openTab = tabs[0];
 const wonTab = tabs[6];
-t('default sort is oldest in stage', DEFAULT_SORT === 'stage' && SORTS.stage === 'الأقدم في المرحلة أولاً'
-    && SORTS.newest === 'الأحدث أولاً' && SORTS.amount === 'الأعلى قيمة');
-t('stage sort, open tab: least recently updated first, id tiebreak',
-    same(sortOrder('stage', openTab), [{ column: 'updated_at', ascending: true }, { column: 'id', ascending: true }]));
-t('stage sort, closed tab: closed_at ascending, nulls last',
-    same(sortOrder('stage', wonTab), [{ column: 'closed_at', ascending: true, nullsFirst: false }, { column: 'id', ascending: true }]));
+t('default sort is least recently updated', DEFAULT_SORT === 'updated' && SORTS.updated === 'الأقدم تحديثاً أولاً'
+    && SORTS.newest === 'الأحدث أولاً' && SORTS.amount === 'الأعلى قيمة' && Object.keys(SORTS).length === 3);
+// لا عمود في deals لوقت دخول المرحلة يُرتَّب به على الخادم، والترتيب بـ updated_at يتجدد مع أي تعديل: لا اسم يَعِد به
+t('no sort label promises time in stage', !Object.values(SORTS).some((label) => label.includes('المرحلة')));
+t('updated sort, open tab: least recently updated first, id tiebreak',
+    same(sortOrder('updated', openTab), [{ column: 'updated_at', ascending: true }, { column: 'id', ascending: true }]));
+t('updated sort, closed tabs: the same column, so the label holds in every tab',
+    same(sortOrder('updated', wonTab), sortOrder('updated', openTab)) && same(sortOrder('updated', tabs[7]), sortOrder('updated', openTab)));
 t('newest, open tab: newest opened first', same(sortOrder('newest', openTab)[0], { column: 'created_at', ascending: false }));
 t('newest, closed tab: newest closed first', same(sortOrder('newest', tabs[7])[0], { column: 'closed_at', ascending: false, nullsFirst: false }));
 t('amount: highest first, empty values last', same(sortOrder('amount', openTab)[0], { column: 'amount', ascending: false, nullsFirst: false }));
-t('unknown sort falls back to the default', same(sortOrder('nope', openTab), sortOrder('stage', openTab)));
-
-const page = [
-    { id: 'a', stage_id: 3, created_at: '2026-10-01T08:00:00Z', updated_at: '2026-10-02T08:00:00Z' },
-    { id: 'b', stage_id: 3, created_at: '2026-09-01T08:00:00Z', updated_at: '2026-10-03T08:00:00Z' },
-    { id: 'c', stage_id: 2, created_at: '2026-10-05T08:00:00Z', updated_at: '2026-10-05T08:00:00Z' }
-];
-const hist = [
-    { deal_id: 'a', to_stage: 3, changed_at: '2026-10-02T08:00:00Z' },
-    // b دخل «تفاوض» قديماً ثم عُدّلت قيمته أمس: آخر تعديل جاء به بعد a، ودخوله المرحلة قبله
-    { deal_id: 'b', to_stage: 3, changed_at: '2026-09-20T08:00:00Z' },
-    { deal_id: 'c', to_stage: 2, changed_at: '2026-10-05T08:00:00Z' }
-];
-t('page re-sorted by the real time in stage', same(orderPage(page, hist, 'stage').map((r) => r.id), ['b', 'a', 'c']));
-t('other sorts keep the server order', same(orderPage(page, hist, 'amount').map((r) => r.id), ['a', 'b', 'c']));
-t('no history → server order kept', same(orderPage(page, null, 'stage').map((r) => r.id), ['a', 'b', 'c']));
-t('orderPage returns a copy', orderPage(page, hist, 'stage') !== page && page[0].id === 'a');
-const tie = [{ id: 'x', stage_id: 1, created_at: '2026-10-01T00:00:00Z' }, { id: 'y', stage_id: 1, created_at: '2026-10-01T00:00:00Z' }];
-t('equal times keep their order (stable)', same(orderPage(tie, [], 'stage').map((r) => r.id), ['x', 'y']));
-const unknown = [{ id: 'u', stage_id: 1 }, { id: 'k', stage_id: 1, created_at: '2026-10-01T00:00:00Z' }];
-t('unknown entry time goes last', same(orderPage(unknown, [], 'stage').map((r) => r.id), ['k', 'u']));
+t('every sort ends on id (no row twice across pages)',
+    Object.keys(SORTS).every((key) => same(sortOrder(key, openTab).slice(-1)[0], { column: 'id', ascending: true })));
+t('unknown sort falls back to the default', same(sortOrder('nope', openTab), sortOrder(DEFAULT_SORT, openTab))
+    && same(sortOrder('stage', openTab), sortOrder(DEFAULT_SORT, openTab)));
 
 /* ---------- البحث ---------- */
 const U1 = '1b4e28ba-2fa1-11d2-883f-0016d3cca427';
@@ -163,6 +148,23 @@ t('facts: fresh stage not stuck', stageFacts(deal, STAGES, [{ deal_id: 'd1', to_
 t('facts: no history → no days, not stuck', stageFacts(deal, STAGES, null, NOW).days === null && stageFacts(deal, STAGES, null, NOW).stuck === false);
 t('facts: closed deals never stuck', stageFacts({ id: 'w', stage_id: 6, created_at: '2026-01-01T00:00:00Z' }, STAGES, [], NOW).stuck === false);
 t('facts: won path complete', stageFacts({ id: 'w', stage_id: 6 }, STAGES, [], NOW).path.won === true);
+
+// «تجاوز موعد الإغلاق»: الموعد تاريخ بلا وقت يُقارن باليوم المحلي، كما يعدّ «عملي اليوم» المتأخرة (‎.lt‎ = قبل اليوم)
+const TODAY = '2026-11-03';
+t('late: open deal past its expected close date → that date',
+    lateClose({ expected_close_date: '2026-10-28' }, stage(3), TODAY) === '2026-10-28');
+t('late: a day before today is late', lateClose({ expected_close_date: '2026-11-02' }, stage(1), TODAY) === '2026-11-02');
+t('late: due today or later is not late', lateClose({ expected_close_date: TODAY }, stage(3), TODAY) === null
+    && lateClose({ expected_close_date: '2026-12-01' }, stage(3), TODAY) === null);
+t('late: no expected close date → not late', lateClose({ expected_close_date: null }, stage(3), TODAY) === null
+    && lateClose({}, stage(3), TODAY) === null && lateClose(null, stage(3), TODAY) === null);
+t('late: closed deals never late (won or lost)', lateClose({ expected_close_date: '2026-01-01' }, stage(6), TODAY) === null
+    && lateClose({ expected_close_date: '2026-01-01' }, stage(7), TODAY) === null);
+t('late: unknown stage → not late', lateClose({ expected_close_date: '2026-01-01' }, null, TODAY) === null);
+t('late: a timestamp counts by its date', lateClose({ expected_close_date: '2026-10-01T00:00:00+03:00' }, stage(2), TODAY) === '2026-10-01');
+t('late: malformed date or today → not late', lateClose({ expected_close_date: 'غداً' }, stage(3), TODAY) === null
+    && lateClose({ expected_close_date: '2026-10-01' }, stage(3), '') === null
+    && lateClose({ expected_close_date: '2026-10-01' }, stage(3), undefined) === null);
 
 const rates = new Map([[4, 3], [8, 0]]);
 t('rate: project rate first', rateFor(4, rates, 2.5) === 3);

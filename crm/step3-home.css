@@ -210,10 +210,11 @@
     border-radius: 999px;
     background: var(--surface-2);
 }
+/* حدّ شفاف لكل زر يصير خطاً رفيعاً للمختار (بلا ظل)، فلا يتغيّر مقاس أي زر حين يُختار */
 .wq-period-btn {
     min-height: 30px;
     padding: 0 10px;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: 999px;
     background: transparent;
     color: var(--ink-2);
@@ -224,10 +225,10 @@
 }
 .wq-period-btn:hover { color: var(--ink); }
 .wq-period-btn[aria-pressed="true"] {
+    border-color: var(--line-2);
     background: var(--surface);
     color: var(--brand-ink);
     font-weight: 600;
-    box-shadow: inset 0 0 0 1px var(--line-2);
 }
 
 /* الخطوات: الاسم والعدد ونسبته من التي قبلها، وتحتها شريط رفيع يبدأ من أول السطر وطرفه الآخر مستدير */
@@ -329,8 +330,10 @@
     .wq-path { padding: 14px; }
     .wq-period-btn { min-height: 44px; padding: 0 12px; }
 
-    /* «طلبات جديدة» لمركز الاتصال: رأس لوحته ظاهر (app.css يخفي رؤوس اللوحات القديمة على الجوال) */
-    .wq .w4-panel-head { display: flex; }
+    /* «طلبات جديدة» لمركز الاتصال: رأس لوحته ظاهر (app.css يخفي رؤوس اللوحات القديمة على الجوال)، ورابط «كل الطلبات»
+       فيه بحجم الإصبع (44)، وحاشية الرأس أصغر بقدر ما زاد فلا يطول الرأس، ونصه على حافة اللوحة كما كان */
+    .wq .w4-panel-head { display: flex; padding-block: 4px; }
+    .wq .w4-panel-link { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 8px; margin-inline-end: -8px; }
 }
 
 /* أضيق الجوالات (320): الأرقام تبقى ثلاثة في الصف بحاشية أصغر (v6 يجعلها اثنين) */

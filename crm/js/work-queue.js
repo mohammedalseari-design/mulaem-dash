@@ -58,6 +58,16 @@ const time = (iso) => {
 const byId = (a, b) => String(a).localeCompare(String(b));
 const byStuck = (a, b) => (b.days - a.days) || (time(a.entered) - time(b.entered)) || byId(a.deal.id, b.deal.id);
 
+// صفقات الموظف من كل ما تُريه سياسة deals_select (007): الوسيط يرى أيضاً صفقة أنشأها ثم جعل المدير وسيطها غيره
+// (created_by)، وهي ليست له: لا يملك نقلها (deals_update لوسيطها وحده) ولا تُحسب له عمولتها. فلا تدخل عدّه ولا «واقف»
+// ولا «عمولتي». everyone للمدير: الفريق كله، كبقية صفحته.
+export function ownDeals(deals, userId, everyone = false) {
+    const list = (deals || []).filter(Boolean);
+    if (everyone) return list;
+    if (userId === null || userId === undefined || userId === '') return [];
+    return list.filter((deal) => String(deal.broker_id) === String(userId));
+}
+
 // الصفقات الجارية الواقفة: مضى على مرحلتها الحالية أكثر من الحد. سجل مراحل كل صفقة في deal.history
 // ({ to_stage, changed_at } كما يضمّنه استعلام work.js من deal_stage_history)، ودخول المرحلة من enteredAt.
 // الأطول وقوفاً أولاً، ثم الأقدم دخولاً، ثم المعرّف: ترتيب ثابت بين تحميلين فلا تتقافز السطور.
@@ -136,15 +146,19 @@ export function queueView(items, totals, filter = 'all', expanded = false, limit
     return { shown, total, toggle: total > limit, more };
 }
 
+// المدة بعد «متأخر» و«واقف» و«من»: المثنى منصوب أو مجرور («متأخر يومين»، «من يومين»)، لا «يومان» كما يكتبها daysText
+// وحدها. بقية الأعداد كما هي («يوم واحد»، «3 أيام»، «15 يوماً»).
+const daysAfter = (days) => (days === 2 ? 'يومين' : daysText(days));
+
 // نص حبّة السبب. وقت «موعد اليوم» يكتبه work.js بتنسيق المتصفح، فلا نص له هنا.
 export function reasonText(item) {
     if (!item) return '';
-    if (item.kind === 'late') return item.days > 0 ? 'متأخر ' + daysText(item.days) : 'متأخر';
+    if (item.kind === 'late') return item.days > 0 ? 'متأخر ' + daysAfter(item.days) : 'متأخر';
     if (item.kind === 'stuck') {
-        return 'واقف ' + daysText(item.days) + (item.stage && item.stage.name_ar ? ' في «' + item.stage.name_ar + '»' : '');
+        return 'واقف ' + daysAfter(item.days) + (item.stage && item.stage.name_ar ? ' في «' + item.stage.name_ar + '»' : '');
     }
     if (item.kind === 'wait') {
-        return item.days === null || item.days === undefined ? 'عند المدير' : 'عند المدير · من ' + daysText(item.days);
+        return item.days === null || item.days === undefined ? 'عند المدير' : 'عند المدير · من ' + daysAfter(item.days);
     }
     return '';
 }

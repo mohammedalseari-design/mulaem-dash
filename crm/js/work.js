@@ -1,7 +1,8 @@
 // ‎#/work‎ — "عملي اليوم".
 //
 // لا يوجد أي ترشيح بالمستخدم هنا: سياسات RLS على follow_ups وdeals وprojects وclients تتكفّل بالباقي (وv_my_work معرّف
-// security_invoker)، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً.
+// security_invoker)، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً. إلا الصفقات: deals_select تُري الوسيط أيضاً صفقة
+// أنشأها ثم جعل المدير وسيطها غيره، فيُبقي ownDeals (work-queue.js) صفقاته وحده للعدّ و«واقف» و«عمولتي».
 //
 // حدود اليوم: v_my_work تحسب "اليوم" بتوقيت Asia/Riyadh (006_inventory_quality.sql)، والقوائم هنا ترسل بداية اليوم
 // المحلي وبداية الغد نصّاً ISO بإزاحة المتصفح، فيطابق كل رقم طول قائمته.
@@ -26,7 +27,7 @@ import {
 } from './ui.js';
 import { openStages, STUCK_DAYS, daysText } from './deal-path.js';
 import {
-    queueFilters, stuckDeals, buildQueue, queueTotals, queueView, reasonText, dealAction, nextUpcoming, expectedTotal,
+    queueFilters, ownDeals, stuckDeals, buildQueue, queueTotals, queueView, reasonText, dealAction, nextUpcoming, expectedTotal,
     PATH_PERIODS, PATH_DEFAULT, periodStart, distinctCount, viewingCount, pathSteps
 } from './work-queue.js';
 import { openDoneForm } from './followup-form.js';
@@ -92,12 +93,16 @@ export async function renderWork(root) {
     const seeCommission = !noDeals && canSeeCommission();
     const maskCommission = !noDeals && !seeCommission && role === 'field';
     const me = myId();
+    // المدير يرى الفريق كله (كبقية صفحته)، فخانة العمولة له «العمولة المتوقعة» للفريق لا «عمولتي»
+    const team = isAdmin();
     const view = { filter: 'all', expanded: false };
     let names = new Map();
     let queue = { ready: false, items: [], totals: queueTotals({}), errors: [] };
-    // عدّادا التحميل قبل أي زر يُرسم: ضغطة مدة أو «عميل جديد» قبل وصول الأسماء تبدأ تحميلاً، وردّ أقدم يصل بعد أحدث يُهمَل
+    // عدّادات التحميل (القائمة و«مساري» و«طلبات جديدة») قبل أي زر يُرسم: ضغطة مدة أو «عميل جديد» قبل وصول الأسماء تبدأ
+    // تحميلاً، وردّ أقدم يصل بعد أحدث يُهمَل
     let workSeq = 0;
     let pathSeq = 0;
+    let reqSeq = 0;
 
     const sub = el('p', { class: 'w4-sub', text: FMT_TODAY.format(new Date()) });
 
@@ -112,7 +117,7 @@ export async function renderWork(root) {
         { key: 'needs', label: 'يحتاج إجراء', go: () => focusQueue('all') },
         { key: 'today', label: 'مواعيد اليوم', go: () => focusQueue('today') },
         { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
-        seeCommission ? { key: 'commission', label: 'عمولتي المتوقعة', href: '#/deals' }
+        seeCommission ? { key: 'commission', label: team ? 'العمولة المتوقعة' : 'عمولتي المتوقعة', href: '#/deals' }
             : maskCommission ? { key: 'commission', label: 'عمولتي المتوقعة' } : null,
         { key: 'leads', label: 'عملاء محتملون', href: '#/requests' }
     ].filter(Boolean));
@@ -270,7 +275,8 @@ export async function renderWork(root) {
             dealError = (stages && stages.error) || (deals && deals.error) || null;
             if (dealError) errors.push({ kind: 'stuck', error: dealError, prefix: 'تعذّر تحميل الصفقات' });
             else {
-                openDeals = (deals && deals.data) || [];
+                // صفقاتي وحدها (المدير: الفريق كله): منها العدد و«واقف» والعمولة، فلا يظهر سطر صفقة لا يملك نقلها
+                openDeals = ownDeals((deals && deals.data) || [], me, team);
                 stuck = stuckDeals(openDeals, stages, now);
             }
         }
@@ -297,9 +303,13 @@ export async function renderWork(root) {
         if (todayOk) bits.push(el('b', { text: t.today ? countText(t.today, TODAY_FORMS) : 'لا مواعيد اليوم' }));
         replace(sub, bits.flatMap((bit, i) => (i ? [' · ', bit] : [bit])));
 
-        // «يحتاج إجراء»: طول القائمة كلها، بالأحمر حين يتأخر شيء. مصدر تعذّر يجعل الرقم ناقصاً، فيُقال ذلك
+        // «يحتاج إجراء»: طول القائمة كلها، بالأحمر حين يتأخر شيء. مصدر تعذّر يجعل الرقم ناقصاً فيُقال ذلك، ويبقى الأحمر
+        // وعدد المتأخرة ما دامت المتأخرة نفسها حُمِّلت
         kpis.set('needs', errors.length ? {
-            value: number(t.all), tone: 'failed', sub: 'ناقص: تعذّر تحميل بعضها', title: errorText(errors[0].error)
+            value: number(t.all),
+            tone: t.late ? 'late' : 'failed',
+            sub: (t.late ? countText(t.late, LATE_FORMS) + ' · ' : '') + 'ناقص: تعذّر تحميل بعضها',
+            title: errorText(errors[0].error)
         } : {
             value: number(t.all),
             tone: t.late ? 'late' : null,
@@ -337,13 +347,15 @@ export async function renderWork(root) {
             else {
                 const projectRates = new Map(((rates && rates.data) || []).map((row) => [Number(row.project_id), row.rate]));
                 const defaultRate = policy && policy.data ? policy.data.default_rate : null;
+                // openDeals صفقاتي وحدها (ownDeals أعلاه)، وللمدير صفقات الفريق كله فيُقال ذلك كما في «مساري»
                 const sum = expectedTotal(openDeals, projectRates, defaultRate);
                 kpis.set('commission', {
                     value: money(sum.total),
                     unit: 'ر.س',
-                    sub: sum.missing ? 'بلا قيمة: ' + countText(sum.missing, DEAL_FORMS)
-                        : sum.counted ? 'على ' + countText(sum.counted, OPEN_DEAL_FORMS) : 'لا صفقات جارية',
-                    title: 'قيمة كل صفقة جارية × نسبة مشروعها أو النسبة العامة. الصفقة بلا قيمة لا تدخل المجموع.'
+                    sub: (team ? 'الفريق كله · ' : '') + (sum.missing ? 'بلا قيمة: ' + countText(sum.missing, DEAL_FORMS)
+                        : sum.counted ? 'على ' + countText(sum.counted, OPEN_DEAL_FORMS) : 'لا صفقات جارية'),
+                    title: (team ? 'كل صفقات الفريق الجارية' : 'صفقاتك الجارية وحدها')
+                        + ': قيمة كل صفقة × نسبة مشروعها أو النسبة العامة. الصفقة بلا قيمة لا تدخل المجموع.'
                 });
             }
         }
@@ -579,6 +591,7 @@ export async function renderWork(root) {
 
     async function loadNewRequests() {
         if (!requests) return;
+        const mine = ++reqSeq;
         replace(requests.body, loading());
         const { data, error, count } = await safe(supabase
             .from('client_requirements')
@@ -586,7 +599,7 @@ export async function renderWork(root) {
             .eq('status', 'open')
             .order('created_at', { ascending: false })
             .range(0, PANEL_ROWS - 1));
-        if (!requests.body.isConnected) return;
+        if (mine !== reqSeq || !requests.body.isConnected) return;
         if (error) return void replace(requests.body, errorBox(error, 'تعذّر تحميل الطلبات', loadNewRequests));
         requests.setCount(count || 0);
         const rows = data || [];

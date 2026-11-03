@@ -1,9 +1,10 @@
-// اختبار crm/js/work-queue.js: ترتيب قائمة «يحتاج إجراء» وتصفيتها وعدّها و«عرض الكل»، ونصوص حبّة السبب، والصفقات الواقفة،
+// اختبار crm/js/work-queue.js: ترتيب قائمة «يحتاج إجراء» وتصفيتها وعدّها و«عرض الكل»، ونصوص حبّة السبب، وصفقاتي من بين ما
+// تُريه السياسة، والصفقات الواقفة،
 // والإجراء الرئيسي لسطر الصفقة، والعمولة المتوقعة بنسبة المشروع أو العامة، وخطوات «مساري» ونسبها وأطوال أشرطتها.
 // الأوقات تُبنى بالتوقيت المحلي (new Date(سنة، شهر، يوم، ساعة)) فلا تتغيّر النتيجة بتوقيت الجهاز الذي يشغّل الاختبار.
 // التشغيل: node tests/work-queue.test.mjs   أو   deno run tests/work-queue.test.mjs
 import {
-    QUEUE_PREVIEW, QUEUE_FILTERS, queueFilters, calendarDays, lateDays, stuckDeals, buildQueue, queueTotals, filterQueue,
+    QUEUE_PREVIEW, QUEUE_FILTERS, queueFilters, calendarDays, lateDays, ownDeals, stuckDeals, buildQueue, queueTotals, filterQueue,
     queueView, reasonText, dealAction, nextUpcoming, effectiveRate, expectedTotal, PATH_PERIODS, PATH_DEFAULT, PATH_STEPS,
     periodStart, distinctCount, viewingCount, pathSteps
 } from '../crm/js/work-queue.js';
@@ -77,6 +78,25 @@ t('stuck: entered from history, else created_at', stuck[2].entered === daysAgo(2
 t('stuck: custom limit', stuckDeals(DEALS, STAGES, NOW, 25).map((s) => s.deal.id).join(',') === 'd3');
 t('stuck: nothing in, nothing out', stuckDeals(null, STAGES, NOW).length === 0 && stuckDeals(DEALS, [], NOW).length === 0);
 
+/* ---------- صفقاتي ---------- */
+
+// u1 وسيط: d1 وd3 له، وd2 أنشأها ثم جعل المدير وسيطها u2 (يراها الوسيط بسياسة created_by)
+const SEEN = [
+    { id: 'd1', broker_id: 'u1', created_by: 'u1' },
+    { id: 'd2', broker_id: 'u2', created_by: 'u1' },
+    { id: 'd3', broker_id: 'u1', created_by: 'admin' },
+    null
+];
+t('own deals: a broker keeps only deals he is the broker of', ownDeals(SEEN, 'u1').map((d) => d.id).join(',') === 'd1,d3');
+t('own deals: the admin keeps the whole team', ownDeals(SEEN, 'admin', true).map((d) => d.id).join(',') === 'd1,d2,d3');
+t('own deals: unknown user = none', ownDeals(SEEN, null).length === 0 && ownDeals(SEEN, '').length === 0);
+t('own deals: nothing in, nothing out', ownDeals(null, 'u1').length === 0 && ownDeals(undefined, 'u1', true).length === 0);
+// المبنية على صفقاتي وحدها: صفقة d2 الواقفة لا تظهر للوسيط الذي لا يملك نقلها
+t('own deals: stuck only from my deals', stuckDeals(ownDeals([
+    { id: 'm1', broker_id: 'u1', stage_id: 2, created_at: daysAgo(30), history: [] },
+    { id: 'm2', broker_id: 'u2', stage_id: 2, created_at: daysAgo(40), history: [] }
+], 'u1'), STAGES, NOW).map((s) => s.deal.id).join(',') === 'm1');
+
 /* ---------- القائمة الواحدة ---------- */
 
 const OVERDUE = [
@@ -130,11 +150,13 @@ t('view: total never below what is loaded', v.total === 2);
 
 /* ---------- نص حبّة السبب ---------- */
 
-t('reason: late', reasonText({ kind: 'late', days: 2 }) === 'متأخر يومان' && reasonText({ kind: 'late', days: 1 }) === 'متأخر يوم واحد' && reasonText({ kind: 'late', days: 15 }) === 'متأخر 15 يوماً');
+t('reason: late', reasonText({ kind: 'late', days: 2 }) === 'متأخر يومين' && reasonText({ kind: 'late', days: 1 }) === 'متأخر يوم واحد' && reasonText({ kind: 'late', days: 15 }) === 'متأخر 15 يوماً');
 t('reason: late without days', reasonText({ kind: 'late', days: null }) === 'متأخر');
 t('reason: stuck', reasonText({ kind: 'stuck', days: 18, stage: stage(2) }) === 'واقف 18 يوماً في «معاينة»');
+t('reason: stuck, two days (custom limit) = يومين', reasonText({ kind: 'stuck', days: 2, stage: stage(2) }) === 'واقف يومين في «معاينة»');
 t('reason: stuck from the queue', reasonText(queue[2]) === 'واقف 30 يوماً في «عربون»');
 t('reason: waiting', reasonText({ kind: 'wait', days: 3 }) === 'عند المدير · من 3 أيام' && reasonText({ kind: 'wait', days: 0 }) === 'عند المدير · من اليوم');
+t('reason: waiting two days = من يومين', reasonText({ kind: 'wait', days: 2 }) === 'عند المدير · من يومين' && reasonText({ kind: 'wait', days: 1 }) === 'عند المدير · من يوم واحد');
 t('reason: waiting, unknown since', reasonText({ kind: 'wait', days: null }) === 'عند المدير');
 t('reason: today has no text here', reasonText({ kind: 'today' }) === '' && reasonText(null) === '');
 

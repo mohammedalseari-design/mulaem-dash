@@ -487,7 +487,7 @@ async function loadUnitStock() {
     try {
         for (let from = 0; ; from += UNIT_PAGE) {
             const { data, error } = await sb.from('v_units')
-                .select('project_id, unit_ord, unit_count, units_left, unit_status')
+                .select('project_id, unit_ord, unit_count, units_left, unit_status, unit_commission')
                 .order('project_id', { ascending: true })
                 .order('unit_ord', { ascending: true })
                 .range(from, from + UNIT_PAGE - 1);
@@ -501,7 +501,9 @@ async function loadUnitStock() {
                 const left = row.unit_status === 'available' ? Math.min(Math.max(Number(row.units_left) || 0, 0), count) : 0;
                 stock.total += count;
                 stock.left += left;
-                stock.byOrd.set(Number(row.unit_ord), { count, left, status: row.unit_status });
+                const commission = Number(row.unit_commission);
+                stock.byOrd.set(Number(row.unit_ord), { count, left, status: row.unit_status,
+                    commission: row.unit_commission !== null && row.unit_commission !== undefined && commission > 0 ? commission : null });
             });
             if (!data || data.length < UNIT_PAGE) break;
         }
@@ -512,6 +514,15 @@ async function loadUnitStock() {
     unitStock = next;
     fillStockSlots();
     if (viewMode === 'kanban') renderProjectsView();
+    // «أعلى عمولة» في الواجهة تُحسب من العمولة التي وصلت الآن
+    if (document.getElementById('salesShell') && typeof currentUser !== 'undefined' && currentUser) renderSalesOverview();
+}
+
+// عمولة نموذج كما تحسبها القاعدة (037: مبلغ محدد أو السعر × النسبة)، أو null لمن لا يرى العمولة أو قبل وصولها.
+// العمولة لم تعد في details.models: القاعدة تنزعها، فلا تُقرأ من هناك أبداً.
+function modelCommission(projectId, ord) {
+    const unit = unitStockOf(projectId, ord);
+    return unit && unit.commission ? unit.commission : null;
 }
 
 // حالة نموذج بعينه بعد الصفقات، أو null إن لم تُعرف بعد
@@ -786,14 +797,15 @@ function renderSalesProjects(approved) {
     const units = [];
     filtered.forEach((project) => {
         const models = projectDetailsOf(project).models;
-        (Array.isArray(models) ? models : []).forEach((model) => {
+        (Array.isArray(models) ? models : []).forEach((model, index) => {
             if (salesView.availableOnly && model.status && model.status !== 'available') return;
-            units.push({ project, model });
+            units.push({ project, model, ord: index + 1 });
         });
     });
     const byPrice = units.filter((row) => featuredNumber(row.model.price) >= SALES_MIN_PRICE).sort((a, b) => featuredNumber(a.model.price) - featuredNumber(b.model.price));
     const byArea = units.filter((row) => featuredNumber(row.model.area) > 0).sort((a, b) => featuredNumber(a.model.area) - featuredNumber(b.model.area));
-    const byCommission = units.filter((row) => featuredNumber(row.model.commission) > 0).sort((a, b) => featuredNumber(b.model.commission) - featuredNumber(a.model.commission));
+    const commissionOf = (row) => modelCommission(row.project.id, row.ord) || 0;
+    const byCommission = units.filter((row) => commissionOf(row) > 0).sort((a, b) => commissionOf(b) - commissionOf(a));
     const newest = filtered.slice().sort((a, b) => new Date(b.date_added || 0) - new Date(a.date_added || 0))[0];
 
     const rows = [];
@@ -803,7 +815,7 @@ function renderSalesProjects(approved) {
         const key = row.project.id + '|' + (row.model ? row.model.name : '');
         if (seen.has(key)) return;
         seen.add(key);
-        rows.push({ project: row.project, model: row.model, highlight });
+        rows.push({ project: row.project, model: row.model, ord: row.ord, highlight });
     };
     push(byPrice[0], 'أرخص شقة');
     push(byArea[0], 'أصغر شقة');
@@ -836,7 +848,7 @@ function salesDealCardHtml(row) {
     const rooms = featuredNumber(unit.rooms) || featuredNumber(project.rooms) || featuredNumber(details.rooms);
     const area = featuredNumber(unit.area) || featuredNumber(project.area);
     const price = featuredNumber(unit.price) || featuredNumber(project.price);
-    const commission = featuredNumber(unit.commission);
+    const commission = row.model && row.ord ? modelCommission(project.id, row.ord) : null;
     const facts = [];
     if (row.highlight) facts.push(row.highlight);
     if (rooms) facts.push(rooms + ' غرف');
@@ -1244,7 +1256,6 @@ document.getElementById('projectForm').addEventListener('submit', async function
                     bathrooms: parseInt(b.querySelector('.model-bathrooms').value) || 0,
                     area: mArea,
                     price: mPrice,
-                    commission: parseFloat(b.querySelector('.model-commission').value) || 0,
                     status: b.querySelector('.model-status').value,
                     count: mCount
                 });
@@ -2112,7 +2123,7 @@ window.viewProject = async function (id) {
     }
 
     const unitCommissions = Array.isArray(details?.models)
-        ? details.models.map((model) => Number(model.commission)).filter((value) => Number.isFinite(value) && value > 0)
+        ? details.models.map((model, i) => modelCommission(p.id, i + 1)).filter((value) => value !== null)
         : [];
     const commissionSummary = unitCommissions.length
         ? `<div class="project-detail"><span>أعلى عمولة للوحدة</span><span>${formatNumber(Math.max(...unitCommissions))} ريال</span></div>`
@@ -2202,7 +2213,7 @@ window.viewProject = async function (id) {
                                             <th style="padding: 8px;">حمامات</th>
                                             <th style="padding: 8px;">المساحة</th>
                                             <th style="padding: 8px;">السعر</th>
-                                            <th style="padding: 8px;">العمولة</th>
+                                            ${unitCommissions.length ? '<th style="padding: 8px;">العمولة</th>' : ''}
                                             <th style="padding: 8px;">الحالة</th>
                                             <th style="padding: 8px;">العدد</th>
                                         </tr>
@@ -2224,7 +2235,7 @@ window.viewProject = async function (id) {
                                                     <td style="padding: 8px;">${esc(m.bathrooms)}</td>
                                                     <td style="padding: 8px;">${esc(m.area)} م²</td>
                                                     <td style="padding: 8px;">${formatNumber(m.price)} ر.س</td>
-                                                    <td style="padding: 8px;">${formatNumber(m.commission)} ر.س</td>
+                                                    ${unitCommissions.length ? `<td style="padding: 8px;">${modelCommission(p.id, i + 1) === null ? '—' : formatNumber(modelCommission(p.id, i + 1)) + ' ر.س'}</td>` : ''}
                                                     <td style="padding: 8px;">${statusBadge}</td>
                                                     <td style="padding: 8px;">${esc(countText)}</td>
                                                 </tr>
@@ -2827,7 +2838,6 @@ window.addUnitModel = function(modelData = null) {
     const statusVal     = modelData ? (modelData.status     || 'available') : 'available';
     const typeVal       = modelData ? (modelData.type       || 'شقة')      : 'شقة';
     const countVal      = modelData ? (modelData.count != null ? modelData.count : 1) : 1;
-    const commissionVal = modelData ? (modelData.commission ?? '') : '';
 
     block.innerHTML = `
         <button type="button" class="remove-model-btn" onclick="removeUnitModel(${index})">×</button>
@@ -2858,10 +2868,6 @@ window.addUnitModel = function(modelData = null) {
             <div class="form-group">
                 <label>السعر (ريال) *</label>
                 <input type="number" class="model-price" required min="0" value="${esc(priceVal)}" placeholder="مثال: 480000">
-            </div>
-            <div class="form-group">
-                <label>العمولة (ريال)</label>
-                <input type="number" class="model-commission" min="0" value="${esc(commissionVal)}" placeholder="مثال: 12000">
             </div>
             <div class="form-group">
                 <label>الحالة *</label>
@@ -3170,7 +3176,7 @@ function renderKanbanBoard(filteredProjects) {
 }
 
 // Auto-Save Draft Functions
-// المسودة باسم الموظف: على جهاز مشترك لا تُعرض لمن يدخل بعده (فيها أرقام الملاك والأسعار والعمولات)
+// المسودة باسم الموظف: على جهاز مشترك لا تُعرض لمن يدخل بعده (فيها أرقام الملاك والأسعار)
 function draftKey() {
     return 'project_draft:' + (currentUser ? currentUser.id : '');
 }
@@ -3218,7 +3224,6 @@ function saveFormDraft() {
             bathrooms: b.querySelector('.model-bathrooms').value,
             area: b.querySelector('.model-area').value,
             price: b.querySelector('.model-price').value,
-            commission: b.querySelector('.model-commission').value,
             status: b.querySelector('.model-status').value,
             count: b.querySelector('.model-count').value
         });

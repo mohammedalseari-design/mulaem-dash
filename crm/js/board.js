@@ -16,7 +16,7 @@ import {
     el, clear, replace, loading, empty, errorBox, badge,
     money, fmtDate, number, pageHead, actionBtn, subTabs, localDayStart
 } from './ui.js';
-import { DEAL_TABS } from './commissions.js';
+import { dealTabs } from './commissions.js';
 
 const CARD_FIELDS = 'id, stage_id, amount, unit_key, project_id, broker_id, expected_close_date, updated_at,'
     + ' client:clients(id, full_name), project:projects(name)';
@@ -59,7 +59,7 @@ export async function renderBoard(root) {
         pageHead('الصفقات', 'من الاهتمام حتى الإغلاق. تُفتح الصفقة من ملف العميل أو من مطابقة، وتنتقل بين المراحل من صفحتها.', [
             actionBtn('العملاء', 'users', { href: '#/clients' })
         ]),
-        subTabs('أقسام الصفقات', DEAL_TABS, '#/deals'),
+        dealTabs('#/deals'),
         pipe.node,
         el('div', { class: 'crm-card' }, [board]),
         el('div', { class: 'crm-card' }, closedSection)

@@ -7,7 +7,7 @@
 
 import { supabase } from './supabase.js';
 import { sanitizeSearch, phoneNeedle } from './data.js';
-import { isAdmin, myRole } from './auth.js';
+import { isAdmin, myRole, canSeeCommission } from './auth.js';
 import { CLIENT_TYPE, LISTING_PURPOSE, label } from './labels.js';
 import { el, clear, icon, errorText } from './ui.js';
 import { presetClientSearch } from './clients.js';
@@ -27,7 +27,7 @@ const ACTIONS = [
     { title: 'المطابقات', icon: 'target', hash: '#/matches', keys: 'العروض المشاركة مهتم معاينة' },
     { title: 'العقارات', icon: 'building', hash: '#/properties', keys: 'الوحدات المخزون المشاريع' },
     { title: 'الصفقات', icon: 'briefcase', hash: '#/deals', deny: 'callcenter', keys: 'المسار المراحل التفاوض' },
-    { title: 'العمولات', icon: 'wallet', hash: '#/commissions', deny: 'callcenter', keys: 'التحصيل الفواتير المستحقة' },
+    { title: 'العمولات', icon: 'wallet', hash: '#/commissions', deny: 'callcenter', commission: true, keys: 'التحصيل الفواتير المستحقة' },
     { title: 'إضافة عرض', icon: 'sparkle', hash: '#/assistant', keys: 'المساعد عرض جديد مطور واتساب رابط' },
     { title: 'الإدارة', icon: 'settings', hash: '#/admin', admin: true, keys: 'الاعتماد التقارير المستخدمون الإعدادات واتساب' },
     { title: 'كيف أبدأ؟', icon: 'help', hash: '#/help', keys: 'مساعدة شرح دليل' }
@@ -50,7 +50,7 @@ function newClient() {
 }
 
 function allowed(action) {
-    return !(action.admin && !isAdmin()) && !(action.deny && myRole() === action.deny);
+    return !(action.admin && !isAdmin()) && !(action.deny && myRole() === action.deny) && !(action.commission && !canSeeCommission());
 }
 
 // يطابق الكلمة في الاسم أو في الكلمات الإضافية، بلا اعتبار للهمزات والتاء المربوطة

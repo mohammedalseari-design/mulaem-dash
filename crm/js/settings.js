@@ -13,8 +13,10 @@
 import { supabase } from './supabase.js';
 import {
     el, replace, loading, errorBox, field, input, parseNumber,
-    notify, fail, number, pageHead, waNumber
+    notify, fail, number, pageHead, waNumber, money
 } from './ui.js';
+import { loadPolicy, openProjectCommission, pickProjectForCommission } from './project-commission.js';
+import { parseRate, formatRate, commissionAt } from './commission-rate.js';
 
 // الحدود اليومية: مفتاح crm_settings، والقيمة الافتراضية كما في الترحيل، وأقصى ما يُقبل من الشاشة
 const LIMITS = [
@@ -144,7 +146,8 @@ export async function renderSettings(root) {
 
     if (!root.isConnected) return;
     replace(root, [
-        pageHead('الإعدادات', 'أوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        pageHead('الإعدادات', 'العمولة، وأوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        commissionCard(),
         form,
         limitsForm(stored),
         officeForm(stored)
@@ -223,6 +226,115 @@ function officeForm(stored) {
         await saveRows(saveBtn, 'حفظ الرقم', [{ key: 'office_whatsapp', value: value ? waNumber(value) : '' }], 'تم حفظ رقم واتساب المكتب');
     });
     return form;
+}
+
+/* ===================== العمولة (037) ===================== */
+// زر «إظهار العمولة للوسطاء» يُحفظ فور الضغط، والنسبة العامة بزر «حفظ النسبة»، والنسب الخاصة تُفتح في نافذة المشروع.
+// الكتابة كلها عبر دوال القاعدة التي تتحقق أن الكاتب مدير (set_commission_policy و set_project_commission).
+
+const EXAMPLE_PRICE = 1250000;
+
+function commissionCard() {
+    const card = el('section', { class: 'crm-card cm-card', 'aria-labelledby': 'cmTitle' }, loading());
+    draw();
+    return card;
+
+    async function draw() {
+        let policy, special;
+        try {
+            policy = await loadPolicy();
+            const r = await supabase.from('project_commission').select('project_id, rate, projects(name, district)')
+                .order('updated_at', { ascending: false });
+            if (r.error) throw r.error;
+            special = r.data || [];
+        } catch (error) {
+            if (card.isConnected) replace(card, errorBox(error, 'تعذّر تحميل العمولة', draw));
+            return;
+        }
+        if (!card.isConnected) return;
+
+        const describe = (on) => on
+            ? 'شغّال: الوسيط يشوف عمولة الوحدات في «العقارات» وصفحة المشاريع، وعمولة صفقاته في «العمولات» و«عملي اليوم».'
+            : 'مطفي: الوسيط ما يشوف عمولة الوحدات ولا عمولة صفقاته، والقاعدة نفسها ما تعطيه الأرقام.';
+        const showDesc = el('span', { class: 'cm-desc', text: describe(policy.showToStaff) });
+        const swText = el('span', { class: 'cm-switch-text', text: policy.showToStaff ? 'شغّال' : 'مطفي' });
+        const sw = el('button', {
+            type: 'button', class: 'cm-switch', role: 'switch', 'aria-checked': String(policy.showToStaff),
+            'aria-labelledby': 'cmShowLabel', onclick: () => toggle()
+        }, [swText, el('span', { class: 'cm-switch-track', 'aria-hidden': 'true' }, el('span', { class: 'cm-switch-knob' }))]);
+        async function toggle() {
+            const next = !policy.showToStaff;
+            sw.disabled = true;
+            const { data, error } = await supabase.rpc('set_commission_policy', { p_default_rate: null, p_show_to_staff: next });
+            sw.disabled = false;
+            if (error || !data || data.ok !== true) return void fail(error || new Error('رفضت القاعدة الحفظ'), 'تعذّر تغيير ظهور العمولة');
+            policy.showToStaff = next;
+            sw.setAttribute('aria-checked', String(next));
+            swText.textContent = next ? 'شغّال' : 'مطفي';
+            showDesc.textContent = describe(next);
+            notify(next ? 'صارت العمولة ظاهرة للوسطاء (من دخولهم التالي)' : 'صارت العمولة مخفية عن الوسطاء', 'success', 6000);
+        }
+
+        const rateBox = input({ inputMode: 'decimal', autocomplete: 'off', class: 'cm-rate', value: String(policy.defaultRate), 'aria-labelledby': 'cmRateLabel' });
+        const example = el('span', { class: 'cm-desc' });
+        const exampleText = () => {
+            const r = parseRate(rateBox.value);
+            const c = r === null || Number.isNaN(r) ? null : commissionAt(EXAMPLE_PRICE, r);
+            example.textContent = 'لكل مشروع ما له نسبة خاصة. مثال: وحدة بـ ' + money(EXAMPLE_PRICE) + ' ر.س ← عمولة '
+                + (c === null ? '—' : money(c) + ' ر.س') + '.';
+        };
+        rateBox.addEventListener('input', exampleText);
+        exampleText();
+        const saveBtn = el('button', { type: 'submit', class: 'btn btn-primary btn-sm', text: 'حفظ النسبة' });
+        const rateForm = el('form', { class: 'cm-row' }, [
+            el('div', { class: 'cm-text' }, [el('strong', { id: 'cmRateLabel', text: 'النسبة العامة' }), example]),
+            el('div', { class: 'cm-rate-wrap' }, [rateBox, el('span', { class: 'cm-pct', text: '٪' }), saveBtn])
+        ]);
+        rateForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const r = parseRate(rateBox.value);
+            if (r === null || Number.isNaN(r)) {
+                rateBox.focus();
+                return void notify('اكتب النسبة رقماً من 0 إلى 100، مثل 2.5', 'error', 7000);
+            }
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'جارٍ الحفظ…';
+            const { data, error } = await supabase.rpc('set_commission_policy', { p_default_rate: r, p_show_to_staff: null });
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'حفظ النسبة';
+            if (error || !data || data.ok !== true) return void fail(error || new Error('رفضت القاعدة الحفظ'), 'تعذّر حفظ النسبة');
+            policy.defaultRate = r;
+            notify('تم حفظ النسبة العامة: ' + formatRate(r), 'success');
+        });
+
+        const list = special.length
+            ? el('ul', { class: 'cm-special' }, special.map((row) => el('li', {}, el('button', {
+                type: 'button', class: 'cm-special-row', onclick: () => openProjectCommission(row.project_id, draw)
+            }, [
+                el('span', { class: 'cm-special-name', text: (row.projects && row.projects.name) || ('عقار #' + row.project_id) }),
+                el('span', { class: 'cm-special-district', text: (row.projects && row.projects.district) || '' }),
+                el('strong', { class: 'cm-special-rate', text: formatRate(row.rate) })
+            ]))))
+            : el('p', { class: 'cm-desc cm-none', text: 'لا مشروع له نسبة خاصة؛ كلها بالنسبة العامة.' });
+
+        replace(card, [
+            el('div', { class: 'crm-card-head' }, [el('h2', { id: 'cmTitle', text: 'العمولة' }), el('span', { class: 'cm-hint', text: 'يشوفها المدير دائماً' })]),
+            el('div', { class: 'cm-row' }, [
+                el('div', { class: 'cm-text' }, [el('strong', { id: 'cmShowLabel', text: 'إظهار العمولة للوسطاء' }), showDesc]),
+                sw
+            ]),
+            rateForm,
+            el('div', { class: 'cm-sub' }, [
+                el('div', { class: 'cm-text' }, [el('strong', { text: 'مشاريع لها نسبة خاصة' }),
+                    el('span', { class: 'cm-desc', text: 'تغلب النسبة العامة. اضغط المشروع لتغيّر نسبته أو مبالغ نماذجه.' })]),
+                list,
+                el('div', { class: 'cm-foot' }, [
+                    el('button', { type: 'button', class: 'link-btn', text: '+ نسبة خاصة لمشروع', onclick: () => pickProjectForCommission(draw) }),
+                    el('span', { class: 'cm-desc', text: 'عمولة الصفقة: لما تصير «تمت» تاخذ نسبة مشروعها، وتقدر تغيّرها من صفحة الصفقة.' })
+                ])
+            ])
+        ]);
+    }
 }
 
 async function saveRows(button, label, rows, done) {

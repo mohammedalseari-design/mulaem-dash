@@ -39,7 +39,25 @@ export async function loadSession() {
     if (profileError) throw profileError;
 
     state.profile = profile || null;
+    state.commissionVisible = profile ? await loadCommissionVisible(profile.role === 'admin') : false;
     return state.profile;
+}
+
+// هل يرى هذا المستخدم العمولة؟ المدير دائماً، وغيره حين يشغّل المدير «إظهار العمولة للوسطاء» (037). القاعدة نفسها
+// تحجب الأرقام عمّن لا يراها؛ هذا للشاشة فقط، فلا تُرسم أعمدة وأرقام فارغة. تُقرأ مرة مع الجلسة، فتغيير الزر يظهر
+// للموظف في الدخول أو التحديث التالي. إن تعذّرت القراءة (أو قبل تطبيق 037): المدير يراها، وغيره لا.
+async function loadCommissionVisible(admin) {
+    if (admin) return true;
+    try {
+        const { data, error } = await supabase.rpc('commission_visible');
+        return !error && data === true;
+    } catch {
+        return false;
+    }
+}
+
+export function canSeeCommission() {
+    return Boolean(state.profile) && (isAdmin() || state.commissionVisible === true);
 }
 
 export async function signIn(username, password) {

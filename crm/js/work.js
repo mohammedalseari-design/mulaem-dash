@@ -17,7 +17,7 @@
 import { supabase, PAGE_SIZE, pageRange, pageBack, fetchAll } from './supabase.js';
 import { staffMap, staffName, dealStages, stageMap, stageName } from './data.js';
 import { CHANNEL, DEAL_STAGE_TONE, REQUEST_PURPOSE, label } from './labels.js';
-import { myRole } from './auth.js';
+import { myRole, canSeeCommission } from './auth.js';
 import {
     el, replace, loading, errorBox, pager, fmtDateTime, fmtDate, dayText,
     localDayStart, number, waNumber, icon, money, badge, errorText
@@ -49,6 +49,8 @@ const FMT_TIME = new Intl.DateTimeFormat(LOCALE, { hour: 'numeric', minute: '2-d
 
 export async function renderWork(root) {
     const noDeals = myRole() === 'callcenter';
+    // «عمولات لم تُحصّل» لمن يرى العمولة فقط (037): المدير دائماً، والوسيط حين يشغّل المدير الزر
+    const showCommission = !noDeals && canSeeCommission();
     const sub = el('p', { class: 'w4-sub', text: FMT_TODAY.format(new Date()) });
 
     // اللوحات الأربع: المفتاح على الجوال يعرض واحدة منها
@@ -91,7 +93,7 @@ export async function renderWork(root) {
         { key: 'visits', label: 'معاينات قادمة', go: () => focusPanel('visits') },
         { key: 'leads', label: 'عملاء محتملون', href: '#/requests' },
         noDeals ? null : { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
-        noDeals ? null : { key: 'commission', label: 'عمولات لم تُحصّل', href: '#/commissions' }
+        showCommission ? { key: 'commission', label: 'عمولات لم تُحصّل', href: '#/commissions' } : null
     ].filter(Boolean));
 
     replace(root, el('div', { class: 'w4 w6' }, [
@@ -174,11 +176,14 @@ export async function renderWork(root) {
         if (noDeals) return;
         const [stages, commissions] = await Promise.all([
             dealStages().catch((error) => ({ error })),
-            fetchAll(() => supabase.from('commissions').select('id, gross_amount, collected_amount').in('status', OPEN_COMMISSION).order('id', { ascending: true }))
+            showCommission
+                ? fetchAll(() => supabase.from('commissions').select('id, gross_amount, collected_amount').in('status', OPEN_COMMISSION).order('id', { ascending: true }))
+                : Promise.resolve(null)
         ]);
         if (!kpis.node.isConnected) return;
 
-        if (commissions.error) kpis.set('commission', failed(commissions.error));
+        if (!commissions) { /* العمولة مخفية عن هذا المستخدم: لا خانة لها */ }
+        else if (commissions.error) kpis.set('commission', failed(commissions.error));
         else {
             const rows = commissions.data || [];
             const remaining = rows.reduce((sum, row) => sum + Math.max(0, Number(row.gross_amount || 0) - Number(row.collected_amount || 0)), 0);

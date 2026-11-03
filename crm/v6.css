@@ -1068,3 +1068,90 @@ body.pal-open { overflow: hidden; }
 .mort-compare-table td:first-child .badge { margin-inline-start: 6px; }
 .mort-compare-table tr.is-on > td { background: var(--brand-soft); }
 .mort-compare-table tr:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* ===================== العمولة (037): العمود والنافذة وبطاقة الإعدادات ===================== */
+/* من لا يرى العمولة: الخانة السادسة تبقى في الصف (easy.css يرتّب البطاقة بأرقام الخانات) وتُخفى هنا */
+.pr-table.no-commission > thead > tr > th:nth-child(6),
+.pr-table.no-commission > tbody > tr > td:nth-child(6) { display: none; }
+/* المدير: المبلغ ومصدره زر يفتح «عمولة المشروع» */
+.pr-com {
+    display: inline-grid;
+    justify-items: end;
+    gap: 1px;
+    min-height: 40px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+    cursor: pointer;
+}
+.pr-com:hover { border-color: var(--line-2); background: var(--hover); }
+.pr-com:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pr-com-amount { font-weight: 600; }
+.pr-com-src { color: var(--muted); font-size: 0.74rem; white-space: nowrap; }
+.pr-com-src.is-fixed { color: var(--amber); font-weight: 600; }
+
+.pc-form { display: grid; gap: 14px; }
+.pc-project { margin: 0; color: var(--ink-2); }
+.pc-note { display: flex; align-items: center; gap: 8px; margin: 0; }
+.pc-note .ico { width: 16px; height: 16px; flex: none; }
+.pc-block { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.pc-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--hover); }
+.pc-seg button { min-height: 44px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-2); font: 600 0.9rem var(--font); cursor: pointer; }
+.pc-seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12); }
+.pc-seg button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.pc-rate-row { display: flex; align-items: center; gap: 10px; }
+.pc-rate-row.is-off { opacity: 0.6; }
+.pc-rate { width: 96px; min-height: 44px; text-align: center; font-weight: 600; font-size: 1.05rem; }
+.pc-table th[scope="row"] { display: grid; gap: 1px; text-align: start; font-weight: 600; }
+.pc-table th[scope="row"] small { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
+.pc-calc { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* داخل خانات الأرقام (اتجاهها يسار-يمين): النص العربي حول الرقم يبقى بترتيبه */
+.pc-calc, .pr-com-src { direction: rtl; unicode-bidi: isolate; }
+.pc-amount-cell { white-space: nowrap; }
+.pc-amount { width: 130px; min-height: 40px; }
+.pc-clear { margin-inline-start: 6px; }
+.pc-results { min-height: 60px; margin-top: 10px; }
+.pc-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pc-pick-btn { display: flex; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font: inherit; text-align: start; cursor: pointer; }
+.pc-pick-btn:hover { background: var(--hover); }
+.pc-pick-btn span { color: var(--muted); font-size: 0.86rem; }
+
+.cm-card .crm-card-head { align-items: baseline; }
+.cm-card .crm-card-head + .cm-row { border-top: 0; }
+.cm-hint { margin-inline-start: auto; color: var(--muted); font-size: 0.82rem; }
+.cm-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 24px; padding: 14px 0; border-top: 1px solid var(--line); }
+.cm-text { display: grid; gap: 3px; min-width: 0; }
+.cm-desc { color: var(--muted); font-size: 0.84rem; line-height: 1.7; }
+.cm-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--ink-2); font: 600 0.9rem var(--font); cursor: pointer; }
+.cm-switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--r-sm); }
+.cm-switch-track { position: relative; display: inline-block; width: 46px; height: 26px; border-radius: 999px; background: var(--line-2); transition: background-color 0.15s; }
+.cm-switch-knob { position: absolute; top: 3px; inset-inline-start: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(16, 28, 24, 0.25); transition: inset-inline-start 0.15s; }
+.cm-switch[aria-checked="true"] .cm-switch-track { background: var(--brand); }
+.cm-switch[aria-checked="true"] .cm-switch-knob { inset-inline-start: 23px; }
+.cm-rate-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.cm-rate { width: 84px; min-height: 44px; text-align: center; font-weight: 600; font-size: 1.05rem; }
+.cm-pct { color: var(--ink-2); }
+.cm-sub { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.cm-special { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.cm-special li + li { border-top: 1px solid var(--line); }
+.cm-special-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 8px 14px; border: 0; background: var(--surface); color: var(--ink); font: inherit; text-align: start; cursor: pointer; }
+.cm-special-row:hover { background: var(--hover); }
+.cm-special-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.cm-special-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-special-district { color: var(--muted); font-size: 0.86rem; }
+.cm-special-rate { font-variant-numeric: tabular-nums; }
+.cm-none { margin: 0; }
+.cm-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+@media (max-width: 700px) {
+    .cm-row { grid-template-columns: minmax(0, 1fr); }
+    .cm-rate-wrap { flex-wrap: wrap; }
+    .pc-amount { width: 110px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cm-switch-track, .cm-switch-knob { transition: none; }
+}

@@ -13,7 +13,8 @@
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName, dealStages, lostReasons, brokerStaff } from './data.js';
-import { isAdmin } from './auth.js';
+import { isAdmin, canSeeCommission } from './auth.js';
+import { formatRate } from './commission-rate.js';
 import { DEAL_STAGE_TONE } from './labels.js';
 import {
     el, append, clear, replace, loading, empty, errorBox, badge, pager, field,
@@ -68,9 +69,10 @@ export async function renderDeal(root, dealId) {
         commissionHost
     ]);
 
+    // قسم العمولة لمن يرى العمولة فقط (037)؛ القاعدة لا تعطي غيره صفها أصلاً
     await Promise.all([
         renderHistory(historyBody, deal, stages, names),
-        renderCommission(commissionHost, deal)
+        canSeeCommission() ? renderCommission(commissionHost, deal) : null
     ]);
 }
 
@@ -208,8 +210,8 @@ function openDocumentMenu(deal, stage, names) {
         ['summary', 'ملخص الصفقة'],
         ['offer', 'عرض عقاري'],
         ['eoi', 'خطاب إبداء رغبة'],
-        ['invoice', 'فاتورة عمولة']
-    ];
+        canSeeCommission() ? ['invoice', 'فاتورة عمولة'] : null
+    ].filter(Boolean);
     const buttons = options.map(([kind, title]) => el('button', {
         type: 'button', class: 'btn btn-outline btn-sm', text: title,
         onclick: () => { closeModal(); printDealDocument(deal, stage, names, kind); }
@@ -439,44 +441,71 @@ async function openLostForm(deal, stage, reload) {
     openModal('إغلاق الصفقة كخسارة', form, { narrow: true });
 }
 
-// النسبتان الافتراضيتان لجدول commissions (007_deals_commissions.sql): المعاينة تحسب كما يحسب الخادم،
-// والنسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة.
+// المعاينة تحسب كما يحسب الخادم: العمولة تُنشأ عند «تمت» بنسبة مشروع الصفقة أو النسبة العامة (commissions_apply_rate
+// في 037)، والضريبة 15% (007). النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة. 2.5 احتياط إن تعذّرت القراءة.
 const DEFAULT_RATE = 2.5;
 const DEFAULT_VAT = 15;
 const round2 = (n) => Math.round(n * 100) / 100;
+
+async function effectiveDealRate(projectId) {
+    const [policy, project] = await Promise.all([
+        supabase.from('commission_policy').select('default_rate').maybeSingle(),
+        projectId === null || projectId === undefined
+            ? Promise.resolve({ data: null, error: null })
+            : supabase.from('project_commission').select('rate').eq('project_id', projectId).maybeSingle()
+    ]);
+    if (!project.error && project.data) return { rate: Number(project.data.rate), from: 'نسبة المشروع' };
+    if (!policy.error && policy.data) return { rate: Number(policy.data.default_rate), from: 'النسبة العامة' };
+    return null;
+}
 
 // نموذج الإتمام: السعر النهائي أساس العمولة، ولا إتمام بلا قيمة، ومعه معاينة العمولة قبل التأكيد
 function openAmountForm(deal, stage, reload) {
     const amount = moneyInput({ value: deal.amount ?? '', required: true });
     const saveBtn = el('button', { type: 'submit', class: 'btn btn-success btn-sm', text: 'تأكيد الإتمام' });
-    const preview = el('dl', { class: 'won-preview', 'aria-live': 'polite' });
+    // من لا يرى العمولة (037) يؤكد السعر فقط، بلا معاينة عمولة
+    const seeCommission = canSeeCommission();
+    const preview = seeCommission ? el('dl', { class: 'won-preview', 'aria-live': 'polite' }) : null;
+    let rate = DEFAULT_RATE;
+    let rateFrom = '';
 
     const line = (label, value, strong) => el('div', { class: 'won-line' + (strong ? ' won-total' : '') }, [
         el('dt', { text: label }),
         el('dd', { class: 'num', text: value === null ? '—' : money(value) + ' ريال' })
     ]);
     function updatePreview() {
+        if (!preview) return;
         const value = parseNumber(amount.value);
         const base = value !== null && value > 0 ? value : null;
-        const gross = base === null ? null : round2(base * DEFAULT_RATE / 100);
-        const vat = base === null ? null : round2(base * DEFAULT_RATE / 100 * DEFAULT_VAT / 100);
+        const gross = base === null ? null : round2(base * rate / 100);
+        const vat = base === null ? null : round2(base * rate / 100 * DEFAULT_VAT / 100);
         replace(preview, [
-            line('العمولة (' + DEFAULT_RATE + '%)', gross),
+            line('العمولة (' + formatRate(rate) + (rateFrom ? ' ' + rateFrom : '') + ')', gross),
             line('ضريبة العمولة (' + DEFAULT_VAT + '%)', vat),
             line('العمولة مع الضريبة', gross === null ? null : round2(gross + vat), true)
         ]);
     }
     amount.addEventListener('input', updatePreview);
     updatePreview();
+    if (seeCommission) {
+        effectiveDealRate(deal.project_id).then((found) => {
+            if (!found || !Number.isFinite(found.rate)) return;
+            rate = found.rate;
+            rateFrom = found.from;
+            updatePreview();
+        }).catch(() => {});
+    }
 
     const form = el('form', {}, [
         el('p', {
             class: 'crm-subtle', style: 'margin-bottom:14px',
-            text: 'تأكد من السعر النهائي قبل الإتمام: عليه تُحسب العمولة، وتُنشأ تلقائياً عند الإتمام.'
+            text: seeCommission
+                ? 'تأكد من السعر النهائي قبل الإتمام: عليه تُحسب العمولة، وتُنشأ تلقائياً عند الإتمام.'
+                : 'تأكد من السعر النهائي قبل الإتمام.'
         }),
         el('div', { class: 'form-grid' }, [field('السعر النهائي للصفقة (ريال)', amount, { required: true, span2: true })]),
         preview,
-        el('p', { class: 'crm-subtle won-note', text: 'النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة.' }),
+        seeCommission ? el('p', { class: 'crm-subtle won-note', text: 'النسبة تُعدَّل بعد الإتمام من قسم العمولة في صفحة الصفقة.' }) : null,
         el('div', { class: 'btn-row btn-row-end' }, [
             el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }),
             saveBtn

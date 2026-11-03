@@ -9,7 +9,7 @@
 // صفقاته وحدها. مركز الاتصال لا يصل إلى هذا المسار (الموجّه يمنعه والقاعدة لا تُريه شيئاً).
 
 import { supabase, PAGE_SIZE, pageRange, pageBack, fetchAll } from './supabase.js';
-import { isAdmin } from './auth.js';
+import { isAdmin, canSeeCommission } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { COMMISSION_STATUS, COMMISSION_STATUS_TONE, label } from './labels.js';
 import { REVIEW_BADGE } from './commission.js';
@@ -22,6 +22,12 @@ export const DEAL_TABS = [
     { hash: '#/deals', label: 'مسار الصفقات', icon: 'briefcase' },
     { hash: '#/commissions', label: 'العمولات', icon: 'wallet' }
 ];
+
+// من لا يرى العمولة (037) لا يرى قسمها؛ وقسم واحد لا يحتاج شريط تبويبات
+export function dealTabs(current) {
+    const tabs = canSeeCommission() ? DEAL_TABS : DEAL_TABS.filter((tab) => tab.hash !== '#/commissions');
+    return tabs.length > 1 ? subTabs('أقسام الصفقات', tabs, current) : null;
+}
 
 const OPEN_STATUSES = ['due', 'invoiced', 'partial'];
 
@@ -45,9 +51,17 @@ export async function renderCommissions(root) {
     const summary = el('div', { class: 'kpi-strip kpi-strip-3', role: 'group', 'aria-label': 'ملخص العمولات' }, loading());
     const chips = filterChips('حالة العمولة', STATUS_CHIPS, view.status, (value) => { view.status = value; view.page = 0; load(); });
 
+    // العمولة مخفية عن هذا المستخدم (037): القاعدة لا تعطيه الأرقام، فلا جدول فارغاً ولا ملخصاً بأصفار
+    if (!canSeeCommission()) {
+        return void replace(root, [
+            pageHead('العمولات', 'عمولات الصفقات التي تمت.'),
+            empty('العمولة يشوفها المدير فقط', 'إذا احتجت تعرف عمولة صفقة، اسأل المدير.')
+        ]);
+    }
+
     replace(root, [
         pageHead('العمولات', 'عمولات الصفقات التي تمت: الإجمالي والمحصّل والمتبقي. الدفعات والفواتير تُسجَّل من صفحة الصفقة.'),
-        subTabs('أقسام الصفقات', DEAL_TABS, '#/commissions'),
+        dealTabs('#/commissions'),
         summary,
         el('div', { class: 'crm-card' }, [chips.node, body])
     ]);

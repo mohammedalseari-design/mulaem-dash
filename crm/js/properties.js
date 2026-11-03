@@ -1,16 +1,19 @@
-// ‎#/properties‎ — تصفّح المخزون من داخل الـCRM. قراءة فقط، عدا عمولة الوحدة للمدير.
+// ‎#/properties‎ — تصفّح المخزون من داخل الـCRM. قراءة فقط، عدا عمولة المشروع للمدير.
 //
 // المصدر عرض ‎v_units‎ (security_invoker)، فما لا تسمح به سياسات projects لا يظهر
 // هنا: صفٌّ لكل نموذج وحدة، وصفٌّ واحد ‎'كامل العقار'‎ للمشاريع بلا نماذج.
 //
 // المخزون يُحرَّر في اللوحة القديمة (‎../projects.html‎)، وهذه نافذة عليه حتى لا يخرج الموظف
-// من الـCRM ليرى العقارات. الاستثناء الوحيد: المدير يكتب عمولة الوحدة في عمود «العمولة»
-// مباشرة وتُحفظ فوراً عبر ‎set_unit_commission‎ (021) دون فتح نموذج المشروع كاملاً.
+// من الـCRM ليرى العقارات. الاستثناء الوحيد: المدير يضغط عمود «العمولة» فتُفتح «عمولة المشروع»
+// (project-commission.js): نسبة المشروع ومبلغ محدد لأي نموذج (037).
+// عمود العمولة ومرشّحاها لا يُرسمان لمن لا يرى العمولة (canSeeCommission)، والقاعدة لا تعطيه أرقامها أصلاً.
 // الصفحة لكل الأدوار، وزر "فتح صفقة" وحده مخفي عن مركز الاتصال (والقاعدة ترفضه أصلاً).
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { inventoryVocabulary, sanitizeSearch } from './data.js';
-import { myRole, isAdmin } from './auth.js';
+import { myRole, isAdmin, canSeeCommission } from './auth.js';
+import { openProjectCommission } from './project-commission.js';
+import { sourceText } from './commission-rate.js';
 import { openDealForm } from './deal-form.js';
 import { safeUrl } from './agent.js';
 import { UNIT_STATUS, UNIT_STATUS_TONE, LISTING_PURPOSE, label } from './labels.js';
@@ -101,9 +104,11 @@ export async function renderProperties(root) {
 
     // على الجوال: البحث ظاهر، وباقي المرشّحات خلف زر «المرشّحات» حتى تظهر النتائج في أول الشاشة.
     // على الكمبيوتر الغلاف بلا أثر (display: contents في css/theme.css) فيبقى الشريط كما هو.
+    const seeCommission = canSeeCommission();
     const extra = el('div', { class: 'crm-toolbar-extra', id: 'propertyFilters' }, [
         districtField.node, typeField.node,
-        roomsBox, priceMinBox, priceMaxBox, commissionMinBox, commissionOrderBox, availableChip
+        roomsBox, priceMinBox, priceMaxBox,
+        seeCommission ? commissionMinBox : null, seeCommission ? commissionOrderBox : null, availableChip
     ]);
     const filtersBtn = el('button', {
         type: 'button', class: 'btn btn-outline btn-sm crm-filter-toggle', text: 'المرشّحات',
@@ -139,17 +144,26 @@ export async function renderProperties(root) {
         replace(body, loading());
         const [from, to] = pageRange(view.page);
 
-        const buildQuery = (withUnitFields) => {
+        // الأعمدة الاختيارية بالتدريج: بيئة بلا 037 (أو بلا 030) لا تُسقط الصفحة، بل تُسقط ما ينقصها فقط
+        const commissionCols = seeCommission ? 'unit_commission, ' : '';
+        const tiers = [
+            'project_image, developer, ' + commissionCols + (seeCommission ? 'unit_commission_rate, unit_commission_source, ' : '') + 'unit_count, units_left, ',
+            'project_image, developer, ' + commissionCols + 'unit_count, units_left, ',
+            ''
+        ];
+        const buildQuery = (extraCols) => {
+            const withUnitFields = extraCols !== '';
+            const sortByCommission = withUnitFields && seeCommission && view.commissionOrder;
             let query = supabase
                 .from('v_units')
                 .select(
                     'project_id, project_name, unit_ord, unit_key, unit_type, district, district_inferred,'
                     + ' rooms, bathrooms, area, price, '
-                    + (withUnitFields ? 'project_image, developer, unit_commission, unit_count, units_left, ' : '')
+                    + extraCols
                     + 'construction_status, unit_status',
                     { count: 'exact' }
                 )
-                .order(withUnitFields && view.commissionOrder ? 'unit_commission' : 'project_name', { ascending: view.commissionOrder !== 'desc' })
+                .order(sortByCommission ? 'unit_commission' : 'project_name', { ascending: view.commissionOrder !== 'desc' })
                 .order('project_id', { ascending: true })
                 .order('unit_ord', { ascending: true })
                 .range(from, to);
@@ -172,47 +186,22 @@ export async function renderProperties(root) {
             const priceMax = parseNumber(view.priceMax);
             if (priceMax !== null) query = query.lte('price', priceMax);
             const commissionMin = parseNumber(view.commissionMin);
-            if (withUnitFields && commissionMin !== null) query = query.gte('unit_commission', commissionMin);
+            if (withUnitFields && seeCommission && commissionMin !== null) query = query.gte('unit_commission', commissionMin);
             return query;
         };
 
-        let result = await buildQuery(true);
-        if (result.error && (String(result.error.message || '').includes('unit_commission')
-            || String(result.error.message || '').includes('project_image')
-            || String(result.error.message || '').includes('developer')
-            || String(result.error.message || '').includes('units_left'))) {
-            result = await buildQuery(false);
-            if (result.data) result.data.forEach((row) => {
-                row.project_image = null;
-                row.developer = null;
-                row.unit_commission = null;
-                row.unit_count = null;
-                row.units_left = null;
-            });
+        // عمود ناقص في العرض = خطأ يذكر اسمه؛ عندها يُجرَّب المستوى الأقل. أي خطأ آخر يُعرض كما هو
+        const OPTIONAL = /unit_commission|project_image|developer|units_left|unit_count/;
+        let result = null;
+        for (const cols of tiers) {
+            result = await buildQuery(cols);
+            if (!(result.error && OPTIONAL.test(String(result.error.message || '')))) break;
         }
         if (mine !== seq || !body.isConnected) return;
         const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العقارات', load));
 
         const rows = data || [];
-        // بعض البيئات لا تزال تستخدم v_units بدون unit_commission؛ استكمل العمولة
-        // من تفاصيل نماذج المشروع حتى لا يظهر العمود فارغًا.
-        const projectIds = [...new Set(rows.map((row) => row.project_id).filter(Boolean))];
-        if (projectIds.length) {
-            const projectsResult = await supabase.from('projects').select('id,details').in('id', projectIds);
-            if (!projectsResult.error) {
-                const projectMap = new Map((projectsResult.data || []).map((project) => [project.id, project.details || {}]));
-                for (const row of rows) {
-                    if (row.unit_commission !== null && row.unit_commission !== undefined) continue;
-                    const models = projectMap.get(row.project_id)?.models;
-                    if (!Array.isArray(models)) continue;
-                    const model = models.find((item) => row.unit_key && String(item.name || '') === String(row.unit_key))
-                        || (row.unit_ord > 0 ? models[row.unit_ord - 1] : null);
-                    if (model && model.commission !== null && model.commission !== undefined) row.unit_commission = Number(model.commission);
-                }
-            }
-            if (mine !== seq || !body.isConnected) return;
-        }
         if (rows.length === 0) {
             return void replace(body, filtered(view)
                 ? empty('لا وحدات مطابقة لهذا البحث', 'وسّع نطاق السعر أو الحي، أو امسح التصفية.',
@@ -223,7 +212,7 @@ export async function renderProperties(root) {
         const total = count === null || count === undefined ? rows.length : count;
         replace(body, [
             resultLine(countText(total, ['وحدة واحدة', 'وحدتان', 'وحدات', 'وحدة']), filtered(view) ? reset : null),
-            el('div', { class: 'crm-table-wrap' }, table(rows)),
+            el('div', { class: 'crm-table-wrap' }, table(rows, seeCommission, load)),
             pager(view.page, total, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
     }
@@ -253,7 +242,7 @@ function vocabFilter(values, error, allLabel, freePlaceholder) {
 
 /* ===================== الجدول ===================== */
 
-function table(rows) {
+function table(rows, seeCommission, reload) {
     // مركز الاتصال لا صفقات له، فالزر لا يُبنى له أصلاً
     const dealAllowed = myRole() !== 'callcenter';
 
@@ -290,7 +279,7 @@ function table(rows) {
             ])),
             el('td', { text: specs || dash(null) }),
             el('td', { class: 'num pr-price', text: money(row.price) }),
-            el('td', { class: 'num' }, commissionCell(row)),
+            el('td', { class: 'num' }, seeCommission ? commissionCell(row, reload) : el('span', { class: 'pr-none', text: '—' })),
             el('td', {}, el('div', { class: 'pr-status' }, [
                 badge(label(UNIT_STATUS, row.unit_status), UNIT_STATUS_TONE[row.unit_status] || 'neutral'),
                 // نموذج بعدة وحدات: يبقى «متاحاً» حتى تُحجز كلها، والباقي من حجوزات الصفقات (030)
@@ -303,57 +292,31 @@ function table(rows) {
         ]));
     }
 
-    // t-card t-props: على الجوال بطاقة (easy.css): الصورة والاسم، ثم السعر والحالة، ثم الموقع والمواصفات، ثم الأزرار
-    return el('table', { class: 'users-table crm-table pr-table t-card t-props' }, [head, body]);
+    // t-card t-props: على الجوال بطاقة (easy.css): الصورة والاسم، ثم السعر والحالة، ثم الموقع والمواصفات، ثم الأزرار.
+    // من لا يرى العمولة: الخانة السادسة تبقى في الصف (easy.css يرتّب البطاقة بأرقام الخانات) ويخفيها no-commission
+    return el('table', { class: 'users-table crm-table pr-table t-card t-props' + (seeCommission ? '' : ' no-commission') }, [head, body]);
 }
 
 const present = (value) => value !== null && value !== undefined && value !== '';
 
 /* ===================== العمولة ===================== */
 
-// المدير يكتب عمولة الوحدة هنا وتُحفظ عند مغادرة الحقل عبر set_unit_commission (021)، التي
-// تغيّر مفتاح العمولة وحده في details.models فلا تُعاد كتابة تفاصيل المشروع من المتصفح.
-// الصف الاصطناعي "كامل العقار" (unit_ord = 0) ليس وحدة فلا حقل له، وغير المدير يرى القيمة فقط.
-function commissionCell(row) {
-    const empty = row.unit_commission === null || row.unit_commission === undefined;
-    // pr-none: لا عمولة ولا حقل، فتُخفى الخانة على الجوال (easy.css) بدل سطر «العمولة —»
-    if (!isAdmin() || !(row.unit_ord > 0)) return el('span', { class: empty ? 'pr-none' : null, text: empty ? '—' : money(row.unit_commission) });
-
-    const box = moneyInput({
-        class: 'crm-money crm-filter-num',
-        value: empty ? '' : String(row.unit_commission),
-        placeholder: 'اكتب العمولة',
-        title: 'تُحفظ عند مغادرة الحقل'
-    });
-    box.addEventListener('change', () => saveCommission(box, row));
-    return box;
-}
-
-async function saveCommission(box, row) {
-    const current = row.unit_commission === null || row.unit_commission === undefined ? null : Number(row.unit_commission);
-    const value = parseNumber(box.value);
-    if (box.value.trim() !== '' && (value === null || value < 0)) {
-        box.value = current === null ? '' : money(current);
-        return void notify('اكتب رقماً للعمولة', 'error');
-    }
-    if (value === null || value === current) return;
-
-    box.disabled = true;
-    const { data, error } = await supabase.rpc('set_unit_commission', {
-        p_project: row.project_id, p_unit_ord: row.unit_ord, p_commission: value
-    });
-    box.disabled = false;
-
-    if (error) return void fail(error, 'تعذّر حفظ العمولة');
-    if (!data || !data.ok) {
-        box.value = current === null ? '' : money(current);
-        return void notify(data && data.code === 'forbidden'
-            ? 'تعديل العمولة للمدير فقط'
-            : 'تعذّر حفظ العمولة — الوحدة غير موجودة أو القيمة غير صالحة', 'error', 8000);
-    }
-    row.unit_commission = value;
-    box.value = money(value);
-    notify('حُفظت عمولة ' + dash(row.unit_key) + ': ' + money(value) + ' ريال', 'success');
+// العمولة محسوبة في القاعدة (037): مبلغ محدد للنموذج، وإلا السعر × نسبة المشروع أو العامة. المدير يرى المبلغ ومصدره،
+// ويضغطه فتُفتح «عمولة المشروع» لهذا المشروع. غيره (حين يشغّل المدير الزر) يرى المبلغ فقط.
+function commissionCell(row, reload) {
+    const missing = row.unit_commission === null || row.unit_commission === undefined;
+    const amount = missing ? '—' : money(row.unit_commission);
+    // pr-none: لا عمولة، فتُخفى الخانة على الجوال (easy.css) بدل سطر «العمولة —»
+    if (!isAdmin()) return el('span', { class: missing ? 'pr-none' : null, text: amount });
+    const source = sourceText(row.unit_commission_source, row.unit_commission_rate);
+    return el('button', {
+        type: 'button', class: 'pr-com', title: 'عمولة المشروع: النسبة ومبالغ النماذج',
+        'aria-label': 'عمولة ' + dash(row.project_name) + ' — ' + dash(row.unit_key) + ': ' + amount + (source ? '، ' + source : '') + '. تعديل',
+        onclick: () => openProjectCommission(row.project_id, reload)
+    }, [
+        el('span', { class: 'pr-com-amount', text: amount }),
+        source ? el('small', { class: 'pr-com-src' + (row.unit_commission_source === 'override' ? ' is-fixed' : ''), text: source }) : null
+    ]);
 }
 
 function unitImage(row) {

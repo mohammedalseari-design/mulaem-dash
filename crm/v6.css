@@ -1155,3 +1155,861 @@ body.pal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
     .cm-switch-track, .cm-switch-knob { transition: none; }
 }
+
+/* ===================== صفحة الصفقة: مسار الصفقة (dp-) ===================== */
+/* ===================== ‎#/deals/:id‎ — بطاقة «مسار الصفقة» (crm/js/deal.js) ===================== */
+/* تُلحق بآخر v6.css. بدل شريط المراحل وزر لكل مرحلة: سطر المدة في رأس البطاقة، ثم خطوات مرقّمة (الجارية + «تمت»)، ثم زر
+   رئيسي واحد للمرحلة التالية وروابط نصية، وصندوق عمولة صغير لمن يراها. اللون بمعناه وحده: لون الشعار للخطوة الحالية
+   والإجراء الرئيسي، الأخضر لما تم، الكهرماني للعمولة المتوقعة، الأحمر للصفقة الواقفة ولـ«خسرت». خطوط رفيعة لا ظلال.
+   الجوال (≤700px): الخطوات قائمة رأسية والزر الرئيسي بعرض البطاقة. كل لون من متغيرات v6.css فيصح في الوضع الليلي. */
+
+.dp-head { align-items: baseline; }
+.dp-since {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 0.9rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+/* «واقفة»: أكثر من 14 يوماً في المرحلة (isStuck) — السطر أحمر وبجانبه الكلمة، فلا يعتمد المعنى على اللون وحده */
+.dp-since.dp-late { color: var(--danger); font-weight: 600; }
+.dp-flag {
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+/* ---------- حالة «خسرت»: فوق المسار الرمادي، معها السبب والملاحظة ---------- */
+.dp-lost {
+    display: grid;
+    gap: 4px;
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+/* المراحل لم تُحمَّل: حالة «خسرت» آخر ما في البطاقة، بلا خطوات تحتها */
+.dp-lost:last-child { margin-bottom: 0; }
+.dp-lost-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; color: var(--ink); font-weight: 500; }
+.dp-lost-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 10px;
+    border-radius: 999px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+.dp-lost-tag .ico { width: 13px; height: 13px; stroke-width: 2.4; }
+.dp-lost-note { margin: 0; color: var(--ink-2); font-size: 0.88rem; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* ---------- الخطوات: أعمدة متساوية بعددها (--dp-n)، والخيط بين كل دائرتين من الخطوة اللاحقة إلى السابقة ---------- */
+.dp-steps {
+    display: grid;
+    grid-template-columns: repeat(var(--dp-n, 6), minmax(0, 1fr));
+    gap: 0;
+    margin: 6px 0 18px;
+    padding: 0;
+    list-style: none;
+}
+.dp-step {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: 6px;
+    min-width: 0;
+    padding: 0 4px;
+    text-align: center;
+}
+/* الخيط: يبدأ بعد دائرة الخطوة السابقة بست نقاط وينتهي قبل دائرة هذه بمثلها (الدائرة 30px، ونسب inset من عرض الخطوة) */
+.dp-step + .dp-step::before {
+    content: '';
+    position: absolute;
+    top: 14px;
+    inset-inline-start: calc(-50% + 21px);
+    inset-inline-end: calc(50% + 21px);
+    height: 2px;
+    border-radius: 2px;
+    background: var(--line-2);
+}
+/* الطريق الذي قطعته الصفقة أخضر: الخيط الخارج من خطوة منجزة */
+.dp-step.dp-done + .dp-step::before { background: var(--ok); }
+.dp-dot {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line-2);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.dp-dot .ico { width: 16px; height: 16px; stroke-width: 2.4; }
+.dp-name {
+    max-width: 100%;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 500;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+.dp-step.dp-done .dp-dot { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.dp-step.dp-done .dp-name { color: var(--ink-2); }
+/* الحالية: دائرة بلون الشعار وحولها هالة فاتحة (حدّ خارجي لا ظل)، واسمها أثقل */
+.dp-step.dp-current .dp-dot { border-color: var(--brand); background: var(--brand); color: var(--on-brand); outline: 4px solid var(--brand-soft); }
+.dp-step.dp-current .dp-name { color: var(--brand-ink); font-weight: 700; }
+.dp-step.dp-won .dp-dot { border-color: var(--ok); background: var(--ok); color: var(--on-brand); }
+.dp-step.dp-won .dp-name { color: var(--ok); font-weight: 700; }
+/* «خسرت»: المسار كله رمادي بدوائر متقطعة، لا خطوة تبدو منجزة */
+.dp-step.dp-off .dp-dot { border-style: dashed; background: var(--surface-2); }
+
+/* ---------- الإجراءات وصندوق العمولة ---------- */
+.dp-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+.dp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 2px; }
+.dp-actions .dp-next { width: auto; min-height: 44px; padding-inline: 18px; }
+.dp-next .ico { width: 17px; height: 17px; }
+.dp-actions .dp-reopen { width: auto; min-height: 44px; }
+.dp-link { min-height: 44px; padding: 6px 10px; font-size: 0.9rem; }
+.dp-link-lost { color: var(--danger); }
+.dp-link-lost:hover { background: var(--danger-soft); }
+.dp-link:disabled { opacity: 0.6; cursor: progress; }
+.dp-note { flex: 1 1 280px; margin: 0; color: var(--ink-2); font-size: 0.9rem; line-height: 1.7; }
+
+.dp-com {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 220px;
+    max-width: 380px;
+    margin-inline-start: auto;
+    padding: 10px 14px 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+}
+.dp-com-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; }
+.dp-com-state { padding: 0 9px; border: 1px solid transparent; border-radius: 999px; font-size: 0.76rem; font-weight: 700; }
+.dp-com.dp-amber .dp-com-state { background: var(--amber-soft); color: var(--amber); }
+.dp-com.dp-ok .dp-com-state { background: var(--ok-soft); color: var(--ok); }
+.dp-com.dp-muted .dp-com-state { border-color: var(--line-2); background: var(--surface); color: var(--muted); }
+.dp-com-value { color: var(--ink); font-size: 1.3rem; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.dp-com.dp-amber .dp-com-value { color: var(--amber); }
+.dp-com.dp-ok .dp-com-value { color: var(--ok); }
+/* «فائتة»: ما كانت ستكونه، باهتاً */
+.dp-com.dp-muted .dp-com-value { color: var(--muted); font-weight: 600; }
+.dp-com-detail { color: var(--muted); font-size: 0.8rem; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.dp-com-ask {
+    justify-self: start;
+    min-height: 44px;
+    margin-inline-start: -8px;
+    padding: 6px 8px;
+    white-space: normal;
+    text-align: start;
+    line-height: 1.5;
+}
+
+/* ---------- نافذة «مرحلة أخرى…» و«أعد فتحها…» ---------- */
+.dp-pick-note { margin: 0 0 12px; line-height: 1.7; }
+.dp-pick { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+.dp-pick-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: 600 0.95rem var(--font);
+    text-align: start;
+    cursor: pointer;
+}
+.dp-pick-btn:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-soft); }
+.dp-pick-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.dp-pick-btn:disabled { opacity: 0.6; cursor: progress; }
+.dp-pick-n {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--line-2);
+    border-radius: 50%;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+}
+.dp-pick-hint { margin-inline-start: auto; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+
+/* ---------- الجوال: قائمة رأسية، والخيط بين الدوائر عمودي ---------- */
+@media (max-width: 700px) {
+    .dp-steps { grid-template-columns: minmax(0, 1fr); margin: 4px 0 14px; }
+    .dp-step {
+        grid-template-columns: 30px minmax(0, 1fr);
+        justify-items: start;
+        align-items: start;
+        column-gap: 12px;
+        padding: 5px 0;
+        text-align: start;
+    }
+    .dp-step + .dp-step::before { content: none; }
+    /* من أسفل الدائرة (5 + 30 + 4) إلى ما قبل دائرة الخطوة التالية (حشوتها 5 ناقص 4): أربع نقاط تتسع لهالة الحالية */
+    .dp-step:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        top: 39px;
+        bottom: -1px;
+        inset-inline-start: 14px;
+        width: 2px;
+        border-radius: 2px;
+        background: var(--line-2);
+    }
+    .dp-step.dp-done:not(:last-child)::after { background: var(--ok); }
+    .dp-name { display: flex; align-items: center; min-height: 30px; font-size: 0.92rem; }
+
+    .dp-foot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .dp-actions .dp-next, .dp-actions .dp-reopen { flex: 1 1 100%; width: 100%; }
+    .dp-link { flex: 1 1 auto; justify-content: center; }
+    .dp-note { flex: none; }
+    .dp-com { min-width: 0; max-width: none; margin-inline-start: 0; }
+}
+
+@media print {
+    .dp-actions, .dp-com-ask { display: none !important; }
+}
+
+/* ===================== «عملي اليوم»: «يحتاج إجراء» و«مساري» (wq-) ===================== */
+/* ===================== «عملي اليوم»: قائمة «يحتاج إجراء» و«مساري» (الخطوة الثالثة، 2026-11-03) =====================
+   يُلحق بآخر crm/v6.css. ألوانه من متغيرات v6 وحدها (تتبدّل في body.crm-dark)، وكل صنف جديد يبدأ بـ wq-.
+   الكمبيوتر: القائمة الواحدة وبجانبها «مساري» فوق الطيّة. اللوحي (حتى 1080): عمود واحد و«مساري» تحت القائمة.
+   الجوال (حتى 700): ثلاثة أرقام في الصف، والحبّات تُسحب أفقياً في سطرها، وكل سطر بطاقة أزرارها 44 نقطة على الأقل.
+   اللون معنى فقط: أحمر متأخر، كهرماني واقف أو حان وقته، محايد موعد قادم، باهت عند المدير، ولون الشعار للمدة المختارة
+   وأشرطة «مساري». خطوط رفيعة بدل الظلال. */
+
+/* ---------- الأرقام ---------- */
+
+/* العمولة المخفية (037): قفل صغير ونقاط باهتة، بلا زر ولا رابط */
+.wq-kpis .wq-lock { width: 0.62em; height: 0.62em; margin-inline-end: 6px; color: var(--muted); vertical-align: -0.02em; }
+.wq-kpi-masked .kpi-num { color: var(--muted); letter-spacing: 0.12em; }
+/* «3 صفقات واقفة…»: تنتظر حركة، فهي كهرمانية لا حمراء */
+.wq-kpis .wq-sub-due { color: var(--amber); font-weight: 600; }
+
+/* ثلاث خانات في الصف من 1100 فنازلاً: الرابعة (العمولة، أطول رقم) تأخذ خانتين فلا يبقى مكان فارغ */
+@media (max-width: 1100px) {
+    .wq-kpis.kpi-strip-5 > .kpi:nth-child(4) { grid-column: span 2; }
+}
+
+/* ---------- التخطيط ---------- */
+
+.wq .wq-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+    gap: 16px;
+    align-items: start;
+}
+.wq-side { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 1080px) {
+    .wq .wq-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- القائمة ---------- */
+
+.wq-queue {
+    display: grid;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    scroll-margin-top: 16px;
+}
+.wq-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 0; min-width: 0; }
+.wq-head h2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--ink);
+    font-size: 1.02rem;
+    font-weight: 600;
+}
+.wq-total {
+    display: inline-grid;
+    place-items: center;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.wq-total[hidden] { display: none; }
+.wq-head-link {
+    margin-inline-start: auto;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    color: var(--brand-ink);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.wq-head-link:hover { background: var(--brand-soft); }
+
+.wq-filter { min-width: 0; padding: 10px 18px 12px; }
+.wq-filter .f-chips { margin: 0; }
+
+.wq-body { min-width: 0; }
+.wq-body > .loading { padding: 18px; }
+.wq-body > .crm-error { margin: 0 18px 12px; }
+.wq-body > .w4-empty { border-top: 1px solid var(--line); }
+
+.wq-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.wq-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+}
+.wq-item:last-child { border-bottom: 0; }
+.wq-item:hover { background: var(--surface-2); }
+.wq-main { display: grid; gap: 3px; min-width: 0; }
+.wq-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.wq-name {
+    min-width: 0;
+    color: var(--ink);
+    font-size: 0.97rem;
+    font-weight: 600;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.wq-name:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.wq-ctx {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.wq-ctx:empty { display: none; }
+
+/* حبّة السبب: المعنى بلونها ونصها معاً */
+.wq-reason {
+    display: inline-block;
+    flex: 0 1 auto;
+    max-width: 100%;
+    padding: 1px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
+.wq-reason-late { background: var(--danger-soft); color: var(--danger); }
+.wq-reason-stuck, .wq-reason-due { background: var(--amber-soft); color: var(--amber); }
+.wq-reason-today { border-color: var(--line-2); background: var(--surface); color: var(--ink-2); }
+.wq-reason-wait { background: var(--surface-2); color: var(--muted); }
+
+.wq-actions { display: flex; align-items: center; gap: 6px; }
+/* «انقله إلى: …» و«افتح الصفقة»: رابط نصي خفيف، فالزر الرئيسي الوحيد في الصفحة «عميل جديد» */
+.wq-move {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--brand-ink);
+    font: 600 0.86rem var(--font);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.wq-move:hover:not(:disabled) { background: var(--brand-soft); }
+.wq-move:disabled { opacity: 0.55; cursor: progress; }
+
+/* الكمبيوتر بماوس: اتصال وواتساب يظهران عند المرور على السطر أو التركيز فيه (كسطور «عملي اليوم» السابقة) */
+@media (hover: hover) and (min-width: 701px) {
+    .wq-item .w4-icon { visibility: hidden; opacity: 0; transition: opacity 0.12s; }
+    .wq-item:hover .w4-icon, .wq-item:focus-within .w4-icon { visibility: visible; opacity: 1; }
+}
+
+/* «عرض الكل (N)»: سطر في آخر البطاقة */
+.wq-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 18px;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
+    background: transparent;
+    color: var(--brand-ink);
+    font: 600 0.88rem var(--font);
+    cursor: pointer;
+}
+.wq-toggle:hover { background: var(--hover); }
+.wq-toggle[hidden] { display: none; }
+
+/* ---------- «مساري» ---------- */
+
+.wq-path {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+    padding: 14px 18px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+}
+.wq-path-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.wq-path-title { display: grid; gap: 1px; min-width: 0; }
+.wq-path-title h2 { margin: 0; color: var(--ink); font-size: 1.02rem; font-weight: 600; }
+.wq-path-sub { margin: 0; color: var(--muted); font-size: 0.8rem; }
+
+/* المدة: مفتاح صغير، والمختارة بلون الشعار */
+.wq-period {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+/* حدّ شفاف لكل زر يصير خطاً رفيعاً للمختار (بلا ظل)، فلا يتغيّر مقاس أي زر حين يُختار */
+.wq-period-btn {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-2);
+    font: 500 0.8rem var(--font);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+.wq-period-btn:hover { color: var(--ink); }
+.wq-period-btn[aria-pressed="true"] {
+    border-color: var(--line-2);
+    background: var(--surface);
+    color: var(--brand-ink);
+    font-weight: 600;
+}
+
+/* الخطوات: الاسم والعدد ونسبته من التي قبلها، وتحتها شريط رفيع يبدأ من أول السطر وطرفه الآخر مستدير */
+.wq-steps-host { min-width: 0; }
+.wq-steps-host > .loading { padding: 6px 0; }
+.wq-steps-host > .crm-error { margin-top: 12px; }
+.wq-steps { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; transition: opacity 0.15s; }
+.wq-steps-host[aria-busy="true"] .wq-steps { opacity: 0.55; }
+.wq-step { display: grid; gap: 6px; min-width: 0; }
+.wq-step-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.wq-step-name { color: var(--ink-2); font-size: 0.88rem; font-weight: 500; }
+.wq-step-num {
+    margin-inline-start: auto;
+    color: var(--ink);
+    font-size: 0.98rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.wq-step-pct {
+    min-width: 3.2em;
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+.wq-step-bar {
+    display: block;
+    height: 8px;
+    overflow: hidden;
+    border-start-end-radius: 4px;
+    border-end-end-radius: 4px;
+    background: var(--hover);
+}
+.wq-step-fill {
+    display: block;
+    height: 100%;
+    border-start-end-radius: 4px;
+    border-end-end-radius: 4px;
+    background: var(--brand);
+}
+.wq-path-note { margin: 0; color: var(--muted); font-size: 0.76rem; line-height: 1.7; }
+
+/* ---------- الجوال ---------- */
+
+@media (max-width: 700px) {
+    .wq .wq-layout { gap: 14px; }
+
+    /* القائمة بلا إطار حولها: كل سطر بطاقة وحده */
+    .wq-queue { border: 0; border-radius: 0; background: transparent; }
+    .wq-head { padding: 0; }
+    .wq-head h2 { font-size: 1rem; }
+    .wq-head-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
+    .wq-filter { padding: 2px 0 10px; }
+    /* الحبّات تُسحب أفقياً في سطرها حتى حافة الشاشة (بقدر حاشية الصفحة 12)، والصفحة نفسها لا تتحرك */
+    .wq-filter .f-chips { margin-inline: -12px; padding-inline: 12px; }
+    .wq-filter .f-chip { min-height: 44px; padding-inline: 14px; }
+
+    .wq-list { display: grid; gap: 8px; border-top: 0; }
+    .wq-item,
+    .wq-item:last-child {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+    .wq-item:hover { background: var(--surface); }
+    .wq-top { gap: 6px 8px; }
+    .wq-name { flex: 1 1 100%; font-size: 1rem; }
+    .wq-ctx { white-space: normal; }
+
+    /* الأزرار بعرض البطاقة: اتصال وواتساب مربعان، والإجراء الرئيسي يملأ الباقي */
+    .wq-actions { display: grid; grid-template-columns: 44px 44px minmax(0, 1fr); gap: 8px; }
+    .wq-actions > :only-child { grid-column: 1 / -1; }
+    .wq-actions .w4-icon { width: 44px; height: 44px; }
+    .wq-actions .w4-done,
+    .wq-actions .wq-move { width: 100%; min-width: 0; min-height: 44px; justify-content: center; }
+    /* «انقله إلى: عقد وإفراغ» أعرض من الباقي بجانب مربعي الاتصال على 320: يلتف سطرين بدل أن يخرج من البطاقة */
+    .wq-move { padding-block: 4px; border-color: var(--line-2); background: var(--surface); white-space: normal; text-align: center; line-height: 1.35; }
+
+    .wq-body > .loading { padding: 14px 0; }
+    .wq-body > .crm-error { margin: 0 0 8px; }
+    .wq-body > .w4-empty,
+    .wq-body > .w4-more {
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+    .wq-body > .w4-more { min-height: 44px; }
+    .wq-toggle {
+        margin-top: 8px;
+        border: 1px solid var(--line-2);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+
+    .wq-path { padding: 14px; }
+    .wq-period-btn { min-height: 44px; padding: 0 12px; }
+
+    /* «طلبات جديدة» لمركز الاتصال: رأس لوحته ظاهر (app.css يخفي رؤوس اللوحات القديمة على الجوال)، ورابط «كل الطلبات»
+       فيه بحجم الإصبع (44)، وحاشية الرأس أصغر بقدر ما زاد فلا يطول الرأس، ونصه على حافة اللوحة كما كان */
+    .wq .w4-panel-head { display: flex; padding-block: 4px; }
+    .wq .w4-panel-link { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 8px; margin-inline-end: -8px; }
+}
+
+/* أضيق الجوالات (320): الأرقام تبقى ثلاثة في الصف بحاشية أصغر (v6 يجعلها اثنين) */
+@media (max-width: 360px) {
+    .wq-kpis.kpi-strip-5 { --cols: 3; }
+    .wq-kpis .kpi { padding: 9px 8px; }
+    .wq-period-btn { padding: 0 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wq-item .w4-icon, .wq-steps { transition: none; }
+}
+
+@media print {
+    .wq-actions, .wq-toggle, .wq-period { display: none !important; }
+}
+
+/* ===================== صفحة المشروع: لوحة الوحدات (pj-) ===================== */
+/* ===================== ‎#/project/:id‎ — صفحة العقار ولوحة الوحدات (project.js، 2026-11-03) ===================== */
+/* يُلحق بآخر crm/v6.css. ترويسة، ثم شريط أرقام ثابت بخطوط رفيعة (مثل .kpi-strip)، ثم «لوحة الوحدات» يميناً ولوحة النموذج
+   المختار يساراً؛ على اللوحي والجوال اللوحة ثم التفاصيل تحتها. المربعات: متاح = إطار أخضر فارغ، محجوز = كهرماني
+   مملوء، مباع = رمادي فاتح مملوء بإطار رمادي داكن — الفرق بالامتلاء والفتحة لا باللون وحده، والعدد الدقيق نص بجانب كل صف.
+   ألوان v6 وحدها، فالوضع الليلي يأتي منها (body.crm-dark). */
+
+/* اسم العقار في جدول «العقارات» رابط صفحته: يبقى بوزن الاسم وحجمه (الجدول وبطاقة الجوال)، وتحته خط خافت يقول إنه
+   رابط (الجوال بلا مرور فأرة يكشفه)، وعلى الجوال مساحة لمس 44px دون أن تتحرك البطاقة. position: relative يرسم الرابط
+   فوق السطر الخافت تحته، وإلا غطّى ذلك السطر (العنصر التالي في الشبكة) أسفل مساحة اللمس فبقي منها نحو 38px؛ ويبقى
+   تحت الشريط العلوي وشريط الجوال السفلي (z-index 40 و60) */
+.pr-name strong > .pj-link {
+    font-weight: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--line-2);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+.pr-name strong > .pj-link:hover { text-decoration-color: currentColor; }
+@media (max-width: 700px) {
+    .pr-name strong > .pj-link { position: relative; display: inline-block; padding-block: 9px; margin-block: -9px; }
+}
+
+/* ---------- سطر حالة العقار تحت الترويسة: محذوف، أو بانتظار الاعتماد، أو نفد بالكامل ---------- */
+
+.pj-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -6px 0 14px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 0.88rem;
+    font-weight: 500;
+    line-height: 1.6;
+}
+.pj-note .ico { width: 16px; height: 16px; }
+.pj-note-danger { color: var(--danger); }
+.pj-note-amber { color: var(--amber); }
+.pj-note-muted { color: var(--muted); }
+
+/* ---------- شريط الأرقام: خمس خانات بخط رفيع بينها (gap 1px على خلفية الخط)، بلا روابط ---------- */
+
+.pj-sum {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 0.8fr)) repeat(2, minmax(0, 1.3fr));
+    gap: 1px;
+    margin-bottom: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--line);
+    overflow: hidden;
+}
+.pj-sum-cell {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 0;
+    padding: 12px 16px;
+    background: var(--surface);
+}
+.pj-sum-label { color: var(--ink-2); font-size: 0.84rem; font-weight: 500; }
+.pj-sum-num {
+    color: var(--ink);
+    font-size: 1.45rem;
+    font-weight: 600;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+}
+.pj-sum-unit { margin-inline-start: 5px; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.pj-sum-sub { color: var(--muted); font-size: 0.78rem; }
+.pj-nw { white-space: nowrap; }
+.pj-masked { color: var(--muted); letter-spacing: 0.12em; }
+
+/* المعنى بلون النص وحده: أخضر لما بقي متاح، كهرماني للمحجوز، رمادي لما خرج من البيع */
+.pj-tone-ok { color: var(--ok); }
+.pj-tone-amber { color: var(--amber); }
+.pj-tone-muted { color: var(--muted); }
+
+/* ---------- اللوحة ولوحة النموذج ---------- */
+
+.pj-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 16px;
+    align-items: start;
+}
+.pj-layout.pj-layout-empty { grid-template-columns: minmax(0, 1fr); }
+.pj-layout > .crm-card { min-width: 0; margin-bottom: 0; }
+
+.pj-board-head { align-items: center; gap: 8px 16px; }
+.pj-board-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.pj-board-title h2 { margin: 0; }
+.pj-board-count { color: var(--muted); font-size: 0.84rem; font-weight: 500; }
+.pj-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--ink-2);
+    font-size: 0.84rem;
+}
+.pj-legend li { display: inline-flex; align-items: center; gap: 6px; }
+
+/* مربع الوحدة: إطاره ≥ 3:1 على الصف (--surface) وعلى الصف المختار (--brand-soft) في الوضعين. المباع تعبئته فاتحة
+   (--line-2، فيختلف عن المحجوز الداكن) وإطاره --muted (≥ 4.9:1)؛ بإطار --line-2 كان 1.3–1.7:1 فيكاد يختفي */
+.pj-sq {
+    display: inline-block;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--muted);
+    border-radius: 3px;
+    background: var(--line-2);
+}
+.pj-sq-available { border-color: var(--ok); background: transparent; }
+.pj-sq-reserved { border-color: var(--amber); background: var(--amber); }
+.pj-sq-sold { border-color: var(--muted); background: var(--line-2); }
+
+/* صف النموذج زر: الاسم ومواصفاته | المربعات | «متاح N من M» */
+.pj-models {
+    display: grid;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    overflow: hidden;
+}
+.pj-model {
+    display: grid;
+    grid-template-columns: minmax(120px, 210px) minmax(0, 1fr) auto;
+    grid-template-areas: "main cells count";
+    align-items: center;
+    gap: 8px 16px;
+    width: 100%;
+    min-height: 56px;
+    margin: 0;
+    padding: 10px 14px;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+.pj-model:first-child { border-top: 0; }
+.pj-model:hover { background: var(--hover); }
+/* المختار: خلفية الشعار الفاتحة وإطار رفيع بلونه (كحبّة التصفية المضغوطة) */
+.pj-model[aria-pressed="true"] { background: var(--brand-soft); box-shadow: inset 0 0 0 1px var(--brand); }
+.pj-model[aria-pressed="true"] .pj-model-name { color: var(--brand-ink); }
+/* التركيز داخل الصف: القائمة تقصّ ما يخرج عن حدودها */
+.pj-model:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; box-shadow: none; }
+.pj-model[aria-pressed="true"]:focus-visible { box-shadow: inset 0 0 0 1px var(--brand); }
+.pj-model-main { grid-area: main; display: grid; gap: 1px; min-width: 0; }
+.pj-model-name { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.pj-model-specs { color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.pj-cells { grid-area: cells; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.pj-model-count { grid-area: count; font-size: 0.86rem; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* لوحة النموذج المختار: تبقى ظاهرة على الكمبيوتر مع تمرير قائمة طويلة (تحت الشريط العلوي 60px) */
+.pj-panel {
+    position: sticky;
+    top: 76px;
+    display: grid;
+    gap: 12px;
+    align-content: start;
+}
+.pj-panel-kicker { margin: 0; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+/* crm.css يرسم خطاً تحت أول عنوان في كل بطاقة (.crm-card > h2): هنا العنوان اسم النموذج بلا خط */
+.pj-panel > .pj-panel-title {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--ink);
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+/* «النموذج المختار» فوق الاسم ونوع الوحدة تحته، ملتصقان به (فجوة اللوحة 12px لما بعدهما) */
+.pj-panel > .pj-panel-kicker + .pj-panel-title { margin-top: -8px; }
+.pj-panel-type { margin: -10px 0 0; color: var(--muted); font-size: 0.86rem; }
+.pj-facts { margin: 0; border-top: 1px solid var(--line); }
+.pj-fact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+}
+.pj-fact dt { color: var(--muted); font-size: 0.86rem; font-weight: 500; }
+.pj-fact dd {
+    display: grid;
+    justify-items: end;
+    gap: 1px;
+    min-width: 0;
+    margin: 0;
+    color: var(--ink);
+    font-weight: 600;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+.pj-fact dd small { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
+.pj-panel-note { margin: 0; color: var(--muted); font-size: 0.86rem; }
+.pj-register { width: 100%; min-height: 46px; }
+.pj-panel-hint { margin: -4px 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+
+/* ---------- الشاشات الأضيق ---------- */
+
+/* اللوحي: عمودان يضيّقان المربعات، فاللوحة ثم التفاصيل تحتها بعرض مقروء (لا يتباعد الاسم عن قيمته) */
+@media (max-width: 1000px) {
+    .pj-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .pj-panel { position: static; scroll-margin-top: 12px; }
+    .pj-panel > * { max-width: 560px; }
+}
+
+/* الأرقام سطران بلا خانة فارغة: العدّادات الثلاثة، ثم السعر والعمولة */
+@media (max-width: 900px) {
+    .pj-sum { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .pj-sum-cell { grid-column: span 2; }
+    .pj-sum-cell.pj-sum-wide { grid-column: span 3; }
+}
+
+/* الجوال: المربعات سطر كامل تحت الاسم والعدد، وتلتف */
+@media (max-width: 700px) {
+    .pj-note { margin: -4px 0 12px; }
+    .pj-sum { margin-bottom: 12px; }
+    .pj-sum-cell { padding: 10px 12px; }
+    .pj-sum-label { font-size: 0.76rem; line-height: 1.35; }
+    .pj-sum-num { font-size: 1.15rem; }
+    .pj-sum-sub { font-size: 0.74rem; }
+    .pj-model {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "main count" "cells cells";
+        gap: 8px 12px;
+        padding: 12px;
+    }
+    .pj-model-count { align-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pj-model { transition: none; }
+}
+
+@media print {
+    .pj-register, .pj-panel-hint { display: none !important; }
+    .pj-panel { position: static; }
+}

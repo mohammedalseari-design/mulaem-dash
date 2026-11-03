@@ -296,7 +296,7 @@ function registerClient(project, row) {
     }, (deal) => { location.hash = '#/deals/' + deal.id; });
 }
 
-// الجوال واللوحي: لوحة النموذج تحت قائمة النماذج (crm/step3-project.css، حتى 1000px)، فإن بقيت خارج الشاشة بعد
+// الجوال واللوحي: لوحة النموذج تحت قائمة النماذج (crm/v6.css، قسم صفحة المشروع، حتى 1000px)، فإن بقيت خارج الشاشة بعد
 // الاختيار يُنزل إليها (التركيز يبقى على الزر)
 function revealPanel(panel) {
     if (!window.matchMedia('(max-width: 1000px)').matches) return;

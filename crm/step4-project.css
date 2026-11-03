@@ -1,0 +1,622 @@
+/* ===================== ‎#/project/:id‎ — تبويبات صفحة العقار: «البروفايل» و«المخططات» و«الحجوزات» (project.js، 2026-11-04) ===================== */
+/* يُلحق بآخر crm/v6.css بعد قسم «صفحة المشروع: لوحة الوحدات (pj-)»، فيبني عليه ولا يغيّره: لوحة الوحدات ولوحة النموذج المختار
+   صارتا تبويب «الحجوزات» كما هما. معاينة المالك (ProjProfile وProjPlans وBrochureUpload): رابط «‹ العقارات» فوق الاسم، ثم شريط
+   الأرقام، ثم التبويبات بخط تحت الحالي بلون الشعار. «البروفايل» عمودان (2:1): الصور و«عن المشروع» و«ارفع بروشور المطور»، ثم
+   «معلومات المشروع» و«الموقع». «المخططات» بطاقتان في الصف: المخطط يميناً والأرقام يساراً.
+   اللون للمعنى وحده: الأخضر لما بقي متاحاً ولما تم، والكهرماني لما ينتظر (آخر وحدة، رخصة تقترب نهايتها، مرحلة تنتظر أحداً)،
+   والأحمر لما تعذّر أو انتهى، والرمادي لما أُغلق، ولون الشعار للحالي والإجراء. ألوان v6 وحدها، فالوضع الليلي يأتي منها
+   (body.crm-dark). كل زر ورابط ≥ 44px على الجوال، ولا تمرير أفقي للصفحة على 320px (الشرائط الطويلة تُسحب داخل نفسها). */
+
+/* ---------- الترويسة ---------- */
+
+/* «‹ العقارات»: الصفحة الأم، صغيرة فوق الاسم، بمساحة لمس كاملة */
+.pj-backlink {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 44px;
+    margin: -12px 0 -4px;
+    color: var(--brand-ink);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+}
+.pj-backlink .ico { width: 16px; height: 16px; }
+.pj-backlink:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.btn.pj-share .ico { width: 17px; height: 17px; }
+
+/* ---------- التبويبات ---------- */
+
+.pj-tabbed { min-width: 0; }
+/* تُسحب داخل نفسها إن ضاقت الشاشة، فلا تمرير أفقي للصفحة */
+.pj-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 0 16px;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.pj-tabs::-webkit-scrollbar { display: none; }
+.pj-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--ink-2);
+    font: 500 0.92rem var(--font);
+    white-space: nowrap;
+    cursor: pointer;
+}
+.pj-tab:hover { color: var(--ink); }
+.pj-tab[aria-selected="true"] { color: var(--ink); font-weight: 600; }
+/* الحالي: خط بلون الشعار تحت اسمه */
+.pj-tab[aria-selected="true"]::after {
+    content: '';
+    position: absolute;
+    inset-inline: 10px;
+    bottom: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: var(--brand);
+}
+/* الشريط يقصّ ما يخرج عن حدوده: حلقة التركيز داخل الزر */
+.pj-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; }
+.pj-tab-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ---------- عناوين البطاقات ---------- */
+
+/* crm.css يرسم خطاً تحت أول عنوان في كل بطاقة (.crm-card > h2) بخط آخر: هنا العنوان وحده بخط v6 */
+.crm-card > .pj-ctitle {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--ink);
+    font: 700 1.05rem/1.4 var(--font);
+}
+.pj-subtitle { margin: 0; color: var(--ink); font: 700 0.94rem/1.4 var(--font); }
+.pj-muted { color: var(--muted); font-weight: 500; }
+
+/* ---------- «البروفايل»: عمودان ---------- */
+
+.pj-prof {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+.pj-prof.pj-prof-solo { grid-template-columns: minmax(0, 1fr); }
+.pj-prof-main, .pj-prof-side { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.pj-prof .crm-card { margin-bottom: 0; }
+.pj-prof-solo .pj-prof-side { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); align-items: start; }
+
+/* ---------- الصور: كبيرة وأربع صغيرة، و«كل الصور» في زاوية الشبكة ---------- */
+
+.pj-gal {
+    position: relative;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 166px 166px;
+}
+.pj-gal-item {
+    position: relative;
+    min-width: 0;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    overflow: hidden;
+}
+.pj-gal-item:first-child { grid-row: span 2; }
+.pj-gal-1 { grid-template-columns: minmax(0, 1fr); grid-template-rows: 320px; }
+.pj-gal-1 .pj-gal-item:first-child { grid-row: auto; }
+.pj-gal-2 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.pj-gal-2 .pj-gal-item:nth-child(2) { grid-row: span 2; }
+.pj-gal-3 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+/* أربع صور: الرابعة بعرض الصغيرتين فوقها، فلا تبقى خانة فارغة */
+.pj-gal-4 .pj-gal-item:nth-child(4) { grid-column: span 2; }
+
+.pj-gal-btn {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    cursor: zoom-in;
+}
+.pj-gal-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; }
+.pj-gal-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* رابط لا يفتح: مكان هادئ بدل أيقونة المتصفح المكسورة */
+.pj-gal-broken .pj-gal-btn img { visibility: hidden; }
+.pj-gal-cap {
+    position: absolute;
+    top: 10px;
+    inset-inline-start: 10px;
+    max-width: calc(100% - 20px);
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.pj-gal-all {
+    position: absolute;
+    bottom: 10px;
+    inset-inline-end: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: 600 0.84rem var(--font);
+    cursor: pointer;
+}
+.pj-gal-all:hover { border-color: var(--brand); color: var(--brand-ink); }
+.pj-gal-all .ico { width: 15px; height: 15px; }
+
+/* ---------- عارض الصور والمخطط (النافذة) ---------- */
+
+/* النافذة أعرض قليلاً للصورة (900px في css/style.css) */
+.modal-content.pj-viewer-modal { max-width: 980px; }
+.pj-viewer { display: grid; gap: 12px; min-width: 0; }
+.pj-viewer-stage {
+    display: grid;
+    place-items: center;
+    min-height: 180px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    overflow: hidden;
+}
+.pj-viewer-img { display: block; max-width: 100%; max-height: 66vh; object-fit: contain; }
+.pj-viewer-plan { padding: 12px; }
+.pj-viewer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pj-viewer-nav {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+}
+.pj-viewer-nav:hover { border-color: var(--brand); color: var(--brand-ink); }
+.pj-viewer-count { color: var(--muted); font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.pj-viewer-cap { margin: 0; color: var(--ink-2); font-size: 0.9rem; text-align: center; }
+/* صف الصور يُسحب داخل نفسه */
+.pj-viewer-thumbs { display: flex; gap: 6px; padding-bottom: 4px; overflow-x: auto; }
+.pj-viewer-thumb {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 48px;
+    margin: 0;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    overflow: hidden;
+    cursor: pointer;
+}
+.pj-viewer-thumb[aria-current="true"] { border-color: var(--brand); }
+.pj-viewer-thumb:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.pj-viewer-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- «عن المشروع» ---------- */
+
+.pj-about { display: grid; gap: 10px; }
+.pj-about-text {
+    margin: 0;
+    color: var(--ink-2);
+    line-height: 1.85;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+.pj-about-more { display: grid; gap: 10px; margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--line); }
+/* علامة الميزة رمادية: زخرفة لا معنى لها، فلا لون */
+.pj-feats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.94rem;
+}
+.pj-feat { display: flex; align-items: flex-start; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.pj-feat .ico { width: 16px; height: 16px; margin-top: 4px; color: var(--muted); stroke-width: 2.2; }
+
+/* ---------- «معلومات المشروع» ---------- */
+
+.pj-info { display: grid; gap: 8px; }
+.pj-kv { margin: 0; }
+.pj-kv-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px 12px;
+    min-height: 44px;
+    padding: 4px 0;
+    border-top: 1px solid var(--line);
+    font-size: 0.92rem;
+}
+.pj-kv-row dt { color: var(--muted); font-weight: 500; }
+.pj-kv-row dd {
+    display: grid;
+    justify-items: end;
+    gap: 1px;
+    min-width: 0;
+    margin: 0;
+    margin-inline-start: auto;
+    color: var(--ink);
+    font-weight: 600;
+    text-align: end;
+    overflow-wrap: anywhere;
+}
+.pj-lic { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; }
+.pj-lic-num { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; unicode-bidi: isolate; }
+.pj-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--brand-ink);
+    font: 600 0.84rem var(--font);
+    cursor: pointer;
+}
+.pj-copy:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-soft); }
+.pj-copy .ico { width: 15px; height: 15px; }
+.pj-lic-exp { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
+.pj-lic-exp.pj-soon { color: var(--amber); font-weight: 600; }
+.pj-lic-exp.pj-late { color: var(--danger); font-weight: 600; }
+.pj-kv-hint { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+
+/* ---------- «الموقع» ---------- */
+
+.pj-loc { display: grid; gap: 12px; }
+/* رسم هادئ (شبكة خطوط ودبوس) يقول إن الموقع محدد بالإحداثيات؛ الخريطة نفسها في الرابط */
+.pj-map {
+    display: grid;
+    place-items: center;
+    height: 112px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background-color: var(--surface-2);
+    background-image: linear-gradient(var(--line) 2px, transparent 2px), linear-gradient(90deg, var(--line) 2px, transparent 2px);
+    background-size: 56px 40px;
+    background-position: center;
+    color: var(--brand);
+}
+.pj-map .ico { width: 30px; height: 30px; stroke-width: 2; }
+.pj-loc-lines { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.pj-loc-place { color: var(--ink); font-weight: 600; }
+.pj-loc-sub { color: var(--muted); font-size: 0.84rem; }
+.pj-loc-link {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-top: -6px;
+    color: var(--brand-ink);
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.pj-loc-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pj-loc-link .ico { width: 15px; height: 15px; }
+
+/* ---------- «ارفع بروشور المطور»: مربع إفلات هادئ، ثم بطاقة المراحل ---------- */
+
+.pj-bro { display: grid; gap: 12px; min-width: 0; }
+.pj-bro-drop {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 18px;
+    padding: 20px 22px;
+    border: 1.5px dashed var(--line-2);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    transition: border-color 0.15s, background-color 0.15s;
+}
+/* ملف يُسحب فوقه: إطار الشعار وخلفيته الفاتحة */
+.pj-bro-drop.pj-bro-over { border-color: var(--brand); background: var(--brand-soft); }
+.pj-bro-ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    background: var(--hover);
+    color: var(--ink-2);
+}
+.pj-bro-ico .ico { width: 26px; height: 26px; stroke-width: 1.7; }
+/* أساس 180px: على 320 يبقى النص بجانب الأيقونة، والزر تحتهما بعرض البطاقة */
+.pj-bro-text { flex: 1 1 180px; display: grid; gap: 4px; min-width: 0; }
+.pj-bro-title { margin: 0; color: var(--ink); font: 700 1.05rem/1.4 var(--font); }
+.pj-bro-sub { margin: 0; color: var(--ink-2); font-size: 0.9rem; line-height: 1.7; }
+.pj-bro-note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+.btn.pj-bro-pick { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 22px; }
+.pj-bro-pick .ico { width: 17px; height: 17px; }
+.pj-bro-msg {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 0.88rem;
+    line-height: 1.7;
+}
+.pj-bro-msg.pj-bro-err { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.pj-bro-holder:empty { display: none; }
+.pj-bro-holder .crm-error { margin: 0; }
+
+.crm-card.pj-bro-prog { margin: 0; padding: 0; overflow: hidden; }
+.pj-bro-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0 0; padding-inline: 18px 8px; }
+.pj-bro-ptitle { margin: 0; padding-block: 10px; color: var(--ink); font: 700 1rem/1.4 var(--font); }
+.pj-bro-cancel {
+    margin: 0;
+    margin-inline-start: auto;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: none;
+    color: var(--muted);
+    font: 500 0.88rem var(--font);
+    cursor: pointer;
+}
+.pj-bro-cancel:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+
+.pj-bro-steps { margin: 0; padding: 2px 18px 8px; list-style: none; }
+.pj-bro-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; padding: 10px 0; }
+/* خط رفيع يصل المرحلة بالتي بعدها */
+.pj-bro-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: 42px;
+    bottom: -6px;
+    inset-inline-start: 13px;
+    width: 2px;
+    background: var(--line);
+}
+.pj-bro-dot {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid var(--line-2);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.pj-bro-dot .ico { width: 15px; height: 15px; stroke-width: 2.4; }
+.pj-bro-pulse { display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); }
+.pj-st-done .pj-bro-dot { border-color: transparent; background: var(--ok-soft); color: var(--ok); }
+.pj-st-now .pj-bro-dot { border: 2px solid var(--brand); }
+.pj-st-wait .pj-bro-dot { border-color: transparent; background: var(--amber-soft); color: var(--amber); }
+.pj-st-fail .pj-bro-dot { border-color: transparent; background: var(--danger-soft); color: var(--danger); }
+.pj-st-off .pj-bro-dot { background: var(--surface-2); }
+.pj-bro-stext { display: grid; gap: 3px; min-width: 0; padding-top: 3px; overflow-wrap: anywhere; }
+.pj-bro-label { color: var(--ink-2); font-size: 0.92rem; }
+.pj-st-now .pj-bro-label { color: var(--ink); font-weight: 600; }
+.pj-st-wait .pj-bro-label { color: var(--amber); font-weight: 600; }
+.pj-st-fail .pj-bro-label { color: var(--danger); font-weight: 600; }
+.pj-st-off .pj-bro-label, .pj-st-todo .pj-bro-label { color: var(--muted); }
+.pj-bro-snote { color: var(--muted); font-size: 0.8rem; line-height: 1.6; }
+
+.pj-bro-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px 14px;
+    padding: 6px 18px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+.pj-bro-after { flex: 1 1 220px; min-width: 0; padding-block: 6px; line-height: 1.6; }
+.pj-bro-links { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.pj-bro-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    color: var(--brand-ink);
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.pj-bro-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pj-bro-link .ico { width: 15px; height: 15px; }
+
+/* ---------- «المخططات»: بطاقة لكل نموذج ---------- */
+
+.pj-plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.crm-card.pj-plan {
+    display: grid;
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+    gap: 20px;
+    margin: 0;
+    padding: 16px;
+}
+.crm-card.pj-plan.pj-plan-text { grid-template-columns: minmax(0, 1fr); }
+.pj-plan-img {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 230px;
+    margin: 0;
+    padding: 14px 12px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    color: var(--muted);
+    font: 500 0.78rem var(--font);
+    cursor: zoom-in;
+}
+.pj-plan-img:hover { border-color: var(--line-2); }
+.pj-plan-img img { flex: 1 1 auto; width: 100%; min-height: 0; object-fit: contain; }
+.pj-plan-zoom {
+    position: absolute;
+    top: 8px;
+    inset-inline-end: 8px;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+}
+.pj-plan-zoom .ico { width: 16px; height: 16px; }
+.pj-plan-cap { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pj-plan-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
+.pj-plan-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pj-plan-name { margin: 0; color: var(--ink); font: 700 1.1rem/1.4 var(--font); overflow-wrap: anywhere; }
+/* «آخر وحدة»: ينتظر قراراً سريعاً، فكهرماني */
+.pj-plan-last {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--amber-soft);
+    color: var(--amber);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.pj-plan-specs { margin: 0; color: var(--ink-2); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.pj-plan-price {
+    margin: 10px 0 0;
+    color: var(--ink);
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1.35;
+    font-variant-numeric: tabular-nums;
+}
+.pj-plan-price small { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.pj-plan-price.pj-plan-noprice { color: var(--muted); font-size: 0.92rem; font-weight: 500; }
+.pj-plan-perm { margin: 0; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.pj-plan-avail { margin: 8px 0 0; color: var(--muted); font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.pj-plan-avail b { font-weight: 600; }
+.pj-plan-com { margin: 0; color: var(--ink-2); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+/* «سجّل عميل على هذا النموذج»: رابط نصي بلون الشعار، الزر الرئيسي واحد في الترويسة */
+.pj-plan-reg {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    margin: auto 0 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--brand-ink);
+    font: 600 0.92rem var(--font);
+    text-align: start;
+    cursor: pointer;
+}
+.pj-plan-reg:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pj-plan-reg .ico { width: 17px; height: 17px; }
+.pj-plans-hint { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; color: var(--muted); font-size: 0.8rem; }
+.pj-plans-hint .ico { width: 14px; height: 14px; }
+
+/* ---------- الشاشات الأضيق ---------- */
+
+/* بطاقتا المخطط في الصف تضيقان قبل العمودين: بطاقة في الصف */
+@media (max-width: 1100px) {
+    .pj-plans { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* اللوحي: عمود واحد، و«معلومات المشروع» و«الموقع» جنباً إلى جنب تحت الصور والوصف */
+@media (max-width: 1000px) {
+    .pj-prof { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .pj-prof-side { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); align-items: start; gap: 12px; }
+    .pj-prof-main { gap: 12px; }
+}
+
+/* الجوال: صورة عريضة وصورتان تحتها، والبطاقات بعرض الشاشة، والأزرار بحجم الإصبع */
+@media (max-width: 700px) {
+    .pj-backlink { margin: -6px 0 -2px; }
+    /* app.css يجعل أزرار الترويسة شريطاً يُسحب جانبياً؛ هنا يلتفّان، فلا يُقصّ «مشاركة مع عميل» على 320 */
+    .w4-quick.pj-head-actions { flex-wrap: wrap; overflow-x: visible; margin-inline: 0; padding-inline: 0; }
+    .btn.pj-share { min-height: 44px; }
+    .pj-tabs { margin: 0 -12px 12px; padding-inline: 4px; }
+    .pj-tab { padding: 0 12px; font-size: 0.9rem; }
+
+    .pj-gal,
+    .pj-gal-2,
+    .pj-gal-3,
+    .pj-gal-4,
+    .pj-gal-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 200px 110px; }
+    .pj-gal .pj-gal-item:first-child { grid-column: 1 / -1; grid-row: auto; }
+    .pj-gal .pj-gal-item:nth-child(n+2) { grid-row: auto; grid-column: auto; }
+    .pj-gal .pj-gal-item:nth-child(n+4) { display: none; }
+    .pj-gal-2 .pj-gal-item:nth-child(2) { grid-column: 1 / -1; }
+    .pj-gal-1 { grid-template-columns: minmax(0, 1fr); grid-template-rows: 220px; }
+
+    .pj-feats { grid-template-columns: minmax(0, 1fr); }
+
+    .pj-bro-drop { padding: 16px; gap: 12px 14px; }
+    .pj-bro-ico { width: 44px; height: 44px; }
+    .pj-bro-ico .ico { width: 22px; height: 22px; }
+    .btn.pj-bro-pick { flex: 1 1 100%; }
+    .pj-bro-steps { padding-inline: 14px; }
+    .pj-bro-head { padding-inline: 14px 4px; }
+    .pj-bro-foot { padding-inline: 14px; }
+
+    .crm-card.pj-plan { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; }
+    .pj-plan-img { height: 200px; }
+    .pj-plan-price { margin-top: 6px; font-size: 1.2rem; }
+
+    .pj-viewer-img { max-height: 58vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pj-bro-drop { transition: none; }
+}
+
+@media print {
+    .pj-backlink, .btn.pj-share, .pj-tabs, .pj-bro, .pj-gal-all, .pj-copy, .pj-plan-reg, .pj-plans-hint { display: none !important; }
+    .pj-pane[hidden] { display: block !important; }
+}

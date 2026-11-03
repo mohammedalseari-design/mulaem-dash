@@ -238,14 +238,15 @@ function clientRow(row) {
     };
 }
 
-// بلا سعر: projects.price لمشاريع الشقق مجموع أسعار نماذجها (004)، فلا يصلح سعراً للعرض. السعر لكل وحدة في «العقارات».
-// الضغط يفتح «العقارات» على وحدات هذا العقار وحده بمعرّفه (المتاحة وغيرها)، لا ببحث نصي قد لا يطابق.
+// بلا سعر: projects.price لمشاريع الشقق مجموع أسعار نماذجها (004)، فلا يصلح سعراً للعرض. السعر لكل وحدة في صفحة العقار.
+// الضغط يفتح صفحة العقار نفسه بمعرّفه (‎#/project/:id‎، project.js): لوحة وحداته كلها بألوانها، لا ببحث نصي قد لا يطابق.
+// «كل الوحدات المطابقة» تحت النتائج تبقى بحثاً في «العقارات».
 function propertyRow(row) {
     return {
         icon: 'building',
         title: row.name || 'عقار رقم ' + row.id,
         meta: [[row.type, label(LISTING_PURPOSE, row.purpose, ''), row.district || row.city].filter(Boolean).join(' · ')],
-        run: () => { presetPropertySearch(row.name || '', row.id); go('#/properties'); },
+        hash: '#/project/' + row.id,
         hint: 'وحداته'
     };
 }

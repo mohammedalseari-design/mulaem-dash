@@ -8,6 +8,7 @@ import { renderClient } from './client.js';
 import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
 import { renderProperties } from './properties.js';
+import { renderProject } from './project.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
 import { renderBoard } from './board.js';
@@ -44,6 +45,8 @@ const ROUTES = [
     { pattern: /^#\/requests\/?$/, view: renderRequests, nav: '#/clients' },
     { pattern: /^#\/matches\/?$/, view: renderMatches, nav: '#/clients' },
     { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
+    // صفحة العقار ولوحة وحداته (project.js): تُفتح من اسمه في «العقارات» ومن البحث السريع، فتُضاء «العقارات». لكل الأدوار
+    { pattern: /^#\/project\/([^/]+)\/?$/, view: renderProject, nav: '#/properties' },
     // المواعيد: صفحة كاملة يُفتح من «كل المواعيد» في «عملي اليوم»، فتُضاء «عملي اليوم» في القائمة
     { pattern: /^#\/calendar\/?$/, view: renderCalendar, nav: '#/work' },
     { pattern: /^#\/assistant\/?$/, view: renderAssistant, nav: '#/assistant' },

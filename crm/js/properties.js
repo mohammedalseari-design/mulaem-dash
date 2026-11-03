@@ -8,6 +8,7 @@
 // (project-commission.js): نسبة المشروع ومبلغ محدد لأي نموذج (037).
 // عمود العمولة ومرشّحاها لا يُرسمان لمن لا يرى العمولة (canSeeCommission)، والقاعدة لا تعطيه أرقامها أصلاً.
 // الصفحة لكل الأدوار، وزر "فتح صفقة" وحده مخفي عن مركز الاتصال (والقاعدة ترفضه أصلاً).
+// اسم العقار في كل صف يفتح صفحته (‎#/project/:id‎): لوحة وحداته كلها بألوانها، متاحة ومحجوزة ومباعة.
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { inventoryVocabulary, sanitizeSearch } from './data.js';
@@ -270,7 +271,8 @@ function table(rows, seeCommission, reload) {
         body.appendChild(el('tr', {}, [
             el('td', {}, unitImage(row)),
             el('td', {}, el('div', { class: 'pr-name' }, [
-                el('strong', { text: dash(row.project_name) }),
+                // الاسم رابط صفحة العقار (‎#/project/:id‎، project.js): لوحة وحداته بألوانها والتسجيل على نموذج منها
+                el('strong', {}, el('a', { class: 'pj-link', href: '#/project/' + row.project_id, text: dash(row.project_name) })),
                 el('span', { class: 'crm-subtle', text: (sub || 'رقم ' + dash(row.project_id)) })
             ])),
             el('td', {}, el('div', { class: 'pr-place' }, [

@@ -1,11 +1,13 @@
 /* ===================== ‎#/project/:id‎ — صفحة العقار ولوحة الوحدات (project.js، 2026-11-03) ===================== */
 /* يُلحق بآخر crm/v6.css. ترويسة، ثم شريط أرقام ثابت بخطوط رفيعة (مثل .kpi-strip)، ثم «لوحة الوحدات» يميناً ولوحة النموذج
    المختار يساراً؛ على اللوحي والجوال اللوحة ثم التفاصيل تحتها. المربعات: متاح = إطار أخضر فارغ، محجوز = كهرماني
-   مملوء، مباع = رمادي فاتح مملوء — الفرق بالامتلاء والفتحة لا باللون وحده، والعدد الدقيق نص بجانب كل صف.
+   مملوء، مباع = رمادي فاتح مملوء بإطار رمادي داكن — الفرق بالامتلاء والفتحة لا باللون وحده، والعدد الدقيق نص بجانب كل صف.
    ألوان v6 وحدها، فالوضع الليلي يأتي منها (body.crm-dark). */
 
 /* اسم العقار في جدول «العقارات» رابط صفحته: يبقى بوزن الاسم وحجمه (الجدول وبطاقة الجوال)، وتحته خط خافت يقول إنه
-   رابط (الجوال بلا مرور فأرة يكشفه)، وعلى الجوال مساحة لمس 44px دون أن تتحرك البطاقة */
+   رابط (الجوال بلا مرور فأرة يكشفه)، وعلى الجوال مساحة لمس 44px دون أن تتحرك البطاقة. position: relative يرسم الرابط
+   فوق السطر الخافت تحته، وإلا غطّى ذلك السطر (العنصر التالي في الشبكة) أسفل مساحة اللمس فبقي منها نحو 38px؛ ويبقى
+   تحت الشريط العلوي وشريط الجوال السفلي (z-index 40 و60) */
 .pr-name strong > .pj-link {
     font-weight: inherit;
     text-decoration: underline;
@@ -15,7 +17,7 @@
 }
 .pr-name strong > .pj-link:hover { text-decoration-color: currentColor; }
 @media (max-width: 700px) {
-    .pr-name strong > .pj-link { display: inline-block; padding-block: 9px; margin-block: -9px; }
+    .pr-name strong > .pj-link { position: relative; display: inline-block; padding-block: 9px; margin-block: -9px; }
 }
 
 /* ---------- سطر حالة العقار تحت الترويسة: محذوف، أو بانتظار الاعتماد، أو نفد بالكامل ---------- */
@@ -105,19 +107,20 @@
 }
 .pj-legend li { display: inline-flex; align-items: center; gap: 6px; }
 
-/* مربع الوحدة */
+/* مربع الوحدة: إطاره ≥ 3:1 على الصف (--surface) وعلى الصف المختار (--brand-soft) في الوضعين. المباع تعبئته فاتحة
+   (--line-2، فيختلف عن المحجوز الداكن) وإطاره --muted (≥ 4.9:1)؛ بإطار --line-2 كان 1.3–1.7:1 فيكاد يختفي */
 .pj-sq {
     display: inline-block;
     flex: none;
     width: 12px;
     height: 12px;
-    border: 1.5px solid var(--line-2);
+    border: 1.5px solid var(--muted);
     border-radius: 3px;
     background: var(--line-2);
 }
 .pj-sq-available { border-color: var(--ok); background: transparent; }
 .pj-sq-reserved { border-color: var(--amber); background: var(--amber); }
-.pj-sq-sold { border-color: var(--line-2); background: var(--line-2); }
+.pj-sq-sold { border-color: var(--muted); background: var(--line-2); }
 
 /* صف النموذج زر: الاسم ومواصفاته | المربعات | «متاح N من M» */
 .pj-models {

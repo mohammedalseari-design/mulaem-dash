@@ -17,6 +17,8 @@ import {
 } from './ui.js';
 
 const SAR = 'ر.س';
+// مسافة لا ينكسر عندها السطر: الرقم ووحدته («ر.س»، «م²»، «غرف») لا يفترقان على الجوال، فينكسر السطر عند « · » وحدها
+const NBSP = '\u00a0';
 
 // الاستعلام لا يرمي: خطأ الشبكة يصل { error } كخطأ الخادم، فيُعرض في مربع واحد بزر «إعادة المحاولة»
 const settle = (query) => Promise.resolve(query).catch((error) => ({ data: null, error }));
@@ -219,9 +221,9 @@ const toneOf = (row) => (row.available > 0 ? 'ok' : row.status === 'reserved' ? 
 // يقرأ المحجوز والمباع نصاً
 function modelButton(row, onSelect) {
     const specs = [
-        row.rooms > 0 ? countText(row.rooms, ['غرفة واحدة', 'غرفتان', 'غرف', 'غرفة']) : null,
-        row.area > 0 ? number(row.area) + ' م²' : null,
-        row.price > 0 ? money(row.price) + ' ' + SAR : null
+        row.rooms > 0 ? countText(row.rooms, ['غرفة واحدة', 'غرفتان', 'غرف', 'غرفة']).replace(/ /g, NBSP) : null,
+        row.area > 0 ? number(row.area) + NBSP + 'م²' : null,
+        row.price > 0 ? money(row.price) + NBSP + SAR : null
     ].filter(Boolean).join(' · ');
     const taken = row.total > 1 ? takenText(row, number) : '';
     const perCell = row.total > MAX_CELLS ? Math.max(1, Math.round(row.total / MAX_CELLS)) : 0;
@@ -262,14 +264,14 @@ function panelBody(project, row, seeCommission) {
         el('dl', { class: 'pj-facts' }, [
             row.rooms > 0 ? fact('الغرف', number(row.rooms)) : null,
             row.bathrooms > 0 ? fact('دورات المياه', number(row.bathrooms)) : null,
-            row.area > 0 ? fact('المساحة', number(row.area) + ' م²') : null,
-            fact('السعر', row.price > 0 ? money(row.price) + ' ' + SAR : '—'),
+            row.area > 0 ? fact('المساحة', number(row.area) + NBSP + 'م²') : null,
+            fact('السعر', row.price > 0 ? money(row.price) + NBSP + SAR : '—'),
             fact('الوحدات', [
                 el('span', { class: 'pj-tone-' + toneOf(row), text: availabilityText(row, number) }),
                 taken ? el('small', { text: taken }) : null
             ]),
             fact('عمولتي', seeCommission
-                ? (row.commission === null ? '—' : money(row.commission) + ' ' + SAR)
+                ? (row.commission === null ? '—' : money(row.commission) + NBSP + SAR)
                 : [masked(), el('small', { text: 'مخفية' })])
         ]),
         row.available > 0 ? null : el('p', { class: 'pj-panel-note', text: whole ? 'العقار غير متاح الآن.' : 'لا وحدة متاحة الآن في هذا النموذج.' }),

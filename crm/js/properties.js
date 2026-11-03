@@ -9,8 +9,9 @@
 // عمود العمولة ومرشّحاها لا يُرسمان لمن لا يرى العمولة (canSeeCommission)، والقاعدة لا تعطيه أرقامها أصلاً.
 // الصفحة لكل الأدوار، وزر "فتح صفقة" وحده مخفي عن مركز الاتصال (والقاعدة ترفضه أصلاً).
 // اسم العقار في كل صف يفتح صفحته (‎#/project/:id‎): لوحة وحداته كلها بألوانها، متاحة ومحجوزة ومباعة.
+// والرجوع منها يعيد القائمة كما تُركت: البحث والمرشّحات والصفحة ومكان التمرير (remembered، كما في العملاء).
 
-import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
+import { supabase, PAGE_SIZE, pageRange, pageBack } from './supabase.js';
 import { inventoryVocabulary, sanitizeSearch } from './data.js';
 import { myRole, isAdmin, canSeeCommission } from './auth.js';
 import { openProjectCommission } from './project-commission.js';
@@ -24,11 +25,21 @@ import {
     filterChips, resultLine
 } from './ui.js';
 
-// من البحث السريع (palette.js): يُطبَّق عند فتح الصفحة التالية مرة واحدة. projectId: عقار بعينه اختاره الموظف، فتُعرض
-// وحداته كلها (المتاحة والمحجوزة والمباعة) بمعرّفه لا باسمه — الاسم قد يحمل أقواساً يمحوها تنظيف البحث.
-let preset = null;
+// القائمة كما تُفتح أول مرة، وكما يعيدها «مسح التصفية»: «المتاح فقط» مفعّل وبقية المرشّحات فارغة
+const freshView = () => ({
+    page: 0, search: '', projectId: null, district: '', unitType: '', purpose: '',
+    rooms: '', priceMin: '', priceMax: '', commissionMin: '', commissionOrder: '', availableOnly: true
+});
+
+// البحث والمرشّحات والصفحة ومكان التمرير تبقى ما دامت الصفحة مفتوحة: الرجوع من صفحة عقار (اسمه رابطها) يعيد القائمة
+// كما تُركت بدل أولها، كما في العملاء. لا تخزين في المتصفح؛ إعادة التحميل تبدأ من جديد.
+const remembered = Object.assign(freshView(), { scroll: 0 });
+
+// من البحث السريع (palette.js): القائمة من أولها بهذا البحث وحده. projectId: عقار بعينه اختاره الموظف، فتُعرض وحداته
+// كلها (المتاحة والمحجوزة والمباعة) بمعرّفه لا باسمه — الاسم قد يحمل أقواساً يمحوها تنظيف البحث.
 export function presetPropertySearch(term, projectId = null) {
-    preset = { term: String(term || '').trim(), projectId: projectId === null || projectId === undefined ? null : projectId };
+    const id = projectId === null || projectId === undefined ? null : projectId;
+    Object.assign(remembered, freshView(), { search: String(term || '').trim(), projectId: id, availableOnly: id === null, scroll: 0 });
 }
 
 const PURPOSE_CHIPS = [
@@ -38,11 +49,9 @@ const PURPOSE_CHIPS = [
 ];
 
 export async function renderProperties(root) {
-    const view = {
-        page: 0, search: preset ? preset.term : '', projectId: preset ? preset.projectId : null, district: '', unitType: '', purpose: '',
-        rooms: '', priceMin: '', priceMax: '', commissionMin: '', commissionOrder: '', availableOnly: !(preset && preset.projectId !== null)
-    };
-    preset = null;
+    const view = remembered;
+    const restoreScroll = view.scroll;
+    view.scroll = 0;
     // ردّ تحميل أقدم يصل بعد أحدث (تغيير مرشّحين بسرعة) يُهمَل
     let seq = 0;
 
@@ -50,7 +59,7 @@ export async function renderProperties(root) {
     const toolbar = el('div', { class: 'crm-toolbar' });
     // الحبّات تظهر قبل وصول مفردات الحي والنوع؛ الضغط قبلها يُحفظ ويُطبَّق مع أول تحميل
     let ready = false;
-    const purposeChips = filterChips('غرض العرض', PURPOSE_CHIPS, '', (value) => { view.purpose = value; if (ready) reload(); });
+    const purposeChips = filterChips('غرض العرض', PURPOSE_CHIPS, view.purpose, (value) => { view.purpose = value; if (ready) reload(); });
 
     replace(root, [
         pageHead('العقارات', 'كل الوحدات المعتمدة للبيع والإيجار. إضافة المشروع وتعديله من صفحة المشاريع.', [
@@ -69,26 +78,34 @@ export async function renderProperties(root) {
     });
     const districtField = vocabFilter(vocabulary.districts, vocabulary.districtsError, 'كل الأحياء', 'الحي');
     const typeField = vocabFilter(vocabulary.propertyTypes, vocabulary.propertyTypesError, 'كل الأنواع', 'نوع الوحدة');
+    view.district = restoreChoice(districtField.node, view.district);
+    view.unitType = restoreChoice(typeField.node, view.unitType);
     const roomsBox = input({
-        class: 'crm-filter-num', inputMode: 'numeric', autocomplete: 'off', placeholder: 'غرف ≥'
+        class: 'crm-filter-num', inputMode: 'numeric', autocomplete: 'off', placeholder: 'غرف ≥', value: view.rooms
     });
-    const priceMinBox = moneyInput({ class: 'crm-money crm-filter-num', placeholder: 'السعر من' });
-    const priceMaxBox = moneyInput({ class: 'crm-money crm-filter-num', placeholder: 'إلى' });
-    const commissionMinBox = moneyInput({ class: 'crm-money crm-filter-num', placeholder: 'العمولة من' });
+    const priceMinBox = moneyBox('السعر من', view.priceMin);
+    const priceMaxBox = moneyBox('إلى', view.priceMax);
+    const commissionMinBox = moneyBox('العمولة من', view.commissionMin);
     const commissionOrderBox = select([
         { value: '', label: 'ترتيب افتراضي' },
         { value: 'desc', label: 'أعلى عمولة أولاً' },
         { value: 'asc', label: 'أقل عمولة أولاً' }
-    ], '', { 'aria-label': 'ترتيب العمولة' });
+    ], view.commissionOrder, { 'aria-label': 'ترتيب العمولة' });
     const availableBox = el('input', { type: 'checkbox', checked: view.availableOnly });
     const availableChip = el('label', { class: 'chip' + (view.availableOnly ? ' on' : '') }, [availableBox, 'المتاح فقط']);
 
     // البحث بالكتابة وحده مؤجَّل؛ بقية الحقول تُطلق الاستعلام عند تغيّرها فعلاً
     // (‎change‎ لا ‎input‎)، فلا يُستعلم عند كل ضغطة في حقول الأرقام. الكتابة تُلغي «عقاراً بعينه» من البحث السريع.
+    // الحالة مشتركة بين الزيارات: كتابة لم تُطبَّق قبل مغادرة الصفحة لا تُكتب فيها بعدها (القائمة المحفوظة ما رآه الموظف)
     let debounce = null;
     searchBox.addEventListener('input', () => {
         clearTimeout(debounce);
-        debounce = setTimeout(() => { view.search = searchBox.value; view.projectId = null; reload(); }, 300);
+        debounce = setTimeout(() => {
+            if (!searchBox.isConnected) return;
+            view.search = searchBox.value;
+            view.projectId = null;
+            reload();
+        }, 300);
     });
     districtField.node.addEventListener('change', () => { view.district = districtField.node.value.trim(); reload(); });
     typeField.node.addEventListener('change', () => { view.unitType = typeField.node.value.trim(); reload(); });
@@ -128,8 +145,7 @@ export async function renderProperties(root) {
 
     // «مسح التصفية»: كل الحقول إلى أول حالها، و«المتاح فقط» يبقى مفعّلاً كما تُفتح الصفحة
     function reset() {
-        Object.assign(view, { search: '', projectId: null, district: '', unitType: '', purpose: '', rooms: '', priceMin: '', priceMax: '',
-            commissionMin: '', commissionOrder: '', availableOnly: true });
+        Object.assign(view, freshView());
         for (const box of [searchBox, roomsBox, priceMinBox, priceMaxBox, commissionMinBox]) box.value = '';
         districtField.node.value = '';
         typeField.node.value = '';
@@ -199,6 +215,9 @@ export async function renderProperties(root) {
             if (!(result.error && OPTIONAL.test(String(result.error.message || '')))) break;
         }
         if (mine !== seq || !body.isConnected) return;
+        // صفحة محفوظة صارت بعد آخر القائمة (تغيّر المخزون والموظف في صفحة عقار): آخر صفحة صالحة بدل «لا وحدات» كاذبة
+        const back = pageBack(view.page, result);
+        if (back !== null) { view.page = back; return load(); }
         const { data, error, count } = result;
         if (error) return void replace(body, errorBox(error, 'تعذّر تحميل العقارات', load));
 
@@ -220,11 +239,28 @@ export async function renderProperties(root) {
 
     ready = true;
     await load();
+    if (restoreScroll > 0 && root.isConnected) requestAnimationFrame(() => window.scrollTo(0, restoreScroll));
 }
 
 function filtered(view) {
     return Boolean(view.search || view.projectId !== null || view.district || view.unitType || view.purpose || view.rooms || view.priceMin
         || view.priceMax || view.commissionMin || view.commissionOrder || !view.availableOnly);
+}
+
+// قيمة محفوظة تعود إلى حقلها. حيّ أو نوع لم يعد في القائمة (تغيّرت المفردات) يرجع إلى «الكل» بدل خانة فارغة
+// ومرشّح خفي؛ والحقل النصي (حين تعذّرت المفردات) يأخذ القيمة كما هي
+function restoreChoice(node, value) {
+    node.value = value;
+    if (node.value !== value) node.value = '';
+    return node.value;
+}
+
+// حقل مبلغ بقيمته المحفوظة كما يُظهرها عند مغادرته: بفواصل الآلاف، وفارغاً لما لا يُقرأ رقماً
+function moneyBox(placeholder, value) {
+    const box = moneyInput({ class: 'crm-money crm-filter-num', placeholder });
+    const n = parseNumber(value);
+    if (n !== null) box.value = money(n);
+    return box;
 }
 
 // مفردة تعذّر جلبها لا تقفل المرشّح: يصير الحقل نصاً حراً و ‎ilike‎ بدل المطابقة التامة.
@@ -272,7 +308,11 @@ function table(rows, seeCommission, reload) {
             el('td', {}, unitImage(row)),
             el('td', {}, el('div', { class: 'pr-name' }, [
                 // الاسم رابط صفحة العقار (‎#/project/:id‎، project.js): لوحة وحداته بألوانها والتسجيل على نموذج منها
-                el('strong', {}, el('a', { class: 'pj-link', href: '#/project/' + row.project_id, text: dash(row.project_name) })),
+                // مكان التمرير يُحفظ قبل الانتقال، فيعود إليه الرجوع
+                el('strong', {}, el('a', {
+                    class: 'pj-link', href: '#/project/' + row.project_id, text: dash(row.project_name),
+                    onclick: () => { remembered.scroll = window.scrollY; }
+                })),
                 el('span', { class: 'crm-subtle', text: (sub || 'رقم ' + dash(row.project_id)) })
             ])),
             el('td', {}, el('div', { class: 'pr-place' }, [

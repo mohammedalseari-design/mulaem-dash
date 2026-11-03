@@ -1,0 +1,349 @@
+/* ===================== «عملي اليوم»: قائمة «يحتاج إجراء» و«مساري» (الخطوة الثالثة، 2026-11-03) =====================
+   يُلحق بآخر crm/v6.css. ألوانه من متغيرات v6 وحدها (تتبدّل في body.crm-dark)، وكل صنف جديد يبدأ بـ wq-.
+   الكمبيوتر: القائمة الواحدة وبجانبها «مساري» فوق الطيّة. اللوحي (حتى 1080): عمود واحد و«مساري» تحت القائمة.
+   الجوال (حتى 700): ثلاثة أرقام في الصف، والحبّات تُسحب أفقياً في سطرها، وكل سطر بطاقة أزرارها 44 نقطة على الأقل.
+   اللون معنى فقط: أحمر متأخر، كهرماني واقف أو حان وقته، محايد موعد قادم، باهت عند المدير، ولون الشعار للمدة المختارة
+   وأشرطة «مساري». خطوط رفيعة بدل الظلال. */
+
+/* ---------- الأرقام ---------- */
+
+/* العمولة المخفية (037): قفل صغير ونقاط باهتة، بلا زر ولا رابط */
+.wq-kpis .wq-lock { width: 0.62em; height: 0.62em; margin-inline-end: 6px; color: var(--muted); vertical-align: -0.02em; }
+.wq-kpi-masked .kpi-num { color: var(--muted); letter-spacing: 0.12em; }
+/* «3 صفقات واقفة…»: تنتظر حركة، فهي كهرمانية لا حمراء */
+.wq-kpis .wq-sub-due { color: var(--amber); font-weight: 600; }
+
+/* ثلاث خانات في الصف من 1100 فنازلاً: الرابعة (العمولة، أطول رقم) تأخذ خانتين فلا يبقى مكان فارغ */
+@media (max-width: 1100px) {
+    .wq-kpis.kpi-strip-5 > .kpi:nth-child(4) { grid-column: span 2; }
+}
+
+/* ---------- التخطيط ---------- */
+
+.wq .wq-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+    gap: 16px;
+    align-items: start;
+}
+.wq-side { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 1080px) {
+    .wq .wq-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- القائمة ---------- */
+
+.wq-queue {
+    display: grid;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    scroll-margin-top: 16px;
+}
+.wq-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 0; min-width: 0; }
+.wq-head h2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--ink);
+    font-size: 1.02rem;
+    font-weight: 600;
+}
+.wq-total {
+    display: inline-grid;
+    place-items: center;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.wq-total[hidden] { display: none; }
+.wq-head-link {
+    margin-inline-start: auto;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    color: var(--brand-ink);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.wq-head-link:hover { background: var(--brand-soft); }
+
+.wq-filter { min-width: 0; padding: 10px 18px 12px; }
+.wq-filter .f-chips { margin: 0; }
+
+.wq-body { min-width: 0; }
+.wq-body > .loading { padding: 18px; }
+.wq-body > .crm-error { margin: 0 18px 12px; }
+.wq-body > .w4-empty { border-top: 1px solid var(--line); }
+
+.wq-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.wq-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+}
+.wq-item:last-child { border-bottom: 0; }
+.wq-item:hover { background: var(--surface-2); }
+.wq-main { display: grid; gap: 3px; min-width: 0; }
+.wq-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.wq-name {
+    min-width: 0;
+    color: var(--ink);
+    font-size: 0.97rem;
+    font-weight: 600;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.wq-name:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 3px; }
+.wq-ctx {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.wq-ctx:empty { display: none; }
+
+/* حبّة السبب: المعنى بلونها ونصها معاً */
+.wq-reason {
+    display: inline-block;
+    flex: 0 1 auto;
+    max-width: 100%;
+    padding: 1px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
+.wq-reason-late { background: var(--danger-soft); color: var(--danger); }
+.wq-reason-stuck, .wq-reason-due { background: var(--amber-soft); color: var(--amber); }
+.wq-reason-today { border-color: var(--line-2); background: var(--surface); color: var(--ink-2); }
+.wq-reason-wait { background: var(--surface-2); color: var(--muted); }
+
+.wq-actions { display: flex; align-items: center; gap: 6px; }
+/* «انقله إلى: …» و«افتح الصفقة»: رابط نصي خفيف، فالزر الرئيسي الوحيد في الصفحة «عميل جديد» */
+.wq-move {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--brand-ink);
+    font: 600 0.86rem var(--font);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.wq-move:hover:not(:disabled) { background: var(--brand-soft); }
+.wq-move:disabled { opacity: 0.55; cursor: progress; }
+
+/* الكمبيوتر بماوس: اتصال وواتساب يظهران عند المرور على السطر أو التركيز فيه (كسطور «عملي اليوم» السابقة) */
+@media (hover: hover) and (min-width: 701px) {
+    .wq-item .w4-icon { visibility: hidden; opacity: 0; transition: opacity 0.12s; }
+    .wq-item:hover .w4-icon, .wq-item:focus-within .w4-icon { visibility: visible; opacity: 1; }
+}
+
+/* «عرض الكل (N)»: سطر في آخر البطاقة */
+.wq-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 18px;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
+    background: transparent;
+    color: var(--brand-ink);
+    font: 600 0.88rem var(--font);
+    cursor: pointer;
+}
+.wq-toggle:hover { background: var(--hover); }
+.wq-toggle[hidden] { display: none; }
+
+/* ---------- «مساري» ---------- */
+
+.wq-path {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+    padding: 14px 18px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+}
+.wq-path-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.wq-path-title { display: grid; gap: 1px; min-width: 0; }
+.wq-path-title h2 { margin: 0; color: var(--ink); font-size: 1.02rem; font-weight: 600; }
+.wq-path-sub { margin: 0; color: var(--muted); font-size: 0.8rem; }
+
+/* المدة: مفتاح صغير، والمختارة بلون الشعار */
+.wq-period {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+.wq-period-btn {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-2);
+    font: 500 0.8rem var(--font);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+.wq-period-btn:hover { color: var(--ink); }
+.wq-period-btn[aria-pressed="true"] {
+    background: var(--surface);
+    color: var(--brand-ink);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+/* الخطوات: الاسم والعدد ونسبته من التي قبلها، وتحتها شريط رفيع يبدأ من أول السطر وطرفه الآخر مستدير */
+.wq-steps-host { min-width: 0; }
+.wq-steps-host > .loading { padding: 6px 0; }
+.wq-steps-host > .crm-error { margin-top: 12px; }
+.wq-steps { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; transition: opacity 0.15s; }
+.wq-steps-host[aria-busy="true"] .wq-steps { opacity: 0.55; }
+.wq-step { display: grid; gap: 6px; min-width: 0; }
+.wq-step-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.wq-step-name { color: var(--ink-2); font-size: 0.88rem; font-weight: 500; }
+.wq-step-num {
+    margin-inline-start: auto;
+    color: var(--ink);
+    font-size: 0.98rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.wq-step-pct {
+    min-width: 3.2em;
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+.wq-step-bar {
+    display: block;
+    height: 8px;
+    overflow: hidden;
+    border-start-end-radius: 4px;
+    border-end-end-radius: 4px;
+    background: var(--hover);
+}
+.wq-step-fill {
+    display: block;
+    height: 100%;
+    border-start-end-radius: 4px;
+    border-end-end-radius: 4px;
+    background: var(--brand);
+}
+.wq-path-note { margin: 0; color: var(--muted); font-size: 0.76rem; line-height: 1.7; }
+
+/* ---------- الجوال ---------- */
+
+@media (max-width: 700px) {
+    .wq .wq-layout { gap: 14px; }
+
+    /* القائمة بلا إطار حولها: كل سطر بطاقة وحده */
+    .wq-queue { border: 0; border-radius: 0; background: transparent; }
+    .wq-head { padding: 0; }
+    .wq-head h2 { font-size: 1rem; }
+    .wq-head-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
+    .wq-filter { padding: 2px 0 10px; }
+    /* الحبّات تُسحب أفقياً في سطرها حتى حافة الشاشة (بقدر حاشية الصفحة 12)، والصفحة نفسها لا تتحرك */
+    .wq-filter .f-chips { margin-inline: -12px; padding-inline: 12px; }
+    .wq-filter .f-chip { min-height: 44px; padding-inline: 14px; }
+
+    .wq-list { display: grid; gap: 8px; border-top: 0; }
+    .wq-item,
+    .wq-item:last-child {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+    .wq-item:hover { background: var(--surface); }
+    .wq-top { gap: 6px 8px; }
+    .wq-name { flex: 1 1 100%; font-size: 1rem; }
+    .wq-ctx { white-space: normal; }
+
+    /* الأزرار بعرض البطاقة: اتصال وواتساب مربعان، والإجراء الرئيسي يملأ الباقي */
+    .wq-actions { display: grid; grid-template-columns: 44px 44px minmax(0, 1fr); gap: 8px; }
+    .wq-actions > :only-child { grid-column: 1 / -1; }
+    .wq-actions .w4-icon { width: 44px; height: 44px; }
+    .wq-actions .w4-done,
+    .wq-actions .wq-move { width: 100%; min-width: 0; min-height: 44px; justify-content: center; }
+    /* «انقله إلى: عقد وإفراغ» أعرض من الباقي بجانب مربعي الاتصال على 320: يلتف سطرين بدل أن يخرج من البطاقة */
+    .wq-move { padding-block: 4px; border-color: var(--line-2); background: var(--surface); white-space: normal; text-align: center; line-height: 1.35; }
+
+    .wq-body > .loading { padding: 14px 0; }
+    .wq-body > .crm-error { margin: 0 0 8px; }
+    .wq-body > .w4-empty,
+    .wq-body > .w4-more {
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+    .wq-body > .w4-more { min-height: 44px; }
+    .wq-toggle {
+        margin-top: 8px;
+        border: 1px solid var(--line-2);
+        border-radius: var(--r-md);
+        background: var(--surface);
+    }
+
+    .wq-path { padding: 14px; }
+    .wq-period-btn { min-height: 44px; padding: 0 12px; }
+
+    /* «طلبات جديدة» لمركز الاتصال: رأس لوحته ظاهر (app.css يخفي رؤوس اللوحات القديمة على الجوال) */
+    .wq .w4-panel-head { display: flex; }
+}
+
+/* أضيق الجوالات (320): الأرقام تبقى ثلاثة في الصف بحاشية أصغر (v6 يجعلها اثنين) */
+@media (max-width: 360px) {
+    .wq-kpis.kpi-strip-5 { --cols: 3; }
+    .wq-kpis .kpi { padding: 9px 8px; }
+    .wq-period-btn { padding: 0 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wq-item .w4-icon, .wq-steps { transition: none; }
+}
+
+@media print {
+    .wq-actions, .wq-toggle, .wq-period { display: none !important; }
+}

@@ -1,27 +1,34 @@
 // ‎#/work‎ — "عملي اليوم".
 //
-// لا يوجد أي ترشيح بالمستخدم هنا: v_my_work معرّف security_invoker وسياسات
-// follow_ups تتكفّل بالباقي، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً.
+// لا يوجد أي ترشيح بالمستخدم هنا: سياسات RLS على follow_ups وdeals وprojects وclients تتكفّل بالباقي (وv_my_work معرّف
+// security_invoker)، فالمدير يرى الجميع والوسيط يرى نفسه تلقائياً.
 //
-// حدود اليوم: v_my_work صارت تحسب "اليوم" و"المتأخر" بتوقيت Asia/Riyadh
-// (006_inventory_quality.sql)، فالقائمتان ترسلان بداية اليوم المحلي وبداية الغد
-// نصّاً ISO بإزاحة المتصفح، كي يطابق عدّاد البطاقة طول القائمة تماماً.
+// حدود اليوم: v_my_work تحسب "اليوم" بتوقيت Asia/Riyadh (006_inventory_quality.sql)، والقوائم هنا ترسل بداية اليوم
+// المحلي وبداية الغد نصّاً ISO بإزاحة المتصفح، فيطابق كل رقم طول قائمته.
 //
-// التصميم السادس «الوسيط» (2026-10-23): أرقام الوسيط في صف واحد، كل رقم يأخذك إلى ما وراءه:
-// المتأخرة، ومواعيد اليوم، والمعاينات القادمة (متابعات بقناة «زيارة» في الأيام السبعة القادمة)، والعملاء المحتملون
-// (عملاء لهم طلب شراء أو إيجار نشط)، والصفقات الجارية، والعمولات التي لم تُحصّل. مركز الاتصال لا يرى الرقمين
-// الأخيرين (لا صفقات له). تحتها أربع لوحات: «متابعات متأخرة» و«مواعيد اليوم» كما كانتا، ثم «المعاينات القادمة»
-// و«صفقات تحتاج متابعة» (لمركز الاتصال: «طلبات جديدة»). على الجوال مفتاح يعرض لوحة واحدة كاملة.
-// كل رقم وكل لوحة استعلام مستقل: تعذّر أحدها يظهر في مكانه ولا يخفي البقية.
+// الخطوة الثالثة (2026-11-03، بعد معاينة وافق عليها المالك): قائمة واحدة «يحتاج إجراء» بدل اللوحات الأربع، لأن الموظف
+// يسأل سؤالاً واحداً كل صباح: ماذا ينتظرني؟ الترتيب والعدّ والنصوص في work-queue.js (يُختبر وحده):
+//   المتابعات المتأخرة (الأقدم أولاً) ← الصفقات الواقفة أكثر من 14 يوماً في مرحلتها (الأطول أولاً) ← مواعيد اليوم (بوقتها)
+//   ← عروض الوسيط التي تنتظر اعتماد المدير.
+// فوقها حبّات تصفية بعددها، وأول سبعة سطور ثم «عرض الكل». لكل سطر سبب ملوّن بمعناه (أحمر متأخر، كهرماني واقف أو حان
+// وقته، محايد موعد قادم، باهت عند المدير)، وإجراء واحد: «تم» للمتابعة (ومنها التأجيل)، و«انقله إلى» للصفقة.
+// بجانبها «مساري»: من المشاركة حتى الإتمام في 7 أو 30 أو 90 يوماً. مركز الاتصال لا صفقات له: لا «واقف» ولا عمولة ولا
+// «مساري»، ومكانه «طلبات جديدة» كما كان.
+// كل مصدر استعلام مستقل: تعذّر أحدها يظهر في مكانه ولا يخفي البقية.
 
-import { supabase, PAGE_SIZE, pageRange, pageBack, fetchAll } from './supabase.js';
-import { staffMap, staffName, dealStages, stageMap, stageName } from './data.js';
-import { CHANNEL, DEAL_STAGE_TONE, REQUEST_PURPOSE, label } from './labels.js';
-import { myRole, canSeeCommission } from './auth.js';
+import { supabase, fetchAll } from './supabase.js';
+import { staffMap, staffName, dealStages } from './data.js';
+import { CHANNEL, REQUEST_PURPOSE, label } from './labels.js';
+import { state, myRole, myId, isAdmin, canSeeCommission } from './auth.js';
 import {
-    el, replace, loading, errorBox, pager, fmtDateTime, fmtDate, dayText,
-    localDayStart, number, waNumber, icon, money, badge, errorText
+    el, replace, append, loading, errorBox, fmtDateTime, fmtDate, dayText, localDayStart, number, countText,
+    waNumber, icon, money, badge, errorText, notify, fail, filterChips
 } from './ui.js';
+import { openStages, STUCK_DAYS, daysText } from './deal-path.js';
+import {
+    queueFilters, stuckDeals, buildQueue, queueTotals, queueView, reasonText, dealAction, nextUpcoming, expectedTotal,
+    PATH_PERIODS, PATH_DEFAULT, periodStart, distinctCount, viewingCount, pathSteps
+} from './work-queue.js';
 import { openDoneForm } from './followup-form.js';
 import { openClientForm } from './client-form.js';
 import { openPalette } from './palette.js';
@@ -38,65 +45,156 @@ export const WORK_CARDS = [
     { key: 'active_clients', label: 'عملاء نشطون' }
 ];
 
-const OPEN_COMMISSION = ['due', 'invoiced', 'partial'];
+// حد ما يُحمَّل من كل مصدر في القائمة: الوسيط لا يقترب منه، والمدير قد يتجاوزه في المتأخرة، فيُعرض الباقي رابطاً إلى «المواعيد»
+const QUEUE_CAP = 100;
 const VISIT_DAYS = 7;
-const SOON_DAYS = 14;
 const PANEL_ROWS = 6;
+
+const FU_FIELDS = 'id, due_at, channel, purpose, assigned_to, client_id, requirement_id, client:clients(full_name, phone)';
+// سجل المراحل مضمَّن في كل صفقة: منه متى دخلت مرحلتها (deal-path.js: enteredAt)، فلا استعلام ثانٍ بقائمة معرّفات طويلة
+const DEAL_FIELDS = 'id, client_id, stage_id, amount, unit_key, project_id, broker_id, created_at, updated_at,'
+    + ' client:clients(full_name, phone), project:projects(name), history:deal_stage_history(to_stage, changed_at)';
+const OFFER_FIELDS = 'id, name, type, district, price, updated_at, date_added';
+
+const LATE_FORMS = ['متابعة متأخرة واحدة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة'];
+const TODAY_FORMS = ['موعد واحد اليوم', 'موعدان اليوم', 'مواعيد اليوم', 'موعداً اليوم'];
+const STUCK_FORMS = ['صفقة واقفة', 'صفقتان واقفتان', 'صفقات واقفة', 'صفقة واقفة'];
+const OPEN_DEAL_FORMS = ['صفقة جارية واحدة', 'صفقتين جاريتين', 'صفقات جارية', 'صفقة جارية'];
+const DEAL_FORMS = ['صفقة واحدة', 'صفقتان', 'صفقات', 'صفقة'];
+const FRESH_FORMS = ['طلب جديد هذا الأسبوع', 'طلبان جديدان هذا الأسبوع', 'طلبات جديدة هذا الأسبوع', 'طلباً جديداً هذا الأسبوع'];
+
+const EMPTY_TEXT = {
+    all: ['لا شيء يحتاج إجراء الآن', 'المتابعات في وقتها، ولا صفقة واقفة أكثر من ' + STUCK_DAYS + ' يوماً.'],
+    late: ['لا متابعات متأخرة', 'كل ما فات موعده أُنجز.'],
+    stuck: ['لا صفقات واقفة', 'كل صفقة جارية تحركت خلال ' + STUCK_DAYS + ' يوماً.'],
+    today: ['لا مواعيد اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.'],
+    wait: ['لا عروض عند المدير', 'العرض الذي تضيفه أو تعدّله ينتظر اعتماد المدير، ويظهر هنا حتى يُعتمد.']
+};
+
+const PATH_NOTE = 'النسبة من الخطوة التي قبلها. المعاينة: كل عميل عاين في المدة مرة واحدة، بزيارة أُنجزت أو صفقة دخلت «معاينة».';
 
 const LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
 const FMT_TODAY = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const FMT_TIME = new Intl.DateTimeFormat(LOCALE, { hour: 'numeric', minute: '2-digit', hour12: true });
 
+// مدة «مساري» المختارة تبقى طوال الجلسة: من اختار 90 يوماً يجدها كما تركها حين يعود إلى الصفحة
+let pathPeriod = PATH_DEFAULT;
+
+const safe = (query) => Promise.resolve(query).catch((error) => ({ error }));
+
 export async function renderWork(root) {
-    const noDeals = myRole() === 'callcenter';
-    // «عمولات لم تُحصّل» لمن يرى العمولة فقط (037): المدير دائماً، والوسيط حين يشغّل المدير الزر
-    const showCommission = !noDeals && canSeeCommission();
+    const role = myRole();
+    const noDeals = role === 'callcenter';
+    // «عند المدير» للوسيط وحده: المدير هو من يعتمد (له «طلبات الاعتماد»)، ومركز الاتصال لا تُريه سياسة projects غير
+    // المعتمد أصلاً (001_init.sql)، وعروضه تمر بالمساعد لا بجدول المشاريع.
+    const withOffers = role === 'field';
+    // العمولة (037): أرقامها لمن يراها، وللوسيط الذي أخفاها المدير عنه خانة مقفلة تقول ذلك بدل أن تختفي بلا سبب
+    const seeCommission = !noDeals && canSeeCommission();
+    const maskCommission = !noDeals && !seeCommission && role === 'field';
+    const me = myId();
+    const view = { filter: 'all', expanded: false };
+    let names = new Map();
+    let queue = { ready: false, items: [], totals: queueTotals({}), errors: [] };
+    // عدّادا التحميل قبل أي زر يُرسم: ضغطة مدة أو «عميل جديد» قبل وصول الأسماء تبدأ تحميلاً، وردّ أقدم يصل بعد أحدث يُهمَل
+    let workSeq = 0;
+    let pathSeq = 0;
+
     const sub = el('p', { class: 'w4-sub', text: FMT_TODAY.format(new Date()) });
 
-    // اللوحات الأربع: المفتاح على الجوال يعرض واحدة منها
-    const panels = {
-        late: panel('late', 'متابعات متأخرة', 'alert', el('span', { class: 'w4-panel-hint', text: 'الأقدم أولاً' })),
-        today: panel('today', 'مواعيد اليوم', 'today', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المواعيد' })),
-        visits: panel('visits', 'المعاينات القادمة (7 أيام)', 'eye', el('a', {
-            class: 'w4-panel-hint w4-panel-link', href: '#/calendar', text: 'كل المعاينات',
-            onclick: () => presetCalendarScope('visits')
-        })),
-        deals: noDeals
-            ? panel('deals', 'طلبات جديدة', 'file', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/requests', text: 'كل الطلبات' }))
-            : panel('deals', 'صفقات تحتاج متابعة', 'briefcase', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/deals', text: 'كل الصفقات' }))
-    };
-    const board = el('div', { class: 'w4-board w6-board', dataset: { show: 'late' } }, Object.values(panels).map((p) => p.node));
+    /* ---------- الأرقام ---------- */
 
-    const segButtons = {};
-    const seg = el('div', { class: 'w4-seg w6-seg', role: 'group', 'aria-label': 'اختر القائمة' }, Object.keys(panels).map((key) => {
-        const short = { late: 'المتأخرة', today: 'اليوم', visits: 'المعاينات', deals: noDeals ? 'الطلبات' : 'الصفقات' }[key];
-        const button = el('button', {
-            type: 'button', dataset: { show: key }, 'aria-pressed': key === 'late' ? 'true' : 'false',
-            onclick: () => { userPicked = true; show(key); }
-        }, [el('span', { text: short }), panels[key].segCount]);
-        segButtons[key] = button;
-        return button;
-    }));
-    let userPicked = false;
-    function show(which) {
-        board.dataset.show = which;
-        for (const key of Object.keys(segButtons)) segButtons[key].setAttribute('aria-pressed', key === which ? 'true' : 'false');
-    }
-    function focusPanel(key) {
-        show(key);
-        panels[key].node.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-
-    const kpis = kpiStrip([
-        { key: 'overdue', label: 'متابعات متأخرة', go: () => focusPanel('late') },
-        { key: 'today', label: 'مواعيد اليوم', go: () => focusPanel('today') },
-        { key: 'visits', label: 'معاينات قادمة', go: () => focusPanel('visits') },
-        { key: 'leads', label: 'عملاء محتملون', href: '#/requests' },
-        noDeals ? null : { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
-        showCommission ? { key: 'commission', label: 'عمولات لم تُحصّل', href: '#/commissions' } : null
+    const kpis = kpiStrip(noDeals ? [
+        { key: 'needs', label: 'يحتاج إجراء', go: () => focusQueue('all') },
+        { key: 'today', label: 'مواعيد اليوم', go: () => focusQueue('today') },
+        { key: 'visits', label: 'معاينات قادمة', href: '#/calendar', onclick: () => presetCalendarScope('visits') },
+        { key: 'leads', label: 'عملاء محتملون', href: '#/requests' }
+    ] : [
+        { key: 'needs', label: 'يحتاج إجراء', go: () => focusQueue('all') },
+        { key: 'today', label: 'مواعيد اليوم', go: () => focusQueue('today') },
+        { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
+        seeCommission ? { key: 'commission', label: 'عمولتي المتوقعة', href: '#/deals' }
+            : maskCommission ? { key: 'commission', label: 'عمولتي المتوقعة' } : null,
+        { key: 'leads', label: 'عملاء محتملون', href: '#/requests' }
     ].filter(Boolean));
+    kpis.node.classList.add('wq-kpis');
 
-    replace(root, el('div', { class: 'w4 w6' }, [
+    function showMasked() {
+        if (!maskCommission) return;
+        kpis.set('commission', {
+            value: [icon('key', 'ico wq-lock'), el('span', { 'aria-hidden': 'true', text: '••••' }), el('span', { class: 'w4-sr', text: 'مخفية' })],
+            sub: 'مخفية بقرار الإدارة',
+            className: 'wq-kpi-masked'
+        });
+    }
+
+    /* ---------- القائمة الواحدة ---------- */
+
+    const filters = queueFilters({ deals: !noDeals, offers: withOffers });
+    const chips = filterChips('اعرض حسب السبب', filters, view.filter, (value) => {
+        view.filter = value;
+        view.expanded = false;
+        drawQueue();
+    });
+    const totalBadge = el('span', { class: 'wq-total', hidden: true });
+    const heading = el('h2', { id: 'wq-queue-title', tabindex: '-1' }, [el('span', { text: 'يحتاج إجراء' }), totalBadge]);
+    const listHost = el('div', { class: 'wq-body', id: 'wq-list' }, loading());
+    const toggle = el('button', {
+        type: 'button', class: 'wq-toggle', hidden: true, 'aria-controls': 'wq-list', 'aria-expanded': 'false',
+        onclick: () => {
+            view.expanded = !view.expanded;
+            drawQueue();
+            if (!view.expanded) toggle.scrollIntoView({ block: 'nearest' });
+        }
+    });
+    const queueNode = el('section', { class: 'wq-queue', 'aria-labelledby': 'wq-queue-title' }, [
+        el('header', { class: 'wq-head' }, [
+            heading,
+            el('a', { class: 'wq-head-link', href: '#/calendar', text: 'كل المواعيد' })
+        ]),
+        el('div', { class: 'wq-filter' }, chips.node),
+        listHost,
+        toggle
+    ]);
+
+    // رقم في الشريط يفتح سببه في القائمة: يختار الحبّة وينزل إليها، والتركيز على عنوانها لمن يتنقل بلوحة المفاتيح
+    function focusQueue(filter) {
+        view.filter = filter;
+        view.expanded = false;
+        chips.set(filter);
+        drawQueue();
+        queueNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        heading.focus({ preventScroll: true });
+    }
+
+    /* ---------- العمود الجانبي: «مساري»، ولمركز الاتصال «طلبات جديدة» ---------- */
+
+    const pathSub = el('p', { class: 'wq-path-sub' });
+    const stepsHost = el('div', { class: 'wq-steps-host' }, loading());
+    const periodButtons = new Map();
+    const pathNode = noDeals ? null : el('section', { class: 'wq-path', 'aria-labelledby': 'wq-path-title' }, [
+        el('header', { class: 'wq-path-head' }, [
+            el('div', { class: 'wq-path-title' }, [el('h2', { id: 'wq-path-title', text: 'مساري' }), pathSub]),
+            el('div', { class: 'wq-period', role: 'group', 'aria-label': 'مدة «مساري»' }, PATH_PERIODS.map((days) => {
+                const button = el('button', {
+                    type: 'button', class: 'wq-period-btn', 'aria-pressed': String(days === pathPeriod),
+                    onclick: () => {
+                        if (days === pathPeriod) return;
+                        pathPeriod = days;
+                        loadPath();
+                    }
+                }, daysText(days));
+                periodButtons.set(days, button);
+                return button;
+            }))
+        ]),
+        stepsHost,
+        el('p', { class: 'wq-path-note', text: PATH_NOTE })
+    ]);
+    const requests = noDeals
+        ? panel('requests', 'طلبات جديدة', 'file', el('a', { class: 'w4-panel-hint w4-panel-link', href: '#/requests', text: 'كل الطلبات' }))
+        : null;
+
+    replace(root, el('div', { class: 'w4 w6 wq' }, [
         el('header', { class: 'w4-head' }, [
             el('div', { class: 'w4-title' }, [el('h1', { text: 'عملي اليوم' }), sub]),
             el('div', { class: 'w4-quick', 'aria-label': 'إجراءات سريعة' }, quickActions(() => reloadAll()))
@@ -106,189 +204,401 @@ export async function renderWork(root) {
             icon('search'), el('span', { text: 'ابحث عن عميل أو جوال أو عقار…' })
         ]),
         kpis.node,
-        seg,
-        board
+        el('div', { class: 'wq-layout' }, [
+            queueNode,
+            el('div', { class: 'wq-side' }, noDeals ? requests.node : pathNode)
+        ])
     ]));
+    kpis.loading();
+    showMasked();
 
-    let names = new Map();
-    try {
-        names = await staffMap();
-    } catch (error) {
-        replace(panels.late.body, errorBox(error, 'تعذّر تحميل أسماء الموظفين', () => renderWork(root)));
-        return;
-    }
+    // الأسماء لسطر «المكلَّف» وحده: تعذّرها لا يوقف الصفحة («مستخدم غير معروف» مكان الاسم)
+    names = await staffMap().catch(() => new Map());
     if (!root.isConnected) return;
 
-    const lateList = followUpList(panels.late, 'overdue', (rows) => {
-        if (!rows.length) return emptyPanel('check', 'لا متابعات متأخرة', 'كل ما فات موعده أُنجز.');
-        return el('ol', { class: 'w4-list' }, rows.map((row) => lateRow(row, names, reloadAll)));
-    });
-    const todayList = followUpList(panels.today, 'today', (rows) => {
-        if (!rows.length) return emptyPanel('today', 'لا مواعيد اليوم', 'أضف متابعة من ملف العميل لتظهر هنا في وقتها.');
-        return el('ol', { class: 'w4-list' }, rows.map((row) => todayRow(row, names, reloadAll)));
-    });
+    /* ---------- تحميل القائمة والأرقام ---------- */
 
-    /* ---------- الأرقام ---------- */
+    async function loadWork() {
+        const mine = ++workSeq;
+        listHost.setAttribute('aria-busy', 'true');
+        const today0 = localDayStart(0);
+        const today1 = localDayStart(1);
+        const followUps = (scope) => safe(scope(supabase.from('follow_ups').select(FU_FIELDS, { count: 'exact' }).eq('status', 'pending'))
+            .order('due_at', { ascending: true }).order('id', { ascending: true }).range(0, QUEUE_CAP - 1));
+        const stagesTask = noDeals ? Promise.resolve(null) : dealStages().catch((error) => ({ error }));
+        // كل الصفقات الجارية مرة واحدة: منها العدد، والواقفة، والعمولة المتوقعة
+        const dealsTask = noDeals ? Promise.resolve(null) : stagesTask.then((stages) => (stages && stages.error ? null
+            : safe(fetchAll(() => supabase.from('deals').select(DEAL_FIELDS)
+                .in('stage_id', openStages(stages).map((s) => s.id)).order('id', { ascending: true })))));
+        const username = state.profile ? state.profile.username : null;
 
-    async function loadStats() {
-        kpis.loading();
-        const today = localDayStart(0).slice(0, 10);
-        const soon = localDayStart(SOON_DAYS).slice(0, 10);
+        const [overdue, today, stages, deals, waiting, work, leads, policy, rates, visits] = await Promise.all([
+            followUps((q) => q.lt('due_at', today0)),
+            followUps((q) => q.gte('due_at', today0).lt('due_at', today1)),
+            stagesTask,
+            dealsTask,
+            withOffers && username
+                ? safe(supabase.from('projects').select(OFFER_FIELDS, { count: 'exact' })
+                    .eq('status', 'pending').eq('added_by', username).is('deleted_at', null)
+                    .order('updated_at', { ascending: true }).range(0, QUEUE_CAP - 1))
+                : null,
+            safe(supabase.from('v_my_work').select('new_requirements_7d').maybeSingle()),
+            safe(fetchAll(() => supabase.from('client_requirements').select('id, client_id').in('status', ACTIVE_REQUEST).order('id', { ascending: true }))),
+            seeCommission ? safe(supabase.from('commission_policy').select('default_rate').maybeSingle()) : null,
+            seeCommission ? safe(fetchAll(() => supabase.from('project_commission').select('project_id, rate').order('project_id', { ascending: true }))) : null,
+            noDeals
+                ? safe(supabase.from('follow_ups').select('id', { count: 'exact', head: true })
+                    .eq('status', 'pending').eq('channel', 'visit').gte('due_at', today0).lt('due_at', localDayStart(VISIT_DAYS + 1)))
+                : null
+        ]);
+        if (mine !== workSeq || !root.isConnected) return;
 
-        const work = Promise.resolve(supabase.from('v_my_work').select('*').maybeSingle()).catch((error) => ({ error }));
-        const visits = Promise.resolve(supabase.from('follow_ups').select('id', { count: 'exact', head: true })
-            .eq('status', 'pending').eq('channel', 'visit').gte('due_at', localDayStart(0)).lt('due_at', localDayStart(VISIT_DAYS + 1))).catch((error) => ({ error }));
-        const leads = fetchAll(() => supabase.from('client_requirements').select('id, client_id').in('status', ACTIVE_REQUEST).order('id', { ascending: true }));
+        const now = Date.now();
+        const errors = [];
+        const ok = (result, kind, prefix) => {
+            if (!result) return null;
+            if (result.error) { errors.push({ kind, error: result.error, prefix }); return null; }
+            return result;
+        };
+        const overdueOk = ok(overdue, 'late', 'تعذّر تحميل المتابعات المتأخرة');
+        const todayOk = ok(today, 'today', 'تعذّر تحميل مواعيد اليوم');
+        const waitingOk = ok(waiting, 'wait', 'تعذّر تحميل عروضك التي عند المدير');
+        let openDeals = null;
+        let dealError = null;
+        let stuck = [];
+        if (!noDeals) {
+            dealError = (stages && stages.error) || (deals && deals.error) || null;
+            if (dealError) errors.push({ kind: 'stuck', error: dealError, prefix: 'تعذّر تحميل الصفقات' });
+            else {
+                openDeals = (deals && deals.data) || [];
+                stuck = stuckDeals(openDeals, stages, now);
+            }
+        }
+        const total = (result) => (result ? (result.count === null || result.count === undefined ? (result.data || []).length : result.count) : 0);
 
-        const [w, v, l] = await Promise.all([work, visits, leads]);
-        if (!kpis.node.isConnected) return;
+        queue = {
+            ready: true,
+            items: buildQueue({
+                overdue: overdueOk && overdueOk.data,
+                stuck,
+                today: todayOk && todayOk.data,
+                waiting: waitingOk && waitingOk.data
+            }, now),
+            totals: queueTotals({ late: total(overdueOk), stuck: stuck.length, today: total(todayOk), wait: total(waitingOk) }),
+            errors
+        };
+        drawQueue();
 
-        const value = (key) => Number(w.data && w.data[key]) || 0;
-        const overdue = value('follow_ups_overdue');
-        const todayCount = value('follow_ups_today');
+        const t = queue.totals;
 
         // سطر تحت العنوان: التاريخ وخلاصة اليوم
-        if (!w.error) {
-            replace(sub, [
-                FMT_TODAY.format(new Date()) + ' · ',
-                overdue ? el('b', { class: 'w4-sub-late', text: arCount(overdue, 'متابعة متأخرة', 'متابعتان متأخرتان', 'متابعات متأخرة', 'متابعة متأخرة') }) : 'لا متأخرات',
-                ' · ',
-                el('b', { text: todayCount ? arCount(todayCount, 'موعد اليوم', 'موعدان اليوم', 'مواعيد اليوم', 'موعداً اليوم') : 'لا مواعيد اليوم' })
-            ]);
-            // على الجوال تفتح الصفحة على المتأخرة إن وُجدت، وإلا على مواعيد اليوم
-            if (!userPicked) show(overdue ? 'late' : 'today');
-        }
+        const bits = [FMT_TODAY.format(new Date())];
+        if (overdueOk) bits.push(t.late ? el('b', { class: 'w4-sub-late', text: countText(t.late, LATE_FORMS) }) : 'لا متأخرات');
+        if (todayOk) bits.push(el('b', { text: t.today ? countText(t.today, TODAY_FORMS) : 'لا مواعيد اليوم' }));
+        replace(sub, bits.flatMap((bit, i) => (i ? [' · ', bit] : [bit])));
 
-        kpis.set('overdue', w.error ? failed(w.error) : { value: number(overdue), tone: overdue ? 'late' : null, sub: overdue ? 'ابدأ بالأقدم' : 'لا شيء متأخر' });
-        kpis.set('today', w.error ? failed(w.error) : { value: number(todayCount), sub: todayCount ? 'مكالمات وزيارات اليوم' : 'يومك خالٍ من المواعيد' });
-        // النافذة نفسها للرقم ولوحة «المعاينات القادمة» (سبعة أيام)؛ «كل المعاينات» في المواعيد بلا حد، فالسطر يقول المدة صراحة
-        kpis.set('visits', v.error ? failed(v.error) : {
-            value: number(v.count || 0),
-            sub: v.count ? 'خلال ' + VISIT_DAYS + ' أيام' : 'لا شيء خلال ' + VISIT_DAYS + ' أيام'
+        // «يحتاج إجراء»: طول القائمة كلها، بالأحمر حين يتأخر شيء. مصدر تعذّر يجعل الرقم ناقصاً، فيُقال ذلك
+        kpis.set('needs', errors.length ? {
+            value: number(t.all), tone: 'failed', sub: 'ناقص: تعذّر تحميل بعضها', title: errorText(errors[0].error)
+        } : {
+            value: number(t.all),
+            tone: t.late ? 'late' : null,
+            subTone: t.late ? 'late' : null,
+            sub: t.late ? countText(t.late, LATE_FORMS) : t.all ? 'لا شيء متأخر' : 'لا شيء ينتظرك الآن'
         });
-        if (l.error) kpis.set('leads', failed(l.error));
+
+        if (!todayOk) kpis.set('today', failed(today.error));
         else {
-            const clients = new Set((l.data || []).map((row) => row.client_id)).size;
-            const fresh = w.error ? 0 : value('new_requirements_7d');
-            kpis.set('leads', { value: number(clients), sub: fresh ? arCount(fresh, 'طلب جديد هذا الأسبوع', 'طلبان جديدان هذا الأسبوع', 'طلبات جديدة هذا الأسبوع', 'طلباً جديداً هذا الأسبوع') : 'لهم طلب شراء أو إيجار نشط' });
+            const next = nextUpcoming(todayOk.data, now);
+            const unloaded = t.today > (todayOk.data || []).length;
+            kpis.set('today', {
+                value: number(t.today),
+                sub: !t.today ? 'يومك خالٍ من المواعيد'
+                    : next ? 'التالي ' + FMT_TIME.format(new Date(next.due_at))
+                    : unloaded ? 'مكالمات وزيارات اليوم' : 'حان وقتها كلها'
+            });
         }
 
-        if (noDeals) return;
-        const [stages, commissions] = await Promise.all([
-            dealStages().catch((error) => ({ error })),
-            showCommission
-                ? fetchAll(() => supabase.from('commissions').select('id, gross_amount, collected_amount').in('status', OPEN_COMMISSION).order('id', { ascending: true }))
-                : Promise.resolve(null)
-        ]);
-        if (!kpis.node.isConnected) return;
-
-        if (!commissions) { /* العمولة مخفية عن هذا المستخدم: لا خانة لها */ }
-        else if (commissions.error) kpis.set('commission', failed(commissions.error));
-        else {
-            const rows = commissions.data || [];
-            const remaining = rows.reduce((sum, row) => sum + Math.max(0, Number(row.gross_amount || 0) - Number(row.collected_amount || 0)), 0);
-            kpis.set('commission', { value: money(remaining), unit: 'ر.س', tone: remaining > 0 ? 'due' : null,
-                sub: rows.length ? 'على ' + arCount(rows.length, 'عمولة واحدة', 'عمولتين', 'عمولات', 'عمولة') : 'لا شيء معلّق' });
+        if (!noDeals) {
+            if (dealError) kpis.set('deals', failed(dealError));
+            else {
+                kpis.set('deals', {
+                    value: number(openDeals.length),
+                    subClass: stuck.length ? 'wq-sub-due' : null,
+                    sub: stuck.length ? countText(stuck.length, STUCK_FORMS) + ' أكثر من ' + STUCK_DAYS + ' يوماً'
+                        : openDeals.length ? 'لا صفقة واقفة' : 'من الاهتمام حتى الإغلاق'
+                });
+            }
         }
 
-        if (stages.error) return void kpis.set('deals', failed(stages.error));
-        const openIds = stages.filter((s) => !s.is_terminal).map((s) => s.id);
-        const dealsBase = () => supabase.from('deals').select('id', { count: 'exact', head: true }).in('stage_id', openIds);
-        const [all, late, closing] = await Promise.all([
-            Promise.resolve(dealsBase()).catch((error) => ({ error })),
-            Promise.resolve(dealsBase().lt('expected_close_date', today)).catch((error) => ({ error })),
-            Promise.resolve(dealsBase().gte('expected_close_date', today).lte('expected_close_date', soon)).catch((error) => ({ error }))
+        if (seeCommission) {
+            const rateError = dealError || (policy && policy.error) || (rates && rates.error) || null;
+            if (rateError) kpis.set('commission', failed(rateError));
+            else {
+                const projectRates = new Map(((rates && rates.data) || []).map((row) => [Number(row.project_id), row.rate]));
+                const defaultRate = policy && policy.data ? policy.data.default_rate : null;
+                const sum = expectedTotal(openDeals, projectRates, defaultRate);
+                kpis.set('commission', {
+                    value: money(sum.total),
+                    unit: 'ر.س',
+                    sub: sum.missing ? 'بلا قيمة: ' + countText(sum.missing, DEAL_FORMS)
+                        : sum.counted ? 'على ' + countText(sum.counted, OPEN_DEAL_FORMS) : 'لا صفقات جارية',
+                    title: 'قيمة كل صفقة جارية × نسبة مشروعها أو النسبة العامة. الصفقة بلا قيمة لا تدخل المجموع.'
+                });
+            }
+        }
+
+        if (leads.error) kpis.set('leads', failed(leads.error));
+        else {
+            const clients = new Set((leads.data || []).map((row) => row.client_id)).size;
+            const fresh = work && !work.error && work.data ? Number(work.data.new_requirements_7d) || 0 : 0;
+            kpis.set('leads', { value: number(clients), sub: fresh ? countText(fresh, FRESH_FORMS) : 'لهم طلب شراء أو إيجار نشط' });
+        }
+
+        if (noDeals) {
+            kpis.set('visits', visits.error ? failed(visits.error) : {
+                value: number(visits.count || 0),
+                sub: visits.count ? 'خلال ' + VISIT_DAYS + ' أيام' : 'لا شيء خلال ' + VISIT_DAYS + ' أيام'
+            });
+        }
+    }
+
+    /* ---------- رسم القائمة ---------- */
+
+    function drawQueue() {
+        // قبل وصول البيانات يبقى «جارٍ التحميل»: ضغطة رقم مبكرة تختار الحبّة فقط، ولا تُظهر «لا شيء» كاذبة
+        if (!queue.ready) return;
+        const t = queue.totals;
+        const failedKinds = new Set(queue.errors.map((e) => e.kind));
+        for (const f of filters) chips.setCount(f.value, f.value === 'all' ? t.all : failedKinds.has(f.value) ? null : t[f.value]);
+        totalBadge.textContent = number(t.all);
+        totalBadge.hidden = !t.all;
+
+        const v = queueView(queue.items, t, view.filter, view.expanded);
+        const errors = queue.errors.filter((e) => view.filter === 'all' || e.kind === view.filter);
+        const parts = errors.map((e) => errorBox(e.error, e.prefix, () => reloadAll()));
+        if (v.shown.length) parts.push(el('ol', { class: 'wq-list' }, v.shown.map(itemRow)));
+        else if (!errors.length) parts.push(emptyQueue(view.filter));
+        for (const kind of Object.keys(v.more)) parts.push(moreRow(kind, v.more[kind]));
+        replace(listHost, parts);
+        listHost.removeAttribute('aria-busy');
+
+        toggle.hidden = !v.toggle;
+        toggle.setAttribute('aria-expanded', String(view.expanded));
+        replace(toggle, el('span', { text: view.expanded ? 'عرض أقل' : 'عرض الكل (' + number(v.total) + ')' }));
+    }
+
+    function emptyQueue(filter) {
+        const [title, hint] = EMPTY_TEXT[filter] || EMPTY_TEXT.all;
+        return emptyPanel('check', title, noDeals && filter === 'all' ? 'لا متابعات متأخرة ولا مواعيد اليوم.' : hint);
+    }
+
+    // ما لم يُحمَّل لأن المصدر تجاوز حده (المدير وحده عادةً): رابط إلى صفحته بالعدد الباقي
+    function moreRow(kind, n) {
+        if (kind === 'late') {
+            return morePanel('و' + countText(n, ['متابعة متأخرة أخرى', 'متابعتان متأخرتان أخريان', 'متابعات متأخرة أخرى', 'متابعة متأخرة أخرى'])
+                + ' في «المواعيد»', '#/calendar', () => presetCalendarScope('overdue'));
+        }
+        if (kind === 'today') {
+            return morePanel('و' + countText(n, ['موعد آخر اليوم', 'موعدان آخران اليوم', 'مواعيد أخرى اليوم', 'موعداً آخر اليوم'])
+                + ' في «المواعيد»', '#/calendar', () => presetCalendarScope('today'));
+        }
+        if (kind === 'wait') return morePanel('و' + countText(n, ['عرض آخر', 'عرضان آخران', 'عروض أخرى', 'عرضاً آخر']) + ' في «المشاريع»', '../projects.html');
+        return null;
+    }
+
+    function itemRow(item) {
+        if (item.kind === 'stuck') return dealItem(item);
+        if (item.kind === 'wait') return offerItem(item);
+        return followUpItem(item);
+    }
+
+    // حبّة السبب: لونها معناها، ونصها يقوله أيضاً (لا يُعتمد على اللون وحده)
+    function reasonChip(item) {
+        if (item.kind === 'today') {
+            const when = FMT_TIME.format(new Date(item.at));
+            return el('span', {
+                class: 'wq-reason ' + (item.passed ? 'wq-reason-due' : 'wq-reason-today'), title: fmtDateTime(item.at),
+                text: item.passed ? when + ' · حان موعدها' : when
+            });
+        }
+        const title = item.kind === 'late' ? 'موعدها ' + fmtDateTime(item.at)
+            : item.kind === 'stuck' ? 'في هذه المرحلة منذ ' + fmtDate(item.at)
+            : item.at ? 'أُرسل ' + fmtDateTime(item.at) : null;
+        return el('span', { class: 'wq-reason wq-reason-' + item.kind, title, text: reasonText(item) });
+    }
+
+    // المتابعة: العميل، ثم القناة والغرض (واسم المكلَّف إن لم يكن أنا)، واتصال وواتساب و«تم» (ومنها «لم يرد — أجّلها»)
+    function followUpItem(item) {
+        const row = item.row;
+        const client = row.client || {};
+        const name = client.full_name || 'العميل';
+        const context = [
+            label(CHANNEL, row.channel),
+            row.purpose,
+            row.assigned_to && row.assigned_to !== me ? staffName(names, row.assigned_to) : null
+        ].filter(Boolean).join(' · ');
+        return el('li', { class: 'wq-item wq-item-' + item.kind }, [
+            el('div', { class: 'wq-main' }, [
+                el('div', { class: 'wq-top' }, [
+                    reasonChip(item),
+                    el('a', { class: 'wq-name', href: '#/clients/' + row.client_id, text: client.full_name || 'فتح ملف العميل' })
+                ]),
+                el('p', { class: 'wq-ctx', text: context })
+            ]),
+            el('div', { class: 'wq-actions' }, [
+                ...contactLinks(client.phone, name),
+                el('button', {
+                    type: 'button', class: 'btn w4-done', 'aria-label': 'تم: ' + name,
+                    onclick: () => openDoneForm(row, () => reloadAll())
+                }, [icon('check'), el('span', { text: 'تم' })])
+            ])
         ]);
-        if (!kpis.node.isConnected) return;
-        if (all.error) return void kpis.set('deals', failed(all.error));
-        // العدد صريح دائماً تحت الرقم («صفقة متأخرة…» لا «تجاوزت…» وحدها، فلا يُفهم أن الصفقات كلها متأخرة)
-        kpis.set('deals', {
-            value: number(all.count || 0),
-            subTone: late.count ? 'late' : null,
-            sub: late.count ? arCount(late.count, 'صفقة متأخرة عن موعدها', 'صفقتان متأخرتان عن موعدهما', 'صفقات متأخرة عن موعدها', 'صفقة متأخرة عن موعدها')
-                : closing.count ? arCount(closing.count, 'صفقة تُغلق خلال أسبوعين', 'صفقتان تُغلقان خلال أسبوعين', 'صفقات تُغلق خلال أسبوعين', 'صفقة تُغلق خلال أسبوعين')
-                : 'من الاهتمام حتى الإغلاق'
+    }
+
+    // الصفقة الواقفة: العميل (رابط الصفقة)، ثم العقار والوحدة والقيمة (والوسيط إن لم يكن أنا)، و«انقله إلى» المرحلة التالية
+    function dealItem(item) {
+        const deal = item.row;
+        const client = deal.client || {};
+        const name = client.full_name || 'صفقة';
+        const project = deal.project && deal.project.name ? deal.project.name : (deal.project_id ? 'عقار رقم ' + deal.project_id : 'بدون عقار');
+        const context = [
+            project,
+            deal.unit_key,
+            deal.amount ? money(deal.amount) + ' ر.س' : null,
+            deal.broker_id && deal.broker_id !== me ? staffName(names, deal.broker_id) : null
+        ].filter(Boolean).join(' · ');
+        const action = dealAction(item, { canMove: isAdmin() || deal.broker_id === me });
+        const main = action.type === 'move'
+            ? el('button', {
+                type: 'button', class: 'wq-move', 'aria-label': action.label + ' — ' + name,
+                onclick: (event) => moveDeal(event.currentTarget, deal, action.stage)
+            }, el('span', { text: action.label }))
+            : el('a', { class: 'wq-move', href: '#/deals/' + deal.id, 'aria-label': 'افتح الصفقة — ' + name }, el('span', { text: 'افتح الصفقة' }));
+        return el('li', { class: 'wq-item wq-item-stuck' }, [
+            el('div', { class: 'wq-main' }, [
+                el('div', { class: 'wq-top' }, [reasonChip(item), el('a', { class: 'wq-name', href: '#/deals/' + deal.id, text: name })]),
+                el('p', { class: 'wq-ctx', text: context })
+            ]),
+            el('div', { class: 'wq-actions' }, [...contactLinks(client.phone, name), main])
+        ]);
+    }
+
+    // عرضي عند المدير: لا إجراء للوسيط فيه إلا أن يعرف، فالسطر معلومة ورابط إلى صفحة المشاريع حيث يراه ويعدّله
+    function offerItem(item) {
+        const project = item.row;
+        const context = [project.type, project.district, project.price ? money(project.price) + ' ر.س' : null].filter(Boolean).join(' · ');
+        return el('li', { class: 'wq-item wq-item-wait' }, [
+            el('div', { class: 'wq-main' }, [
+                el('div', { class: 'wq-top' }, [
+                    reasonChip(item),
+                    el('a', { class: 'wq-name', href: '../projects.html', text: project.name || 'عرض رقم ' + project.id })
+                ]),
+                el('p', { class: 'wq-ctx', text: context || 'بانتظار اعتماد المدير' })
+            ])
+        ]);
+    }
+
+    // نقل الصفقة إلى المرحلة التالية: update واحد كما في صفحة الصفقة، والخادم يكتب السجل والحجز (007 و030).
+    // شرط المرحلة الحالية يمنع نقلها مرتين بضغطتين أو من صفحة قديمة.
+    async function moveDeal(button, deal, stage) {
+        button.disabled = true;
+        const { data, error } = await safe(supabase.from('deals').update({ stage_id: stage.id })
+            .eq('id', deal.id).eq('stage_id', deal.stage_id).select('id'));
+        button.disabled = false;
+        if (error) return void fail(error, 'تعذّر نقل الصفقة');
+        if (!data || data.length === 0) return void notify('لم تُنقل الصفقة: تغيّرت مرحلتها، أو لا تملك تعديلها', 'error', 8000);
+        notify('تم الانتقال إلى: ' + stage.name_ar, 'success');
+        reloadAll();
+    }
+
+    /* ---------- «مساري» ---------- */
+
+    async function loadPath() {
+        if (!pathNode) return;
+        const mine = ++pathSeq;
+        const days = pathPeriod;
+        for (const [value, button] of periodButtons) button.setAttribute('aria-pressed', String(value === days));
+        pathSub.textContent = (isAdmin() ? 'الفريق كله · ' : '') + 'آخر ' + daysText(days);
+        stepsHost.setAttribute('aria-busy', 'true');
+        if (!stepsHost.querySelector('.wq-steps')) replace(stepsHost, loading());
+
+        const since = periodStart(days).toISOString();
+        const stages = await dealStages().catch(() => null);
+        if (mine !== pathSeq || !stepsHost.isConnected) return;
+        const viewingId = stageId(stages, 'viewing', 2);
+        const depositId = stageId(stages, 'deposit', 4);
+        const wonIds = stages ? stages.filter((s) => s.is_won).map((s) => s.id) : [6];
+
+        const [shared, clients, visits, moves, deposits, won] = await Promise.all([
+            safe(supabase.from('property_matches').select('id', { count: 'exact', head: true }).gte('created_at', since)),
+            safe(supabase.from('clients').select('id', { count: 'exact', head: true }).gte('created_at', since)),
+            safe(fetchAll(() => supabase.from('follow_ups').select('id, client_id')
+                .eq('status', 'done').eq('channel', 'visit').gte('done_at', since).order('id', { ascending: true }))),
+            safe(fetchAll(() => supabase.from('deal_stage_history').select('id, deal_id, deal:deals(client_id)')
+                .eq('to_stage', viewingId).gte('changed_at', since).order('id', { ascending: true }))),
+            safe(fetchAll(() => supabase.from('deal_stage_history').select('id, deal_id')
+                .eq('to_stage', depositId).gte('changed_at', since).order('id', { ascending: true }))),
+            safe(supabase.from('deals').select('id', { count: 'exact', head: true }).in('stage_id', wonIds).gte('closed_at', since))
+        ]);
+        if (mine !== pathSeq || !stepsHost.isConnected) return;
+
+        const steps = pathSteps({
+            shared: shared.error ? null : shared.count || 0,
+            clients: clients.error ? null : clients.count || 0,
+            viewing: visits.error || moves.error ? null : viewingCount(visits.data, moves.data),
+            // صفقة دخلت «عربون» مرتين في المدة (رجعت ثم عادت) تُعدّ مرة
+            deposit: deposits.error ? null : distinctCount((deposits.data || []).map((row) => row.deal_id)),
+            won: won.error ? null : won.count || 0
         });
+        replace(stepsHost, el('ol', { class: 'wq-steps' }, steps.map((step, i) => stepRow(step, i ? steps[i - 1] : null))));
+        const firstError = [shared, clients, visits, moves, deposits, won].map((r) => r.error).find(Boolean);
+        if (firstError) append(stepsHost, errorBox(firstError, 'تعذّر حساب بعض الخطوات', () => loadPath()));
+        stepsHost.removeAttribute('aria-busy');
     }
 
-    /* ---------- اللوحتان الجديدتان ---------- */
-
-    async function loadVisits() {
-        replace(panels.visits.body, loading());
-        const { data, error, count } = await Promise.resolve(supabase
-            .from('follow_ups')
-            .select('id, due_at, channel, purpose, assigned_to, client_id, requirement_id, client:clients(full_name, phone)', { count: 'exact' })
-            .eq('status', 'pending').eq('channel', 'visit')
-            .gte('due_at', localDayStart(0)).lt('due_at', localDayStart(VISIT_DAYS + 1))
-            .order('due_at', { ascending: true })
-            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
-        if (!panels.visits.body.isConnected) return;
-        if (error) return void replace(panels.visits.body, errorBox(error, 'تعذّر تحميل المعاينات', loadVisits));
-        panels.visits.setCount(count || 0);
-        const rows = data || [];
-        if (!rows.length) {
-            return void replace(panels.visits.body, emptyPanel('eye', 'لا معاينات في الأيام السبعة القادمة',
-                'موعد المعاينة متابعة بقناة «زيارة» من ملف العميل.'));
-        }
-        replace(panels.visits.body, [
-            el('ol', { class: 'w4-list' }, rows.map((row) => visitRow(row, names, reloadAll))),
-            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'معاينة أخرى', 'معاينتان أخريان', 'معاينات أخرى', 'معاينة أخرى'), '#/calendar', () => presetCalendarScope('visits')) : null
+    // خطوة: اسمها وعددها ونسبتها من التي قبلها، وشريط بطولها من الأولى (زخرفي: الأرقام نفسها مكتوبة)
+    function stepRow(step, prev) {
+        const count = step.count === null ? '—' : number(step.count);
+        const pct = !prev ? null : step.pct === null ? '—' : number(step.pct) + '٪';
+        const title = step.count === null ? step.label + ': تعذّر حسابها'
+            : step.label + ': ' + number(step.count) + (prev && step.pct !== null ? ' — ' + number(step.pct) + '٪ من «' + prev.label + '»' : '');
+        return el('li', { class: 'wq-step wq-step-' + step.key, title }, [
+            el('div', { class: 'wq-step-top' }, [
+                el('span', { class: 'wq-step-name', text: step.label }),
+                el('span', { class: 'wq-step-num', text: count }),
+                pct === null
+                    ? el('span', { class: 'wq-step-pct', 'aria-hidden': 'true' })
+                    : el('span', { class: 'wq-step-pct' }, [pct, el('span', { class: 'w4-sr', text: ' من «' + prev.label + '»' })])
+            ]),
+            el('div', { class: 'wq-step-bar', 'aria-hidden': 'true' }, el('span', { class: 'wq-step-fill', style: 'width:' + step.width + '%' }))
         ]);
     }
 
-    async function loadDeals() {
-        replace(panels.deals.body, loading());
-        if (noDeals) return void loadNewRequests();
-        let stages;
-        try {
-            stages = await stageMap();
-        } catch (error) {
-            return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل مراحل الصفقات', loadDeals));
-        }
-        const openIds = [...stages.values()].filter((s) => !s.is_terminal).map((s) => s.id);
-        // الأقرب إغلاقاً أولاً (والمتأخرة قبلها لأنها أقدم تاريخاً)، ثم ما لا تاريخ له بحسب الأقدم تحديثاً
-        const { data, error, count } = await Promise.resolve(supabase
-            .from('deals')
-            .select('id, stage_id, amount, unit_key, project_id, expected_close_date, updated_at, client:clients(full_name), project:projects(name)', { count: 'exact' })
-            .in('stage_id', openIds)
-            .order('expected_close_date', { ascending: true, nullsFirst: false })
-            .order('updated_at', { ascending: true })
-            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
-        if (!panels.deals.body.isConnected) return;
-        if (error) return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل الصفقات', loadDeals));
-        panels.deals.setCount(count || 0);
-        const rows = data || [];
-        if (!rows.length) {
-            return void replace(panels.deals.body, emptyPanel('briefcase', 'لا صفقات مفتوحة',
-                'حين يهتم العميل بعقار افتح له صفقة من صفحة الطلب أو من «العقارات».'));
-        }
-        replace(panels.deals.body, [
-            el('ol', { class: 'w4-list' }, rows.map((row) => dealRow(row, stages))),
-            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'صفقة أخرى', 'صفقتان أخريان', 'صفقات أخرى', 'صفقة أخرى'), '#/deals') : null
-        ]);
-    }
+    /* ---------- مركز الاتصال: أحدث الطلبات المفتوحة مكان «مساري» ---------- */
 
-    // مركز الاتصال: أحدث الطلبات المفتوحة مكان الصفقات
     async function loadNewRequests() {
-        const { data, error, count } = await Promise.resolve(supabase
+        if (!requests) return;
+        replace(requests.body, loading());
+        const { data, error, count } = await safe(supabase
             .from('client_requirements')
             .select('id, client_id, purpose, property_type, city, budget_min, budget_max, created_at, client:clients(full_name)', { count: 'exact' })
             .eq('status', 'open')
             .order('created_at', { ascending: false })
-            .range(0, PANEL_ROWS - 1)).catch((e) => ({ error: e }));
-        if (!panels.deals.body.isConnected) return;
-        if (error) return void replace(panels.deals.body, errorBox(error, 'تعذّر تحميل الطلبات', loadDeals));
-        panels.deals.setCount(count || 0);
+            .range(0, PANEL_ROWS - 1));
+        if (!requests.body.isConnected) return;
+        if (error) return void replace(requests.body, errorBox(error, 'تعذّر تحميل الطلبات', loadNewRequests));
+        requests.setCount(count || 0);
         const rows = data || [];
-        if (!rows.length) return void replace(panels.deals.body, emptyPanel('file', 'لا طلبات مفتوحة', 'الطلب يُضاف من ملف العميل ← «طلب جديد».'));
-        replace(panels.deals.body, [
+        if (!rows.length) return void replace(requests.body, emptyPanel('file', 'لا طلبات مفتوحة', 'الطلب يُضاف من ملف العميل ← «طلب جديد».'));
+        replace(requests.body, [
             el('ol', { class: 'w4-list' }, rows.map(requestRow)),
-            count > rows.length ? morePanel('و' + arCount(count - rows.length, 'طلب آخر', 'طلبان آخران', 'طلبات أخرى', 'طلباً آخر'), '#/requests') : null
+            count > rows.length ? morePanel('و' + countText(count - rows.length, ['طلب آخر', 'طلبان آخران', 'طلبات أخرى', 'طلباً آخر']), '#/requests') : null
         ]);
     }
 
-    async function reloadAll() {
-        await Promise.all([loadStats(), lateList.reload(), todayList.reload(), loadVisits(), loadDeals()]);
+    function reloadAll() {
+        return Promise.all([loadWork(), noDeals ? loadNewRequests() : loadPath()]);
     }
 
     await reloadAll();
@@ -296,18 +606,22 @@ export async function renderWork(root) {
 
 /* ===================== الأرقام ===================== */
 
-// شريط الأرقام: كل رقم زر (يفتح لوحته في الصفحة) أو رابط (يفتح صفحته). تُرسم الخانات فوراً وتمتلئ حين تصل أرقامها،
-// فلا يقفز التخطيط. set(key, { value, unit, sub, tone, subTone }).
-function kpiStrip(defs) {
+// شريط الأرقام: كل رقم زر (يفتح سببه في الصفحة) أو رابط (يفتح صفحته)، وخانة بلا وجهة نصٌّ فقط (لا زر لا يفعل شيئاً).
+// تُرسم الخانات فوراً وتمتلئ حين تصل أرقامها، فلا يقفز التخطيط. set(key, { value, unit, sub, tone, subTone, subClass,
+// className, title }). value نص أو عناصر.
+export function kpiStrip(defs, groupLabel = 'أرقام اليوم') {
     const cells = new Map();
-    const node = el('div', { class: 'kpi-strip kpi-strip-' + defs.length, role: 'group', 'aria-label': 'أرقام اليوم' }, defs.map((def) => {
+    const node = el('div', { class: 'kpi-strip kpi-strip-' + defs.length, role: 'group', 'aria-label': groupLabel }, defs.map((def) => {
         const num = el('span', { class: 'kpi-num' });
         const subLine = el('span', { class: 'kpi-sub' });
+        const parts = [el('span', { class: 'kpi-label', text: def.label }), num, subLine];
         const attrs = { class: 'kpi kpi-link', dataset: { kpi: def.key } };
         const cell = def.href
-            ? el('a', Object.assign(attrs, { href: def.href }), [el('span', { class: 'kpi-label', text: def.label }), num, subLine])
-            : el('button', Object.assign(attrs, { type: 'button', onclick: def.go }), [el('span', { class: 'kpi-label', text: def.label }), num, subLine]);
-        cells.set(def.key, { cell, num, subLine, def });
+            ? el('a', Object.assign(attrs, { href: def.href, onclick: def.onclick || null }), parts)
+            : def.go
+                ? el('button', Object.assign(attrs, { type: 'button', onclick: def.go }), parts)
+                : el('div', { class: 'kpi', dataset: { kpi: def.key } }, parts);
+        cells.set(def.key, { cell, num, subLine, base: cell.className });
         return cell;
     }));
     return {
@@ -323,13 +637,13 @@ function kpiStrip(defs) {
         set(key, data) {
             const c = cells.get(key);
             if (!c) return;
-            c.cell.classList.remove('is-loading', 'kpi-late', 'kpi-due', 'kpi-failed');
+            c.cell.className = c.base + (data.tone ? ' kpi-' + data.tone : '') + (data.className ? ' ' + data.className : '');
             c.cell.removeAttribute('aria-busy');
-            if (data.tone) c.cell.classList.add('kpi-' + data.tone);
             replace(c.num, [data.value, data.unit ? el('small', { class: 'kpi-unit', text: data.unit }) : null]);
             c.subLine.textContent = data.sub || '';
-            c.subLine.className = 'kpi-sub' + (data.subTone ? ' kpi-sub-' + data.subTone : '');
-            c.cell.title = data.title || '';
+            c.subLine.className = 'kpi-sub' + (data.subTone ? ' kpi-sub-' + data.subTone : '') + (data.subClass ? ' ' + data.subClass : '');
+            if (data.title) c.cell.title = data.title;
+            else c.cell.removeAttribute('title');
         }
     };
 }
@@ -338,11 +652,10 @@ function failed(error) {
     return { value: '—', tone: 'failed', sub: 'تعذّر الحساب', title: errorText(error) };
 }
 
-/* ===================== اللوحات ===================== */
+/* ===================== أجزاء مشتركة ===================== */
 
 function panel(key, title, iconName, extra) {
-    const count = el('span', { class: 'w4-count' + (key === 'late' ? ' w4-count-late' : ''), hidden: true });
-    const segCount = el('span', { class: 'w4-count' + (key === 'late' ? ' w4-count-late' : ''), hidden: true });
+    const count = el('span', { class: 'w4-count', hidden: true });
     const body = el('div', { class: 'w4-panel-body' }, loading());
     const id = 'w4-' + key + '-title';
     const node = el('section', { class: 'w4-panel w4-panel-' + key, 'aria-labelledby': id }, [
@@ -354,12 +667,10 @@ function panel(key, title, iconName, extra) {
         body
     ]);
     return {
-        node, body, segCount,
+        node, body,
         setCount(n) {
-            for (const badgeNode of [count, segCount]) {
-                badgeNode.textContent = number(n);
-                badgeNode.hidden = !n;
-            }
+            count.textContent = number(n);
+            count.hidden = !n;
         }
     };
 }
@@ -376,6 +687,11 @@ function morePanel(text, href, onclick) {
     return el('a', { class: 'w4-more', href: href, onclick: onclick || null }, [el('span', { text: text }), icon('arrow')]);
 }
 
+function stageId(stages, key, fallback) {
+    const found = (stages || []).find((s) => s && s.key === key);
+    return found ? found.id : fallback;
+}
+
 /* ===================== الإجراءات السريعة ===================== */
 
 function quickActions(onSaved) {
@@ -387,133 +703,24 @@ function quickActions(onSaved) {
                 else onSaved();
             })
         }, [icon('userPlus'), el('span', { text: 'عميل جديد' })])
-        // التصميم الخامس: زر واحد في الرأس. البحث في الشريط العلوي (وعلى الجوال تحت العنوان)، و«إضافة عرض» باب في
-        // القائمة، و«كل المواعيد» رابط في رأس لوحة مواعيد اليوم.
+        // زر واحد في الرأس: البحث في الشريط العلوي (وعلى الجوال تحته)، و«إضافة عرض» باب في القائمة، و«كل المواعيد»
+        // رابط في رأس قائمة «يحتاج إجراء».
     ];
 }
 
-/* ===================== قوائم المتابعات ===================== */
+/* ===================== السطور ===================== */
 
-// قائمة متابعات معلّقة ضمن نطاق زمني، بترقيم مستقل. draw يرسم الصفوف بعد كل تحميل.
-function followUpList(target, scope, draw) {
-    const view = { page: 0 };
-    const host = target.body;
-    let seq = 0;
-
-    async function reload() {
-        const mine = ++seq;
-        replace(host, loading());
-        const [from, to] = pageRange(view.page);
-
-        let query = supabase
-            .from('follow_ups')
-            .select('id, due_at, channel, purpose, assigned_to, client_id, requirement_id, client:clients(full_name, phone)',
-                { count: 'exact' })
-            .eq('status', 'pending')
-            .range(from, to);
-
-        if (scope === 'today') {
-            query = query
-                .gte('due_at', localDayStart(0))
-                .lt('due_at', localDayStart(1))
-                .order('due_at', { ascending: true });
-        } else {
-            query = query
-                .lt('due_at', localDayStart(0))
-                .order('due_at', { ascending: true });
-        }
-
-        const result = await Promise.resolve(query).catch((e) => ({ error: e }));
-        if (mine !== seq || !host.isConnected) return;
-        // «تم» على آخر صف في آخر صفحة: يعود إلى آخر صفحة صالحة بدل «لا متابعات» كاذبة
-        const back = pageBack(view.page, result);
-        if (back !== null) { view.page = back; return reload(); }
-        const { data, error, count } = result;
-        if (error) return void replace(host, errorBox(error, 'تعذّر تحميل المتابعات', reload));
-        const rows = data || [];
-        const total = count || rows.length;
-        target.setCount(total);
-        replace(host, [
-            draw(rows, view.page, total),
-            total > PAGE_SIZE ? pager(view.page, total, (p) => { view.page = p; reload(); }, PAGE_SIZE) : null
-        ]);
-    }
-
-    return { reload: reload };
-}
-
-function lateRow(row, names, onChanged) {
-    const client = row.client || {};
-    return el('li', { class: 'w4-row w4-task' }, [
-        el('div', { class: 'w4-main' }, [
-            el('div', { class: 'w4-top' }, [
-                clientLink(row),
-                el('span', { class: 'w4-badge w4-badge-late', title: fmtDateTime(row.due_at), text: lateText(new Date(row.due_at)) })
-            ]),
-            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
-            el('p', { class: 'w4-meta', text: label(CHANNEL, row.channel) + ' · ' + staffName(names, row.assigned_to) })
-        ]),
-        actions(row, client, onChanged)
-    ]);
-}
-
-function todayRow(row, names, onChanged) {
-    const client = row.client || {};
-    const due = new Date(row.due_at);
-    const passed = due.getTime() <= Date.now();
-    return el('li', { class: 'w4-row w4-row-today w4-task' + (passed ? ' w4-row-due' : '') }, [
-        el('div', { class: 'w4-time' }, [
-            el('strong', { text: FMT_TIME.format(due) }),
-            el('span', { text: soonText(due) })
-        ]),
-        el('div', { class: 'w4-main' }, [
-            el('div', { class: 'w4-top' }, [clientLink(row), row.channel === 'visit' ? el('span', { class: 'w4-badge w4-badge-visit', text: 'معاينة' }) : null]),
-            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
-            el('p', { class: 'w4-meta', text: label(CHANNEL, row.channel) + ' · ' + staffName(names, row.assigned_to) })
-        ]),
-        actions(row, client, onChanged)
-    ]);
-}
-
-// المعاينة: يومها ووقتها، ثم العميل والغرض، وأزرار الاتصال و«تم» كبقية المتابعات
-function visitRow(row, names, onChanged) {
-    const client = row.client || {};
-    const due = new Date(row.due_at);
-    return el('li', { class: 'w4-row w4-row-today w4-row-visit w4-task' }, [
-        el('div', { class: 'w4-time' }, [
-            el('strong', { text: dayText(row.due_at) }),
-            el('span', { text: FMT_TIME.format(due) })
-        ]),
-        el('div', { class: 'w4-main' }, [
-            el('div', { class: 'w4-top' }, [clientLink(row)]),
-            row.purpose ? el('p', { class: 'w4-purpose', text: row.purpose }) : null,
-            el('p', { class: 'w4-meta', text: staffName(names, row.assigned_to) })
-        ]),
-        actions(row, client, onChanged)
-    ]);
-}
-
-// الصفقة: العميل ومرحلتها، والعقار، وموعد الإغلاق المتوقع (بالأحمر إن فات) والقيمة. السطر كله رابط لصفحتها.
-function dealRow(row, stages) {
-    const today = localDayStart(0).slice(0, 10);
-    const late = row.expected_close_date && row.expected_close_date < today;
-    const project = row.project && row.project.name ? row.project.name : (row.project_id ? 'عقار رقم ' + row.project_id : 'بدون عقار');
-    const when = row.expected_close_date
-        ? (late ? 'تجاوزت موعد الإغلاق ' + fmtDate(row.expected_close_date) : 'الإغلاق المتوقع ' + fmtDate(row.expected_close_date))
-        : 'بلا موعد إغلاق متوقع';
-    return el('li', { class: 'w4-row w4-row-deal' }, [
-        el('a', { class: 'w4-main w4-row-link', href: '#/deals/' + row.id }, [
-            el('div', { class: 'w4-top' }, [
-                el('span', { class: 'w4-name', text: (row.client && row.client.full_name) || 'عميل' }),
-                badge(stageName(stages, row.stage_id), DEAL_STAGE_TONE[row.stage_id] || 'neutral')
-            ]),
-            el('p', { class: 'w4-purpose', text: project + (row.unit_key ? ' · ' + row.unit_key : '') }),
-            el('p', { class: 'w4-meta' }, [
-                el('span', { class: late ? 'is-late' : null, text: when }),
-                row.amount ? ' · ' + money(row.amount) + ' ر.س' : null
-            ])
-        ])
-    ]);
+// اتصال وواتساب (إن وُجد رقم) — بحجم الإصبع على الجوال، ولكل رابط اسم يُقرأ
+function contactLinks(phone, name) {
+    if (!phone) return [];
+    return [
+        el('a', {
+            class: 'w4-icon', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), title: 'اتصال: ' + phone
+        }, [icon('phone'), el('span', { class: 'w4-sr', text: 'اتصال بـ ' + name })]),
+        el('a', {
+            class: 'w4-icon w4-icon-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener', title: 'واتساب: ' + phone
+        }, [icon('chat'), el('span', { class: 'w4-sr', text: 'واتساب ' + name })])
+    ];
 }
 
 function requestRow(row) {
@@ -527,52 +734,4 @@ function requestRow(row) {
             el('p', { class: 'w4-meta', text: budgetText(row) + ' · أُضيف ' + dayText(row.created_at) })
         ])
     ]);
-}
-
-function clientLink(row) {
-    const client = row.client || {};
-    return el('a', { class: 'w4-name', href: '#/clients/' + row.client_id, text: client.full_name || 'فتح ملف العميل' });
-}
-
-// اتصال وواتساب (إن وُجد رقم) و«تم» — بحجم الإصبع، ولكل زر اسم يُقرأ
-function actions(row, client, onChanged) {
-    const name = client.full_name || 'العميل';
-    const phone = client.phone;
-    return el('div', { class: 'w4-actions' }, [
-        phone ? el('a', {
-            class: 'w4-icon', href: 'tel:' + String(phone).replace(/[^0-9+]/g, ''), title: 'اتصال: ' + phone
-        }, [icon('phone'), el('span', { class: 'w4-sr', text: 'اتصال بـ ' + name })]) : null,
-        phone ? el('a', {
-            class: 'w4-icon w4-icon-wa', href: 'https://wa.me/' + waNumber(phone), target: '_blank', rel: 'noopener', title: 'واتساب: ' + phone
-        }, [icon('chat'), el('span', { class: 'w4-sr', text: 'واتساب ' + name })]) : null,
-        el('button', {
-            type: 'button', class: 'btn w4-done', 'aria-label': 'تم: ' + name,
-            onclick: () => openDoneForm(row, onChanged)
-        }, [icon('check'), el('span', { text: 'تم' })])
-    ]);
-}
-
-/* ===================== نصوص ===================== */
-
-// العدد مع المعدود بالعربية: 1 مفرد، 2 مثنى، 3–10 جمع، 11+ مفرد منصوب
-function arCount(n, one, two, few, many) {
-    if (n === 1) return one;
-    if (n === 2) return two;
-    if (n >= 3 && n <= 10) return n + ' ' + few;
-    return n + ' ' + many;
-}
-
-function lateText(due) {
-    const start = new Date(); start.setHours(0, 0, 0, 0);
-    const day = new Date(due); day.setHours(0, 0, 0, 0);
-    const days = Math.max(1, Math.round((start - day) / 86400000));
-    return 'منذ ' + arCount(days, 'يوم', 'يومين', 'أيام', 'يوماً');
-}
-
-function soonText(due) {
-    const minutes = Math.round((due.getTime() - Date.now()) / 60000);
-    if (minutes <= 0) return 'حان موعدها';
-    if (minutes < 60) return 'بعد ' + arCount(minutes, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة');
-    const hours = Math.round(minutes / 60);
-    return 'بعد ' + arCount(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة');
 }

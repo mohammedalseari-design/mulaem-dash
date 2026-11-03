@@ -46,10 +46,31 @@ export function pathSteps(stages, stageId) {
     return { status, steps };
 }
 
+// رقم «خسرت» في deal_stages (007)، كما في moveTo بصفحة الصفقة. حالة «خسرت» (سببها وملاحظتها) تُعرض بالمراحل، فإن
+// تعذّر تحميلها (status: unknown) فبرقم المرحلة وحده كما كانت الترويسة تعرضها: لا يختفي السبب مع قائمة المراحل.
+export const LOST_STAGE_ID = 7;
+export function showLost(model, stageId) {
+    if (!model) return false;
+    return model.status === 'lost' || (model.status === 'unknown' && Number(stageId) === LOST_STAGE_ID);
+}
+
 /* ===================== المدة في المرحلة ===================== */
 
-// بعد «من» و«قبل» يُجرّ المثنى: daysText تكتب «يومان» وهي صحيحة وحدها، وهنا «من يومين»
+// أيام التقويم بتوقيت الجهاز بين وقتٍ ما والآن (كما dayText في ui.js): 0 = اليوم نفسه، 1 = أمس ولو قبل ساعات.
+// بها يُكتب السطر، فلا يُكتب «اليوم» لما كان مساء أمس. «واقفة» تبقى بالأيام الكاملة (daysSince) فلا يتغير حدّها.
+export function calendarDays(iso, now = Date.now()) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return null;
+    const midnight = (ms) => new Date(ms).setHours(0, 0, 0, 0);
+    // round لا floor: يوم تغيير الساعة الصيفية 23 أو 25 ساعة
+    const days = Math.round((midnight(now) - midnight(t)) / 86400000);
+    return days < 0 ? 0 : days;
+}
+
+// «اليوم» و«أمس» بأسمائهما، وبعد «من» و«قبل» يُجرّ المثنى: daysText تكتب «يومان» وهي صحيحة وحدها، وهنا «من يومين»
 function dayWord(days) {
+    if (days === 0) return 'اليوم';
+    if (days === 1) return 'أمس';
     return days === 2 ? 'يومين' : daysText(days);
 }
 
@@ -71,6 +92,7 @@ export function lostFrom(stages, deal, history) {
 // يومين وهي في «تفاوض»». history: صفوف deal_stage_history للصفقة، أو null إن تعذّرت قراءتها. المغلقة بلا سطرها في
 // السجل تكفيها closed_at (يكتبها الخادم لحظة دخول المرحلة النهائية) لا تاريخ إنشائها. والجارية بلا سجل لا يُكتب لها
 // شيء: تاريخ إنشائها ليس تاريخ دخولها مرحلتها، والرقم الخاطئ أسوأ من غيابه.
+// النص بأيام التقويم («من أمس» لما دخلتها مساء أمس)، وdays والحكم «واقفة» بالأيام الكاملة (حدّ isStuck كما هو).
 export function sinceLine(stages, deal, history, now = Date.now()) {
     const stage = deal ? stageOf(stages, deal.stage_id) : null;
     if (!stage) return null;
@@ -78,11 +100,12 @@ export function sinceLine(stages, deal, history, now = Date.now()) {
         ? (history && enteredAt({ id: deal.id, stage_id: deal.stage_id }, history)) || deal.closed_at || null
         : (history ? enteredAt(deal, history) : null);
     const days = entered ? daysSince(entered, now) : null;
-    if (days === null) return null;
+    const dates = entered ? calendarDays(entered, now) : null;
+    if (days === null || dates === null) return null;
     if (!stage.is_terminal) {
         const stuck = isStuck(stage, days);
         return {
-            text: 'في «' + stage.name_ar + '» من ' + dayWord(days),
+            text: 'في «' + stage.name_ar + '» من ' + dayWord(dates),
             days,
             stuck,
             flag: stuck ? 'واقفة' : null,
@@ -91,7 +114,8 @@ export function sinceLine(stages, deal, history, now = Date.now()) {
     }
     const from = stage.is_won ? null : lostFrom(stages, deal, history);
     return {
-        text: (stage.is_won ? 'تمّت' : 'خسرت') + (days === 0 ? ' اليوم' : ' قبل ' + dayWord(days))
+        // «تمّت اليوم» و«تمّت أمس» ثم «تمّت قبل يومين» (لا «قبل أمس»: معناها اليوم الذي قبله)
+        text: (stage.is_won ? 'تمّت' : 'خسرت') + (dates > 1 ? ' قبل ' : ' ') + dayWord(dates)
             + (from ? ' وهي في «' + from.name_ar + '»' : ''),
         days,
         stuck: false,
@@ -158,6 +182,8 @@ export const NO_BASE_HINT = 'اكتب قيمة الصفقة لتظهر العم�
 //   «تمت» «مستحقة» = إجمالي صف العمولة نفسه (gross_amount)، ومعه حالة التحصيل إن تجاوزت «مستحقة»،
 //   «خسرت» «فائتة» = ما كانت ستكونه، بلون باهت.
 // input: { stage, amount, unitPrice, rate, rateFrom, row } — row: صف commissions أو null.
+// صف «تمت» حالته «معفاة» ليس مستحقاً: يُكتب «معفاة» بلون باهت (المبلغ ما كانت ستكونه، كـ«فائتة»)، و«محصّلة» تُكتب
+// بحالتها خضراء، فلا يناقض الصندوقُ شارةَ الحالة في بطاقة العمولة تحته. state يبقى حالة المرحلة (due).
 export function commissionBox(input) {
     const { stage, amount, unitPrice, rate, rateFrom, row } = input || {};
     const state = commissionState(stage);
@@ -170,7 +196,9 @@ export function commissionBox(input) {
         if (!row) return Object.assign(box, { hint: 'لم تُسجَّل عمولة لهذه الصفقة' });
         const value = Number(row.gross_amount);
         const parts = [formatRate(row.rate_percent) + ' من ' + sar(row.base_amount)];
-        if (row.status && row.status !== 'due' && COMMISSION_STATUS[row.status]) parts.push(COMMISSION_STATUS[row.status]);
+        const ownTone = row.status === 'waived' ? 'muted' : row.status === 'collected' ? 'ok' : null;
+        if (ownTone) Object.assign(box, { label: COMMISSION_STATUS[row.status], tone: ownTone });
+        else if (row.status && row.status !== 'due' && COMMISSION_STATUS[row.status]) parts.push(COMMISSION_STATUS[row.status]);
         return Object.assign(box, {
             value: row.gross_amount !== null && row.gross_amount !== undefined && Number.isFinite(value) ? value : null,
             valueText: sar(row.gross_amount),

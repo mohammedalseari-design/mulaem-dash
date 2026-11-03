@@ -1,10 +1,10 @@
-// اختبار crm/js/deal-page-model.js: خطوات «مسار الصفقة» وحالة كل خطوة، وسطر المدة فوق المسار (مع «واقفة» والمغلقة)،
-// ومن أي مرحلة خسرت، والإجراءات المسموحة لكل حالة ودور، وأساس العمولة وصندوقها. المراحل كما في 007_deals_commissions.sql
-// وتصل من القاعدة بأي ترتيب.
+// اختبار crm/js/deal-page-model.js: خطوات «مسار الصفقة» وحالة كل خطوة، ومتى تُعرض حالة «خسرت»، وسطر المدة فوق المسار
+// بأيام التقويم (مع «واقفة» والمغلقة)، ومن أي مرحلة خسرت، والإجراءات المسموحة لكل حالة ودور، وأساس العمولة وصندوقها.
+// المراحل كما في 007_deals_commissions.sql وتصل من القاعدة بأي ترتيب.
 // التشغيل: node tests/deal-page-model.test.mjs   أو   deno run tests/deal-page-model.test.mjs
 import {
-    sar, pathOrder, pathSteps, lostFrom, sinceLine, pathActions, commissionBase, unitPriceKey, commissionBox,
-    LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, NO_BASE_HINT
+    sar, pathOrder, pathSteps, showLost, calendarDays, lostFrom, sinceLine, pathActions, commissionBase, unitPriceKey, commissionBox,
+    LOST_STAGE_ID, LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, NO_BASE_HINT
 } from '../crm/js/deal-page-model.js';
 
 let pass = 0, fail = 0;
@@ -47,44 +47,79 @@ t('lost deal keeps the same six steps', lost.steps.length === 6 && !lost.steps.s
 t('unknown stage: nothing done', pathSteps(STAGES, 99).status === 'unknown' && states(pathSteps(STAGES, 99)) === 'todo,todo,todo,todo,todo,todo');
 t('no stages: no steps', pathSteps([], 3).steps.length === 0 && pathSteps(null, 3).status === 'unknown');
 
+/* ---------- حالة «خسرت» ---------- */
+t('lost state: from the stages', showLost(pathSteps(STAGES, 7), 7) === true && showLost(pathSteps(STAGES, 3), 3) === false
+    && showLost(pathSteps(STAGES, 6), 6) === false);
+t('lost state: stages not loaded, still shown by the lost stage number', LOST_STAGE_ID === 7 && showLost(pathSteps([], 7), 7) === true
+    && showLost(pathSteps(null, '7'), '7') === true && showLost(pathSteps([], 3), 3) === false);
+t('lost state: a known stage is not overridden by the number', showLost({ status: 'open', steps: [] }, 7) === false && showLost(null, 7) === false);
+
 /* ---------- السطر فوق المسار ---------- */
-const NOW = Date.parse('2026-11-03T10:00:00Z');
-const deal = { id: 'd1', stage_id: 3, created_at: '2026-10-01T08:00:00Z', updated_at: '2026-11-02T08:00:00Z', closed_at: null };
+// أوقات محلية بتوقيت الجهاز ('2026-11-03 13:00'): النص يعدّ أيام التقويم المحلية، فتُبنى الأوقات بها ولا يتعلق
+// الاختبار بمنطقة الجهاز (يمرّ بتوقيت الرياض وبـUTC في tests.yml). الفوارق ساعة فأكثر فلا تقلبها الساعة الصيفية.
+const L = (text) => {
+    const [date, time = '00:00'] = text.split(' ');
+    const [y, m, d] = date.split('-').map(Number);
+    const [h, mi] = time.split(':').map(Number);
+    return new Date(y, m - 1, d, h, mi).toISOString();
+};
+const NOW = Date.parse(L('2026-11-03 13:00'));
+const MORNING = Date.parse(L('2026-11-03 09:00'));
+
+t('calendar days: same day 0, yesterday 1 even hours ago', calendarDays(L('2026-11-03 00:30'), MORNING) === 0
+    && calendarDays(L('2026-11-02 23:30'), MORNING) === 1 && calendarDays(L('2026-11-02 01:00'), MORNING) === 1);
+t('calendar days: a week; the future is 0; a bad time is null', calendarDays(L('2026-10-27 09:00'), MORNING) === 7
+    && calendarDays(L('2026-11-04 09:00'), MORNING) === 0 && calendarDays('x', MORNING) === null && calendarDays(null, MORNING) === null);
+
+const deal = { id: 'd1', stage_id: 3, created_at: L('2026-10-01 11:00'), updated_at: L('2026-11-02 11:00'), closed_at: null };
 const history = [
-    { deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: '2026-10-28T09:00:00Z' },
-    { deal_id: 'd1', from_stage: 3, to_stage: 2, changed_at: '2026-10-25T08:00:00Z' },
-    { deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: '2026-10-20T08:00:00Z' },
-    { deal_id: 'd1', from_stage: null, to_stage: 1, changed_at: '2026-10-01T08:00:00Z' }
+    { deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: L('2026-10-28 12:00') },
+    { deal_id: 'd1', from_stage: 3, to_stage: 2, changed_at: L('2026-10-25 11:00') },
+    { deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: L('2026-10-20 11:00') },
+    { deal_id: 'd1', from_stage: null, to_stage: 1, changed_at: L('2026-10-01 11:00') }
 ];
 const six = sinceLine(STAGES, deal, history, NOW);
 t('open: «في «تفاوض» من 6 أيام» from the latest move in', six && six.text === 'في «تفاوض» من 6 أيام' && six.days === 6 && six.stuck === false && six.flag === null, six);
-const at = (iso) => [{ deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: iso }];
-t('two days reads «من يومين» (not يومان)', sinceLine(STAGES, deal, at('2026-11-01T09:00:00Z'), NOW).text === 'في «تفاوض» من يومين');
-t('one day', sinceLine(STAGES, deal, at('2026-11-02T09:00:00Z'), NOW).text === 'في «تفاوض» من يوم واحد');
-t('same day reads «من اليوم»', sinceLine(STAGES, deal, at('2026-11-03T07:00:00Z'), NOW).text === 'في «تفاوض» من اليوم');
-const stuck = sinceLine(STAGES, deal, at('2026-10-19T09:00:00Z'), NOW);
+const at = (text) => [{ deal_id: 'd1', from_stage: 2, to_stage: 3, changed_at: L(text) }];
+t('two days reads «من يومين» (not يومان)', sinceLine(STAGES, deal, at('2026-11-01 12:00'), NOW).text === 'في «تفاوض» من يومين');
+t('yesterday reads «من أمس»', sinceLine(STAGES, deal, at('2026-11-02 12:00'), NOW).text === 'في «تفاوض» من أمس');
+t('same day reads «من اليوم»', sinceLine(STAGES, deal, at('2026-11-03 10:00'), NOW).text === 'في «تفاوض» من اليوم');
+const lateYesterday = sinceLine(STAGES, deal, at('2026-11-02 23:00'), MORNING);
+t('entered late yesterday, read this morning: «من أمس», not «اليوم» (days stays full days)', lateYesterday.text === 'في «تفاوض» من أمس'
+    && lateYesterday.days === 0, lateYesterday);
+t('two calendar days ago in the evening: «من يومين» (34 hours)', sinceLine(STAGES, deal, at('2026-11-01 23:00'), MORNING).text === 'في «تفاوض» من يومين');
+const stuck = sinceLine(STAGES, deal, at('2026-10-19 12:00'), NOW);
 t('over 14 days: stuck, flagged «واقفة», with the reason', stuck.stuck === true && stuck.flag === 'واقفة'
     && stuck.text === 'في «تفاوض» من 15 يوماً' && stuck.title === 'مضى عليها أكثر من 14 يوماً في هذه المرحلة', stuck);
-t('exactly 14 days is not stuck yet', sinceLine(STAGES, deal, at('2026-10-20T09:00:00Z'), NOW).stuck === false);
+t('exactly 14 days is not stuck yet', sinceLine(STAGES, deal, at('2026-10-20 12:00'), NOW).stuck === false);
+const edge = sinceLine(STAGES, deal, at('2026-10-19 23:00'), MORNING);
+t('«واقفة» keeps full days (isStuck threshold unchanged): 15 calendar days but 14 full days is not stuck yet',
+    edge.text === 'في «تفاوض» من 15 يوماً' && edge.days === 14 && edge.stuck === false, edge);
 t('history unreadable: no line for an open deal', sinceLine(STAGES, deal, null, NOW) === null);
 t('history empty: open deal counts from creation', sinceLine(STAGES, deal, [], NOW).text === 'في «تفاوض» من 33 يوماً');
-t('history rows of another deal are ignored', sinceLine(STAGES, deal, [{ deal_id: 'd2', to_stage: 3, changed_at: '2026-11-03T09:00:00Z' }], NOW).days === 33);
+t('history rows of another deal are ignored', sinceLine(STAGES, deal, [{ deal_id: 'd2', to_stage: 3, changed_at: L('2026-11-03 12:00') }], NOW).days === 33);
 
-const wonDeal = { id: 'w1', stage_id: 6, created_at: '2026-09-01T08:00:00Z', closed_at: '2026-10-31T08:00:00Z' };
-const wonHistory = [{ deal_id: 'w1', from_stage: 5, to_stage: 6, changed_at: '2026-10-31T08:00:00Z' }];
+const wonDeal = { id: 'w1', stage_id: 6, created_at: L('2026-09-01 11:00'), closed_at: L('2026-10-31 11:00') };
+const wonHistory = [{ deal_id: 'w1', from_stage: 5, to_stage: 6, changed_at: L('2026-10-31 11:00') }];
+const closedAt = (text) => Object.assign({}, wonDeal, { closed_at: L(text) });
 t('won: «تمّت قبل 3 أيام»', sinceLine(STAGES, wonDeal, wonHistory, NOW).text === 'تمّت قبل 3 أيام');
-t('won today: «تمّت اليوم»', sinceLine(STAGES, Object.assign({}, wonDeal, { closed_at: '2026-11-03T08:00:00Z' }), [], NOW).text === 'تمّت اليوم');
+t('won today: «تمّت اليوم»', sinceLine(STAGES, closedAt('2026-11-03 11:00'), [], NOW).text === 'تمّت اليوم');
+t('won yesterday evening, read this morning: «تمّت أمس», not «اليوم»', sinceLine(STAGES, closedAt('2026-11-02 20:00'), [], MORNING).text === 'تمّت أمس');
+t('won two calendar days ago in the evening: «تمّت قبل يومين», not «قبل يوم واحد»',
+    sinceLine(STAGES, closedAt('2026-11-01 20:00'), [], MORNING).text === 'تمّت قبل يومين');
 t('won, history unreadable: closed_at', sinceLine(STAGES, wonDeal, null, NOW).text === 'تمّت قبل 3 أيام');
 t('won, no history row: closed_at, never the creation date', sinceLine(STAGES, wonDeal, [], NOW).days === 3);
-t('closed lines are never stuck', sinceLine(STAGES, Object.assign({}, wonDeal, { closed_at: '2026-08-01T08:00:00Z' }), [], NOW).stuck === false);
+t('closed lines are never stuck', sinceLine(STAGES, closedAt('2026-08-01 11:00'), [], NOW).stuck === false);
 
-const lostDeal = { id: 'l1', stage_id: 7, created_at: '2026-09-01T08:00:00Z', closed_at: '2026-11-01T09:00:00Z' };
+const lostDeal = { id: 'l1', stage_id: 7, created_at: L('2026-09-01 11:00'), closed_at: L('2026-11-01 12:00') };
 const lostHistory = [
-    { deal_id: 'l1', from_stage: 4, to_stage: 7, changed_at: '2026-11-01T09:00:00Z' },
-    { deal_id: 'l1', from_stage: 7, to_stage: 4, changed_at: '2026-10-20T08:00:00Z' },
-    { deal_id: 'l1', from_stage: 2, to_stage: 7, changed_at: '2026-10-10T08:00:00Z' }
+    { deal_id: 'l1', from_stage: 4, to_stage: 7, changed_at: L('2026-11-01 12:00') },
+    { deal_id: 'l1', from_stage: 7, to_stage: 4, changed_at: L('2026-10-20 11:00') },
+    { deal_id: 'l1', from_stage: 2, to_stage: 7, changed_at: L('2026-10-10 11:00') }
 ];
 t('lost: «خسرت قبل يومين وهي في «عربون»»', sinceLine(STAGES, lostDeal, lostHistory, NOW).text === 'خسرت قبل يومين وهي في «عربون»');
+t('lost yesterday: «خسرت أمس وهي في «عربون»»', sinceLine(STAGES, lostDeal,
+    [{ deal_id: 'l1', from_stage: 4, to_stage: 7, changed_at: L('2026-11-02 20:00') }], MORNING).text === 'خسرت أمس وهي في «عربون»');
 t('lost, history unreadable: closed_at, no stage', sinceLine(STAGES, lostDeal, null, NOW).text === 'خسرت قبل يومين');
 t('no stage or no deal: no line', sinceLine(STAGES, { id: 'x', stage_id: 99 }, [], NOW) === null && sinceLine(STAGES, null, [], NOW) === null);
 
@@ -149,6 +184,16 @@ t('won: «مستحقة» green = the commission row gross', due.state === 'due' 
 const dueText = commissionBox({ stage: s(6), row: { gross_amount: '37000.00', base_amount: '1480000.00', rate_percent: '2.50', status: 'partial' } });
 t('won: numbers as text, and the collection state when past «مستحقة»', dueText.value === 37000
     && dueText.detail === '2.5٪ من 1,480,000 ر.س · محصّلة جزئياً', dueText.detail);
+const rowOf = (status) => ({ gross_amount: 37000, base_amount: 1480000, rate_percent: 2.5, status });
+const invoiced = commissionBox({ stage: s(6), row: rowOf('invoiced') });
+t('won, invoiced: still green «مستحقة», the invoice in the line', invoiced.label === 'مستحقة' && invoiced.tone === 'ok'
+    && invoiced.detail === '2.5٪ من 1,480,000 ر.س · صدرت فاتورة', invoiced);
+const waived = commissionBox({ stage: s(6), row: rowOf('waived') });
+t('won, commission waived: muted «معفاة», never a green «مستحقة»', waived.state === 'due' && waived.label === 'معفاة' && waived.tone === 'muted'
+    && waived.value === 37000 && waived.detail === '2.5٪ من 1,480,000 ر.س', waived);
+const collected = commissionBox({ stage: s(6), row: rowOf('collected') });
+t('won, commission collected: green «محصّلة», said once', collected.label === 'محصّلة' && collected.tone === 'ok'
+    && collected.value === 37000 && collected.detail === '2.5٪ من 1,480,000 ر.س', collected);
 t('won: the deal amount is not used for «مستحقة»', commissionBox({ stage: s(6), amount: 999, rate: 50, row: null }).value === null);
 const noRow = commissionBox({ stage: s(6), row: null });
 t('won without a commission row', noRow.value === null && noRow.hint === 'لم تُسجَّل عمولة لهذه الصفقة' && noRow.askAmount === false);

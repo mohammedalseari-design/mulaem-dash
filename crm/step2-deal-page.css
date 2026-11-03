@@ -37,6 +37,8 @@
     border-radius: var(--r-md);
     background: var(--surface-2);
 }
+/* المراحل لم تُحمَّل: حالة «خسرت» آخر ما في البطاقة، بلا خطوات تحتها */
+.dp-lost:last-child { margin-bottom: 0; }
 .dp-lost-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; color: var(--ink); font-weight: 500; }
 .dp-lost-tag {
     display: inline-flex;

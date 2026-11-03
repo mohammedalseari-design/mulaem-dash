@@ -27,7 +27,7 @@ import {
 } from './ui.js';
 import { renderCommission } from './commission.js';
 import { commissionState } from './deal-path.js';
-import { pathOrder, pathSteps, sinceLine, pathActions, commissionBox, unitPriceKey } from './deal-page-model.js';
+import { pathOrder, pathSteps, showLost, sinceLine, pathActions, commissionBox, unitPriceKey } from './deal-page-model.js';
 
 export async function renderDeal(root, dealId) {
     replace(root, loading());
@@ -134,8 +134,9 @@ function headerCard(deal, stage, names, reload) {
                     type: 'button', class: 'btn btn-outline btn-sm', text: 'تعديل الصفقة',
                     onclick: () => openDealEdit(deal, stage, reload)
                 }),
+                // بإطار لا ممتلئ: الزر الرئيسي في الصفحة «انقل إلى…» في بطاقة المسار تحت هذه (زر رئيسي واحد في المكان)
                 el('button', {
-                    type: 'button', class: 'btn btn-primary btn-sm', text: 'المستندات',
+                    type: 'button', class: 'btn btn-outline btn-sm', text: 'المستندات',
                     onclick: () => openDocumentMenu(deal, stage, names)
                 })
             ])
@@ -314,13 +315,14 @@ function escapeHtml(value) {
 // البطاقة: رأسها الاسم وسطر المدة، ثم حالة «خسرت» إن خسرت، ثم الخطوات، ثم الإجراءات وصندوق العمولة.
 // firstHistory: أول صفحة من سجل المراحل ({ data, error }) — إن تعذّرت قراءتها يُعامل السجل كمجهول لا كفارغ.
 // يرجع البطاقة وصندوق العمولة (فارغاً حتى تصل أرقامه في loadCommission، أو null لمن لا يرى العمولة).
+// مرحلة لا تُعرف (تعذّر تحميل المراحل) لا حالة عمولة لها، فلا صندوق: لا «جارٍ الحساب…» يختفي بعدها.
 function pathCard(deal, stages, firstHistory, seeCommission, reload) {
     const history = firstHistory && !firstHistory.error ? (firstHistory.data || []) : null;
     const model = pathSteps(stages, deal.stage_id);
     const since = sinceLine(stages, deal, history);
     const actions = pathActions(stages, deal.stage_id, isAdmin());
 
-    const commission = seeCommission
+    const commission = seeCommission && model.status !== 'unknown'
         ? el('div', { class: 'dp-com dp-loading', role: 'group', 'aria-label': 'العمولة', 'aria-busy': 'true' }, [
             el('div', { class: 'dp-com-head' }, el('span', { class: 'dp-com-title', text: 'العمولة' })),
             el('span', { class: 'dp-com-detail', text: 'جارٍ الحساب…' })
@@ -346,7 +348,8 @@ function pathCard(deal, stages, firstHistory, seeCommission, reload) {
                 ])
                 : null
         ]),
-        model.status === 'lost' ? lostState(deal) : null,
+        // بالمراحل، أو برقم «خسرت» إن تعذّر تحميلها: السبب والملاحظة لا يختفيان (كانا في الترويسة برقم المرحلة)
+        showLost(model, deal.stage_id) ? lostState(deal) : null,
         model.steps.length ? stepList(model) : null,
         foot
     ]);
@@ -526,7 +529,13 @@ async function unitPriceOf(key) {
 function fillCommissionBox(box, model, deal, stage, reload) {
     box.removeAttribute('aria-busy');
     const failed = !model && commissionState(stage) === 'due';
-    if (!model && !failed) return void box.remove();
+    if (!model && !failed) {
+        // لا يبقى ذيل البطاقة فارغاً بخطه العلوي إن كان الصندوق كل ما فيه
+        const foot = box.parentNode;
+        box.remove();
+        if (foot && foot.classList.contains('dp-foot') && !foot.childNodes.length) foot.remove();
+        return;
+    }
     // dp-amber | dp-ok | dp-muted (COMMISSION_STATE_TONE)
     box.className = 'dp-com dp-' + (model ? model.tone : 'muted');
     const head = el('div', { class: 'dp-com-head' }, [

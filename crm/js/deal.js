@@ -10,6 +10,10 @@
 //
 // صفقة "تمت" يعيد فتحها ويعدّل قيمتها المدير وحده (‎deals_won_lock‎ في 034_won_deal_admin_lock.sql)،
 // فلا تُعرض أزرار إعادة الفتح لغيره، وقيمتها في «تعديل الصفقة» للعرض فقط.
+//
+// بطاقة «مسار الصفقة» (2026-11-03) بدل شريط المراحل وزر لكل مرحلة: خطوات مرقّمة، وفوقها كم بقيت الصفقة في
+// مرحلتها، وتحتها زر رئيسي واحد للمرحلة التالية وروابط نصية للباقي، وصندوق عمولة صغير لمن يرى العمولة. ما تعرضه
+// يحسبه deal-page-model.js (يُختبر وحده)؛ هنا القراءة والرسم والانتقال نفسه (moveTo / applyStage كما كانا).
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { staffMap, staffName, dealStages, lostReasons, brokerStaff } from './data.js';
@@ -19,14 +23,18 @@ import { DEAL_STAGE_TONE } from './labels.js';
 import {
     el, append, clear, replace, loading, empty, errorBox, badge, pager, field,
     select, moneyInput, parseNumber, openModal, closeModal,
-    money, fmtDate, fmtDateTime, dash, notify, fail
+    money, fmtDate, fmtDateTime, dash, notify, fail, icon
 } from './ui.js';
 import { renderCommission } from './commission.js';
+import { commissionState } from './deal-path.js';
+import { pathOrder, pathSteps, sinceLine, pathActions, commissionBox, unitPriceKey } from './deal-page-model.js';
 
 export async function renderDeal(root, dealId) {
     replace(root, loading());
 
-    const [dealResult, stages, names] = await Promise.all([
+    // أول صفحة من سجل المراحل تُقرأ مع الصفقة نفسها: منها سطر «في «تفاوض» من 6 أيام» فوق المسار، وهي نفسها أول
+    // صفحة في جدول السجل أسفل الصفحة، فلا تُطلب مرتين
+    const [dealResult, stages, names, firstHistory] = await Promise.all([
         supabase
             .from('deals')
             .select('*, client:clients(id, full_name, phone), project:projects(id, name, district)')
@@ -39,7 +47,8 @@ export async function renderDeal(root, dealId) {
         staffMap().catch((error) => {
             fail(error, 'تعذّر تحميل أسماء الموظفين');
             return new Map();
-        })
+        }),
+        Promise.resolve(historyPage(dealId, 0)).catch((error) => ({ data: null, error, count: null }))
     ]);
     if (!root.isConnected) return;
 
@@ -56,12 +65,14 @@ export async function renderDeal(root, dealId) {
 
     const stage = stages.find((s) => s.id === deal.stage_id) || null;
     const reload = () => renderDeal(root, dealId);
+    const seeCommission = canSeeCommission();
 
     const historyBody = el('div');
     const commissionHost = el('div');
+    const path = pathCard(deal, stages, firstHistory, seeCommission, reload);
     append(root, [
         headerCard(deal, stage, names, reload),
-        stageCard(deal, stages, reload),
+        path.card,
         el('div', { class: 'crm-card' }, [
             el('div', { class: 'crm-card-head' }, [el('h2', { text: 'سجل المراحل' })]),
             historyBody
@@ -69,10 +80,10 @@ export async function renderDeal(root, dealId) {
         commissionHost
     ]);
 
-    // قسم العمولة لمن يرى العمولة فقط (037)؛ القاعدة لا تعطي غيره صفها أصلاً
+    // العمولة لمن يراها فقط (037)؛ القاعدة لا تعطي غيره صفها أصلاً، ولا يُطلب له شيء منها
     await Promise.all([
-        renderHistory(historyBody, deal, stages, names),
-        canSeeCommission() ? renderCommission(commissionHost, deal) : null
+        renderHistory(historyBody, deal, stages, names, firstHistory),
+        seeCommission ? loadCommission(path.commission, commissionHost, deal, stage, reload) : null
     ]);
 }
 
@@ -129,8 +140,8 @@ function headerCard(deal, stage, names, reload) {
                 })
             ])
         ]),
-        el('div', { class: 'kv-grid' }, rows),
-        deal.stage_id === 7 ? lostBox(deal) : null
+        // سبب الخسارة صار مع حالة «خسرت» في بطاقة المسار (lostState)، فلا يتكرر هنا
+        el('div', { class: 'kv-grid' }, rows)
     ]);
 }
 
@@ -298,80 +309,239 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
-// سبب الخسارة يُخزَّن على الصفقة نفسها، والمعرّف وحده لا يكفي فنقرأ الاسم عند العرض
-function lostBox(deal) {
-    const box = el('div', { class: 'crm-error', style: 'margin-top:16px' }, [
-        el('div', { text: 'سبب الخسارة: …' }),
-        deal.lost_note ? el('div', { class: 'tl-body', text: deal.lost_note }) : null
+/* ===================== مسار الصفقة ===================== */
+
+// البطاقة: رأسها الاسم وسطر المدة، ثم حالة «خسرت» إن خسرت، ثم الخطوات، ثم الإجراءات وصندوق العمولة.
+// firstHistory: أول صفحة من سجل المراحل ({ data, error }) — إن تعذّرت قراءتها يُعامل السجل كمجهول لا كفارغ.
+// يرجع البطاقة وصندوق العمولة (فارغاً حتى تصل أرقامه في loadCommission، أو null لمن لا يرى العمولة).
+function pathCard(deal, stages, firstHistory, seeCommission, reload) {
+    const history = firstHistory && !firstHistory.error ? (firstHistory.data || []) : null;
+    const model = pathSteps(stages, deal.stage_id);
+    const since = sinceLine(stages, deal, history);
+    const actions = pathActions(stages, deal.stage_id, isAdmin());
+
+    const commission = seeCommission
+        ? el('div', { class: 'dp-com dp-loading', role: 'group', 'aria-label': 'العمولة', 'aria-busy': 'true' }, [
+            el('div', { class: 'dp-com-head' }, el('span', { class: 'dp-com-title', text: 'العمولة' })),
+            el('span', { class: 'dp-com-detail', text: 'جارٍ الحساب…' })
+        ])
+        : null;
+
+    const buttons = actionButtons(deal, stages, actions, reload);
+    const foot = buttons.length || actions.note || commission
+        ? el('div', { class: 'dp-foot' }, [
+            buttons.length ? el('div', { class: 'dp-actions' }, buttons) : null,
+            actions.note ? el('p', { class: 'dp-note', text: actions.note }) : null,
+            commission
+        ])
+        : null;
+
+    const card = el('section', { class: 'crm-card dp-card', 'aria-labelledby': 'dpTitle' }, [
+        el('div', { class: 'crm-card-head dp-head' }, [
+            el('h2', { id: 'dpTitle', text: 'مسار الصفقة' }),
+            since
+                ? el('p', { class: 'dp-since' + (since.stuck ? ' dp-late' : ''), title: since.title }, [
+                    el('span', { text: since.text }),
+                    since.flag ? el('span', { class: 'dp-flag', text: since.flag }) : null
+                ])
+                : null
+        ]),
+        model.status === 'lost' ? lostState(deal) : null,
+        model.steps.length ? stepList(model) : null,
+        foot
     ]);
-    const line = box.firstChild;
-
-    lostReasons().then((reasons) => {
-        if (!line.isConnected) return;
-        const reason = reasons.find((r) => r.id === deal.lost_reason_id);
-        line.textContent = 'سبب الخسارة: ' + (reason ? reason.name_ar : dash(deal.lost_reason_id));
-    }).catch(() => {
-        if (line.isConnected) line.textContent = 'سبب الخسارة: ' + dash(deal.lost_reason_id);
-    });
-
-    return box;
+    return { card, commission };
 }
 
-/* ===================== مسار المراحل ===================== */
+// ما يُقرأ لقارئ الشاشة بعد اسم الخطوة. الرقم والعلامة ✓ رسم فقط (الترتيب تقوله القائمة المرقّمة نفسها)، والحالية
+// و«تمت» تقولهما aria-current، فلا يُكتب لهما نص يُقرأ مرتين
+const STEP_SR = { done: 'منجزة' };
 
-function stageCard(deal, stages, reload) {
-    const steps = el('div', { class: 'deal-steps' });
-    const current = stages.find((s) => s.id === deal.stage_id) || null;
-    const currentOrder = current ? current.sort_order : 0;
-    // «خسرت» آخر المراحل ترتيباً، فكانت كل المراحل قبلها تُلوَّن «منجزة» كأن الصفقة مرّت بها
-    const lost = Boolean(current && current.is_terminal && !current.is_won);
+function stepList(model) {
+    return el('ol', {
+        class: 'dp-steps',
+        // list-style: none يُسقط معنى القائمة في Safari، فيُعاد صريحاً
+        role: 'list',
+        'aria-label': 'مراحل الصفقة',
+        style: '--dp-n:' + model.steps.length
+    }, model.steps.map((step) => el('li', {
+        // dp-done | dp-current | dp-todo | dp-won | dp-off (حالات pathSteps)
+        class: 'dp-step dp-' + step.state,
+        'aria-current': step.state === 'current' || step.state === 'won' ? 'step' : null
+    }, [
+        el('span', { class: 'dp-dot', 'aria-hidden': 'true' },
+            step.state === 'done' || step.state === 'won' ? icon('check') : String(step.n)),
+        el('span', { class: 'dp-name', text: step.name }),
+        STEP_SR[step.state] ? el('span', { class: 'w4-sr', text: '، ' + STEP_SR[step.state] }) : null
+    ])));
+}
 
-    for (const stage of stages) {
-        if (stage.is_terminal) continue;
-        const done = !lost && stage.sort_order < currentOrder;
-        const on = stage.id === deal.stage_id;
-        steps.appendChild(el('div', {
-            class: 'deal-step' + (on ? ' on' : '') + (done ? ' done' : ''),
-            text: stage.sort_order + '. ' + stage.name_ar
-        }));
-    }
-    for (const stage of stages) {
-        if (!stage.is_terminal) continue;
-        steps.appendChild(el('div', {
-            class: 'deal-step deal-step-end' + (stage.id === deal.stage_id ? (stage.is_won ? ' won' : ' lost') : ''),
-            text: stage.name_ar
-        }));
-    }
-
-    // الصفقة المغلقة (تمت أو خسرت) تُعاد إلى مرحلة جارية أولاً، فلا تُتمّ صفقة خاسرة بضغطة
-    // ولا تُقلب صفقة تمت إلى خاسرة مباشرة. و«تمت» يعيد فتحها المدير وحده (034).
-    const closed = Boolean(current && current.is_terminal);
-    const locked = Boolean(current && current.is_won && !isAdmin());
-    const actions = el('div', { class: 'btn-row' });
-    for (const stage of locked ? [] : stages) {
-        if (stage.id === deal.stage_id) continue;
-        if (closed && stage.is_terminal) continue;
+// زر رئيسي واحد (المرحلة التالية)، والباقي روابط نصية. المغلقة: «أعد فتحها…» زر بإطار (ليس الإجراء المعتاد)،
+// أو لا شيء حين تكون «تمت» والمستخدم غير المدير (الملاحظة تقول لماذا). الزر الذي يفتح نافذة يقول ذلك لقارئ الشاشة
+// (aria-haspopup) قبل الضغط.
+function actionButtons(deal, stages, actions, reload) {
+    const list = [];
+    const dialog = 'dialog';
+    if (actions.primary) {
+        const next = actions.primary;
         const button = el('button', {
-            type: 'button',
-            class: 'btn btn-xs ' + (stage.is_terminal ? (stage.is_won ? 'btn-success' : 'btn-danger') : 'btn-outline'),
-            text: (closed ? 'إعادة فتح إلى ' : 'الانتقال إلى ') + stage.name_ar
-        });
-        button.addEventListener('click', () => moveTo(button, deal, stage, reload));
-        actions.appendChild(button);
+            type: 'button', class: 'btn btn-primary btn-sm dp-next', 'aria-haspopup': next.won ? dialog : null
+        }, [
+            el('span', { text: next.text }),
+            icon(next.won ? 'check' : 'arrow')
+        ]);
+        button.addEventListener('click', () => moveTo(button, deal, next.stage, reload));
+        list.push(button);
     }
+    if (actions.back) {
+        const back = actions.back;
+        // الوجهة مكتوبة لقارئ الشاشة، والتلميح نصّ الاسم نفسه حرفاً فلا يُقرأ مرتين
+        const button = el('button', { type: 'button', class: 'link-btn dp-link', title: back.text + ' ' + back.target }, [
+            el('span', { text: back.text }),
+            el('span', { class: 'w4-sr', text: ' ' + back.target })
+        ]);
+        button.addEventListener('click', () => moveTo(button, deal, back.stage, reload));
+        list.push(button);
+    }
+    if (actions.other) {
+        list.push(el('button', {
+            type: 'button', class: 'link-btn dp-link', text: actions.other.text, 'aria-haspopup': dialog,
+            onclick: () => openStagePicker(deal, stages, actions.other, reload)
+        }));
+    }
+    if (actions.lose) {
+        list.push(el('button', {
+            type: 'button', class: 'link-btn dp-link dp-link-lost', text: actions.lose.text, 'aria-haspopup': dialog,
+            onclick: () => openLostForm(deal, actions.lose.stage, reload)
+        }));
+    }
+    if (actions.reopen) {
+        list.push(el('button', {
+            type: 'button', class: 'btn btn-outline btn-sm dp-reopen', text: actions.reopen.text, 'aria-haspopup': dialog,
+            onclick: () => openStagePicker(deal, stages, actions.reopen, reload)
+        }));
+    }
+    return list;
+}
 
-    let note = null;
-    if (locked) note = 'الصفقة مغلقة («تمت»). إعادة فتحها وتعديل قيمتها للمدير فقط.';
-    else if (closed && current.is_won) note = 'الصفقة مغلقة («تمت»). لإعادة فتحها اختر مرحلة: تُلغى عمولتها إن لم يُحصَّل منها شيء، وإلا تُعلَّم «تحتاج مراجعة».';
-    else if (closed) note = 'الصفقة مغلقة («خسرت»). لإعادة فتحها اختر مرحلة، ثم تُغلق بـ«تمت» أو «خسرت» من جديد.';
+// «مرحلة أخرى…» و«أعد فتحها…»: النافذة تقول القاعدة ثم تعرض المراحل المسموحة بأرقامها في المسار. الضغط moveTo نفسه
+// («تمت» تفتح نموذج السعر النهائي مكانها، والباقي تحديث واحد)، والنافذة تُغلق بعد نجاحه في applyStage.
+function openStagePicker(deal, stages, choice, reload) {
+    const order = pathOrder(stages);
+    const options = choice.stages.map((stage) => {
+        const button = el('button', { type: 'button', class: 'dp-pick-btn' }, [
+            el('span', { class: 'dp-pick-n', 'aria-hidden': 'true', text: String(order.indexOf(stage) + 1) }),
+            el('span', { class: 'dp-pick-name', text: stage.name_ar }),
+            stage.is_won ? el('span', { class: 'dp-pick-hint', text: 'يُطلب السعر النهائي' }) : null
+        ]);
+        button.addEventListener('click', () => moveTo(button, deal, stage, reload));
+        return el('li', {}, button);
+    });
+    openModal(choice.title, [
+        el('p', { class: 'crm-subtle dp-pick-note', text: choice.note }),
+        el('ul', { class: 'dp-pick', role: 'list' }, options),
+        el('div', { class: 'btn-row btn-row-end' },
+            el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: 'إلغاء', onclick: closeModal }))
+    ], { narrow: true });
+}
 
-    return el('div', { class: 'crm-card' }, [
-        el('div', { class: 'crm-card-head' }, [el('h2', { text: 'المرحلة' })]),
-        steps,
-        note
-            ? el('div', { class: 'crm-subtle deal-reopen-note', text: note })
-            : el('div', { class: 'crm-subtle', style: 'margin:14px 0 8px', text: 'الانتقال إلى مرحلة أخرى:' }),
-        locked ? null : actions
+// «خسرت»: الحالة وسببها وملاحظتها فوق المسار الرمادي. السبب محفوظ رقماً على الصفقة، فيُقرأ اسمه عند العرض
+function lostState(deal) {
+    const hasReason = deal.lost_reason_id !== null && deal.lost_reason_id !== undefined;
+    const why = hasReason ? el('span', { class: 'dp-lost-why', text: 'السبب: …' }) : null;
+    if (why) {
+        lostReasonName(deal.lost_reason_id).then((name) => {
+            if (why.isConnected) why.textContent = 'السبب: ' + name;
+        });
+    }
+    return el('div', { class: 'dp-lost' }, [
+        el('p', { class: 'dp-lost-line' }, [
+            el('span', { class: 'dp-lost-tag' }, [icon('close'), el('span', { text: 'خسرت' })]),
+            why
+        ]),
+        deal.lost_note ? el('p', { class: 'dp-lost-note', text: deal.lost_note }) : null
+    ]);
+}
+
+// القائمة المخزّنة للأسباب النشطة وحدها؛ سبب أُوقف بعد تسجيله يُقرأ صفه وحده (سياسة القراءة تشمل الموقوف)،
+// فلا يظهر رقمه بدل اسمه
+async function lostReasonName(id) {
+    try {
+        const found = (await lostReasons()).find((r) => r.id === id);
+        if (found) return found.name_ar;
+        const { data } = await supabase.from('lost_reasons').select('name_ar').eq('id', id).maybeSingle();
+        return data ? data.name_ar : dash(id);
+    } catch {
+        return dash(id);
+    }
+}
+
+// صندوق العمولة الصغير، وبطاقة العمولة المفصّلة أسفل الصفحة. «متوقعة» تحتاج النسبة (نسبة المشروع أو العامة) والأساس
+// (قيمة الصفقة، وإلا سعر الوحدة من v_units)؛ «مستحقة» من صف العمولة نفسه. البطاقة المفصّلة للصفقة التي تمت، ولأي صفقة
+// بقي لها صف: صفقة خرجت من «تمت» بعد تحصيل شيء من عمولتها يبقى صفها «تحتاج مراجعة» (031) وعلى المدير أن يراه.
+// صفقة جارية بلا صف لا بطاقة لها بعد اليوم: كانت تقول «لا توجد عمولة» تحت صندوق يقول المتوقعة.
+async function loadCommission(box, cardHost, deal, stage, reload) {
+    const won = commissionState(stage) === 'due';
+    // للصفقة التي تمت تبدأ البطاقة المفصّلة فوراً مع الصندوق، لا بعده
+    const card = won ? renderCommission(cardHost, deal) : null;
+    const key = won || Number(deal.amount) > 0 ? null : unitPriceKey(deal);
+    const [rowResult, found, unitPrice] = await Promise.all([
+        Promise.resolve(supabase
+            .from('commissions')
+            .select('gross_amount, base_amount, rate_percent, status')
+            .eq('deal_id', deal.id)
+            .maybeSingle()).catch((error) => ({ data: null, error })),
+        won ? null : effectiveDealRate(deal.project_id).catch(() => null),
+        key ? unitPriceOf(key) : null
+    ]);
+    const row = rowResult.error ? null : rowResult.data;
+
+    if (box && box.isConnected) {
+        // «مستحقة» رقمها من الصف وحده: إن تعذّرت قراءته يقال ذلك، لا «لم تُسجَّل عمولة»
+        if (won && rowResult.error) fillCommissionBox(box, null, deal, stage, reload);
+        else fillCommissionBox(box, commissionBox({
+            stage, amount: deal.amount, unitPrice, row,
+            rate: found && Number.isFinite(found.rate) ? found.rate : null,
+            rateFrom: found ? found.from : ''
+        }), deal, stage, reload);
+    }
+    // تعذّرت قراءة الصف: لا يُعرف أله عمولة، فتُعرض البطاقة كما كانت تُعرض دائماً (تقول خطأها بنفسها)
+    if (!won && cardHost.isConnected && (rowResult.error || row)) await renderCommission(cardHost, deal);
+    await card;
+}
+
+// سعر الوحدة المعروض: صف واحد من v_units بمفتاح unitPriceKey. أي خطأ = لا سعر، فيطلب الصندوق قيمة الصفقة
+async function unitPriceOf(key) {
+    try {
+        let query = supabase.from('v_units').select('price').eq('project_id', key.project_id);
+        query = key.unit_key !== undefined ? query.eq('unit_key', key.unit_key) : query.eq('unit_ord', key.unit_ord);
+        const { data, error } = await query.order('unit_ord', { ascending: true }).range(0, 0);
+        return !error && data && data[0] ? data[0].price : null;
+    } catch {
+        return null;
+    }
+}
+
+// model: من commissionBox (null لمرحلة لا تُعرف: لا صندوق)، أو null مع صفقة تمت تعذّرت قراءة عمولتها
+function fillCommissionBox(box, model, deal, stage, reload) {
+    box.removeAttribute('aria-busy');
+    const failed = !model && commissionState(stage) === 'due';
+    if (!model && !failed) return void box.remove();
+    // dp-amber | dp-ok | dp-muted (COMMISSION_STATE_TONE)
+    box.className = 'dp-com dp-' + (model ? model.tone : 'muted');
+    const head = el('div', { class: 'dp-com-head' }, [
+        el('span', { class: 'dp-com-title', text: 'العمولة' }),
+        model ? el('span', { class: 'dp-com-state', text: model.label }) : null
+    ]);
+    if (!model) return void replace(box, [head, el('span', { class: 'dp-com-detail', text: 'تعذّرت قراءة العمولة' })]);
+    replace(box, [
+        head,
+        model.value !== null ? el('strong', { class: 'dp-com-value num', text: model.valueText }) : null,
+        model.detail ? el('span', { class: 'dp-com-detail', text: model.detail }) : null,
+        model.hint && model.askAmount
+            // الجملة نفسها رابط: تفتح «تعديل الصفقة» وأول حقولها القيمة
+            ? el('button', { type: 'button', class: 'link-btn dp-com-ask', text: model.hint, onclick: () => openDealEdit(deal, stage, reload) })
+            : model.hint ? el('span', { class: 'dp-com-detail', text: model.hint }) : null
     ]);
 }
 
@@ -524,24 +694,38 @@ function openAmountForm(deal, stage, reload) {
 
 /* ===================== سجل المراحل ===================== */
 
-async function renderHistory(host, deal, stages, names) {
+// صفحة من سجل المراحل، الأحدث أولاً (المعرّف يفصل بين سطرين في اللحظة نفسها فلا تتبدّل الصفحات).
+// deal_id في الأعمدة لأن enteredAt تطابق به السطر وصفقته.
+function historyPage(dealId, page) {
+    const [from, to] = pageRange(page);
+    return supabase
+        .from('deal_stage_history')
+        .select('id, deal_id, from_stage, to_stage, note, changed_by, changed_at', { count: 'exact' })
+        .eq('deal_id', dealId)
+        .order('changed_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to);
+}
+
+// first: الصفحة الأولى كما قرأتها renderDeal مع الصفقة؛ تُعرض كما هي، وما بعدها (أو العودة إليها) يُقرأ من جديد
+async function renderHistory(host, deal, stages, names, first = null) {
     const view = { page: 0 };
+    let initial = first;
     const stageById = new Map();
     for (const stage of stages) stageById.set(stage.id, stage.name_ar);
     const name = (id) => (id === null || id === undefined ? 'البداية' : (stageById.get(id) || 'مرحلة ' + id));
 
     async function load() {
-        replace(host, loading());
-        const [from, to] = pageRange(view.page);
-        const { data, error, count } = await supabase
-            .from('deal_stage_history')
-            .select('id, from_stage, to_stage, note, changed_by, changed_at', { count: 'exact' })
-            .eq('deal_id', deal.id)
-            .order('changed_at', { ascending: false })
-            .range(from, to);
+        let result = view.page === 0 ? initial : null;
+        initial = null;
+        if (!result) {
+            replace(host, loading());
+            result = await Promise.resolve(historyPage(deal.id, view.page)).catch((error) => ({ data: null, error, count: null }));
+        }
+        const { data, error, count } = result;
 
         if (!host.isConnected) return;
-        if (error) return void replace(host, errorBox(error, 'تعذّر تحميل سجل المراحل'));
+        if (error) return void replace(host, errorBox(error, 'تعذّر تحميل سجل المراحل', () => load()));
         if (!data || data.length === 0) return void replace(host, empty('لا توجد انتقالات مسجّلة'));
 
         const head = el('thead', {}, el('tr', {}, [

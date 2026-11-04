@@ -1448,9 +1448,6 @@ body.pal-open { overflow: hidden; }
 
 /* ---------- الأرقام ---------- */
 
-/* العمولة المخفية (037): قفل صغير ونقاط باهتة، بلا زر ولا رابط */
-.wq-kpis .wq-lock { width: 0.62em; height: 0.62em; margin-inline-end: 6px; color: var(--muted); vertical-align: -0.02em; }
-.wq-kpi-masked .kpi-num { color: var(--muted); letter-spacing: 0.12em; }
 /* «3 صفقات واقفة…»: تنتظر حركة، فهي كهرمانية لا حمراء */
 .wq-kpis .wq-sub-due { color: var(--amber); font-weight: 600; }
 
@@ -1721,10 +1718,6 @@ body.pal-open { overflow: hidden; }
 @media (max-width: 700px) {
     .wq .wq-layout { gap: 14px; }
 
-    /* العمولة المخفية: «مخفية بقرار الإدارة» تبقى ظاهرة هنا وحدها (سطور الأرقام الأخرى تُخفى على الجوال)، فلا تبقى «••••»
-       بلا سبب */
-    .wq-kpis .wq-kpi-masked .kpi-sub { display: block; }
-
     /* القائمة بلا إطار حولها: كل سطر بطاقة وحده. لا شريط علوي على الجوال، فالقفز إليها يترك فسحة الصفحة وحدها */
     .wq-queue { border: 0; border-radius: 0; background: transparent; scroll-margin-top: 12px; }
     .wq-head { padding: 0; }
@@ -1879,7 +1872,6 @@ body.pal-open { overflow: hidden; }
 .pj-sum-unit { margin-inline-start: 5px; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
 .pj-sum-sub { color: var(--muted); font-size: 0.78rem; }
 .pj-nw { white-space: nowrap; }
-.pj-masked { color: var(--muted); letter-spacing: 0.12em; }
 
 /* المعنى بلون النص وحده: أخضر لما بقي متاح، كهرماني للمحجوز، رمادي لما خرج من البيع */
 .pj-tone-ok { color: var(--ok); }

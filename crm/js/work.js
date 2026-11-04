@@ -90,9 +90,8 @@ export async function renderWork(root) {
     // «عند المدير» للوسيط وحده: المدير هو من يعتمد (له «طلبات الاعتماد»)، ومركز الاتصال لا تُريه سياسة projects غير
     // المعتمد أصلاً (001_init.sql)، وعروضه تمر بالمساعد لا بجدول المشاريع.
     const withOffers = role === 'field';
-    // العمولة (037): أرقامها لمن يراها، وللوسيط الذي أخفاها المدير عنه خانة مقفلة تقول ذلك بدل أن تختفي بلا سبب
+    // العمولة (037): أرقامها لمن يراها، ومن لا يراها لا خانة له ولا ذكر لها (قرار المالك 2026-11-04: كأنها غير موجودة)
     const seeCommission = !noDeals && canSeeCommission();
-    const maskCommission = !noDeals && !seeCommission && role === 'field';
     const me = myId();
     // المدير يرى الفريق كله (كبقية صفحته)، فخانة العمولة له «العمولة المتوقعة» للفريق لا «عمولتي»
     const team = isAdmin();
@@ -118,24 +117,11 @@ export async function renderWork(root) {
         { key: 'needs', label: 'يحتاج إجراء', go: () => focusQueue('all') },
         { key: 'today', label: 'مواعيد اليوم', go: () => focusQueue('today') },
         { key: 'deals', label: 'صفقات جارية', href: '#/deals' },
-        seeCommission ? { key: 'commission', label: team ? 'العمولة المتوقعة' : 'عمولتي المتوقعة', href: '#/deals' }
-            : maskCommission ? { key: 'commission', label: 'عمولتي المتوقعة' } : null,
+        seeCommission ? { key: 'commission', label: team ? 'العمولة المتوقعة' : 'عمولتي المتوقعة', href: '#/deals' } : null,
         { key: 'leads', label: 'عملاء محتملون', href: '#/requests' }
     ].filter(Boolean));
     kpis.node.classList.add('wq-kpis');
 
-    // الخانة المقفلة: قفل و«••••» للعين، و«مخفية بقرار الإدارة» سطرها الصغير يُقرأ ويظهر حتى على الجوال (crm/v6.css:
-    // .wq-kpi-masked). تُرسم مع الصفحة لمن أُخفيت عنه العمولة عند دخوله، وفي loadWork لمن أخفاها المدير بعد دخوله.
-    function setMasked() {
-        kpis.set('commission', {
-            value: [icon('key', 'ico wq-lock'), el('span', { 'aria-hidden': 'true', text: '••••' })],
-            sub: 'مخفية بقرار الإدارة',
-            className: 'wq-kpi-masked'
-        });
-    }
-    function showMasked() {
-        if (maskCommission) setMasked();
-    }
 
     /* ---------- القائمة الواحدة ---------- */
 
@@ -220,7 +206,6 @@ export async function renderWork(root) {
         ])
     ]));
     kpis.loading();
-    showMasked();
 
     // الأسماء لسطر «المكلَّف» وحده: تعذّرها لا يوقف الصفحة («مستخدم غير معروف» مكان الاسم)
     names = await staffMap().catch(() => new Map());
@@ -355,7 +340,8 @@ export async function renderWork(root) {
             const sum = rateError ? null : expectedTotal(openDeals, projectRates, defaultRate);
             if (rateError) kpis.set('commission', failed(rateError));
             else if (!sum) {
-                if (!team) setMasked();
+                // الوسيط: أخفاها المدير بعد دخوله، فتختفي خانتها كأنها لم تكن
+                if (!team) kpis.remove('commission');
                 else {
                     kpis.set('commission', {
                         value: '—',
@@ -688,6 +674,14 @@ export function kpiStrip(defs, groupLabel = 'أرقام اليوم') {
             c.subLine.className = 'kpi-sub' + (data.subTone ? ' kpi-sub-' + data.subTone : '') + (data.subClass ? ' ' + data.subClass : '');
             if (data.title) c.cell.title = data.title;
             else c.cell.removeAttribute('title');
+        },
+        // خانة لم تعد لصاحب الصفحة: تُزال ويتوزع الشريط على ما بقي
+        remove(key) {
+            const c = cells.get(key);
+            if (!c) return;
+            c.cell.remove();
+            cells.delete(key);
+            node.className = node.className.replace(/kpi-strip-\d+/, 'kpi-strip-' + cells.size);
         }
     };
 }

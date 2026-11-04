@@ -51,13 +51,8 @@ export async function renderCommissions(root) {
     const summary = el('div', { class: 'kpi-strip kpi-strip-3', role: 'group', 'aria-label': 'ملخص العمولات' }, loading());
     const chips = filterChips('حالة العمولة', STATUS_CHIPS, view.status, (value) => { view.status = value; view.page = 0; load(); });
 
-    // العمولة مخفية عن هذا المستخدم (037): القاعدة لا تعطيه الأرقام، فلا جدول فارغاً ولا ملخصاً بأصفار
-    if (!canSeeCommission()) {
-        return void replace(root, [
-            pageHead('العمولات', 'عمولات الصفقات التي تمت.'),
-            empty('العمولة يشوفها المدير فقط', 'إذا احتجت تعرف عمولة صفقة، اسأل المدير.')
-        ]);
-    }
+    // من لا يرى العمولة (037) لا يجد لها صفحة ولا ذكراً (قرار المالك 2026-11-04): رابط قديم يفتح «الصفقات»
+    if (!canSeeCommission()) return void location.replace('#/deals');
 
     replace(root, [
         pageHead('العمولات', 'عمولات الصفقات التي تمت: الإجمالي والمحصّل والمتبقي. الدفعات والفواتير تُسجَّل من صفحة الصفقة.'),

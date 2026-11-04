@@ -192,7 +192,7 @@ const OPEN = [
 ];
 let total = expectedTotal(OPEN, rates, 2.5);
 t('expected: sum of amount × rate', total.total === 94399.98 && total.counted === 3 && total.missing === 1, total);
-// الصف لم يصل: لا رقم أصلاً (الشاشة تقول «مخفية» للوسيط) بدل مجموع من نسب المشاريع وحدها أو صفر كاذب
+// الصف لم يصل: لا رقم أصلاً (خانة العمولة تختفي عن الوسيط) بدل مجموع من نسب المشاريع وحدها أو صفر كاذب
 t('expected: no general rate (no commission_policy row) = no number at all', expectedTotal(OPEN, rates, null) === null
     && expectedTotal(OPEN, rates, undefined) === null && expectedTotal(OPEN, new Map(), '') === null && expectedTotal([], rates, null) === null);
 t('expected: empty', JSON.stringify(expectedTotal([], rates, 2.5)) === JSON.stringify({ total: 0, counted: 0, missing: 0 }));

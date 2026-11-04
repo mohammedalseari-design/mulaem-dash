@@ -10,9 +10,9 @@
 // project-profile.js (الصور والوصف والحقائق والموقع والمخططات ومراحل البروشور) وunits-board.js (قسمة الوحدات).
 //
 // قراءة فقط لكل الأدوار، والسياسات تقرّر ما يُرى: projects (المعتمد غير المحذوف، وما أضافه الوسيط بنفسه)، و v_units
-// بالسياسات نفسها (security_invoker)، و unit_holds يقرؤها كل موظف (030). العمولة لمن يرى العمولة (037)، ولغيره «••••»
-// مخفية في شريط الأرقام وحده؛ والقاعدة لا تعطيه الأرقام أصلاً. مركز الاتصال لا عمولة له ولا صفقات ولا طلبات تحديث: لا خانة
-// «عمولتي» عنده، ولا زر تسجيل، ولا رفع بروشور. «مشاركة مع عميل» (share-project.js) للعقار المعتمد غير المحذوف.
+// بالسياسات نفسها (security_invoker)، و unit_holds يقرؤها كل موظف (030). العمولة لمن يرى العمولة (037)، ومن لا يراها لا خانة
+// له ولا ذكر لها (قرار المالك 2026-11-04: كأنها غير موجودة)، والقاعدة لا تعطيه الأرقام أصلاً. مركز الاتصال لا عمولة له ولا
+// صفقات ولا طلبات تحديث: لا زر تسجيل عنده، ولا رفع بروشور. «مشاركة مع عميل» (share-project.js) للعقار المعتمد غير المحذوف.
 // التعديل في صفحة المشاريع (‎../projects.html‎) كما في «العقارات»، وهذه نافذة عليه.
 
 import { supabase, fetchAll } from './supabase.js';
@@ -49,9 +49,9 @@ export async function renderProject(root, projectId) {
     // رقم العقار عدد صحيح دائماً (projects.id integer): رابط غيره خاطئ، فلا يُسأل الخادم عنه ولا تظهر رسالته الإنجليزية
     const pid = /^\d{1,10}$/.test(route.id) ? Number(route.id) : NaN;
     if (!(pid <= 2147483647)) return void replace(root, notFound());
-    // show: الأرقام، masked: «••••» مخفية، none: لا خانة (مركز الاتصال)
-    const commission = myRole() === 'callcenter' ? 'none' : canSeeCommission() ? 'show' : 'masked';
-    const seeCommission = commission === 'show';
+    // show: الأرقام، none: لا خانة ولا ذكر للعمولة
+    const seeCommission = myRole() !== 'callcenter' && canSeeCommission();
+    const commission = seeCommission ? 'show' : 'none';
 
     const [projectResult, unitsResult, holdsResult] = await Promise.all([
         settle(supabase.from('projects')
@@ -766,8 +766,8 @@ function planCard(project, card, commission, canRegister) {
 
 /* ===================== شريط الأرقام ===================== */
 
-// خمس خانات ثابتة: المتاح من الكل، والمحجوز، والمباع، وأقل سعر بين المتاح، وعمولة الوحدة — وأربع لمركز الاتصال (لا
-// عمولة له): pj-sum-4 يوزّع الخانات الأربع فلا تبقى خانة فارغة في الشريط. commission: show | masked | none
+// خمس خانات ثابتة: المتاح من الكل، والمحجوز، والمباع، وأقل سعر بين المتاح، وعمولة الوحدة — وأربع لمن لا يرى العمولة:
+// pj-sum-4 يوزّع الخانات الأربع فلا تبقى خانة فارغة في الشريط. commission: show | none
 function summaryStrip(s, commission) {
     const none = commission === 'none';
     return el('div', { class: 'pj-sum' + (none ? ' pj-sum-4' : ''), role: 'group', 'aria-label': 'ملخص وحدات العقار' }, [
@@ -777,7 +777,7 @@ function summaryStrip(s, commission) {
         sumCell('يبدأ من', s.fromPrice === null ? '—' : [money(s.fromPrice), unit(SAR)], {
             wide: true, sub: s.fromPrice !== null ? null : s.available > 0 ? 'بلا سعر مسجّل' : 'لا وحدة متاحة'
         }),
-        none ? null : commissionCell(s, commission === 'show')
+        none ? null : commissionCell(s)
     ]);
 }
 
@@ -791,12 +791,8 @@ function sumCell(title, value, options = {}) {
 
 const unit = (text) => el('small', { class: 'pj-sum-unit', text });
 
-// النقاط للعين وحدها؛ قارئ الشاشة يقرأ «مخفية» المكتوبة بجانبها
-const masked = () => el('span', { class: 'pj-masked', 'aria-hidden': 'true', text: '••••' });
-
-// «عمولتي»: مدى عمولة الوحدة بين النماذج المتاحة (أو قيمتها الواحدة) لمن يرى العمولة، ولغيره «••••» مخفية
-function commissionCell(s, seeCommission) {
-    if (!seeCommission) return sumCell('عمولتي', masked(), { wide: true, sub: 'مخفية' });
+// «عمولتي»: مدى عمولة الوحدة بين النماذج المتاحة (أو قيمتها الواحدة)، لمن يرى العمولة وحده
+function commissionCell(s) {
     if (!s.commission) return sumCell('عمولتي', '—', { wide: true, sub: s.available > 0 ? 'غير محسوبة' : 'لا وحدة متاحة' });
     const { min, max } = s.commission;
     // المدى لا ينكسر داخل الرقم، بل عند الشرطة إن ضاقت الخانة
@@ -899,8 +895,7 @@ function fact(title, value) {
     return el('div', { class: 'pj-fact' }, [el('dt', { text: title }), el('dd', {}, value)]);
 }
 
-// commission: show | masked | none. «عمولتي» لمن يرى العمولة وحده: المخفية «••••» في شريط الأرقام وحده (قاعدة المالك ومعاينة
-// «الحجوزات»)، ومركز الاتصال لا سطر له أصلاً
+// commission: show | none. سطر «عمولتي» لمن يرى العمولة وحده
 function panelBody(project, row, commission) {
     if (!row) return null;
     // صف «كامل العقار» (unit_ord 0) ليس نموذجاً: العقار كله وحدة واحدة

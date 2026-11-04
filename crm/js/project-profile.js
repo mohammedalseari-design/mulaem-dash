@@ -26,8 +26,12 @@ export function parseProjectRoute(raw) {
     const text = String(raw === null || raw === undefined ? '' : raw).trim();
     const q = text.indexOf('?');
     const id = (q < 0 ? text : text.slice(0, q)).trim();
-    const m = q < 0 ? null : /(?:^|&)tab=([a-z]+)(?:&|$)/.exec(text.slice(q + 1));
-    return { id, tab: m && TAB_KEYS.includes(m[1]) ? m[1] : null };
+    const query = q < 0 ? '' : text.slice(q + 1);
+    const m = /(?:^|&)tab=([a-z]+)(?:&|$)/.exec(query);
+    const route = { id, tab: m && TAB_KEYS.includes(m[1]) ? m[1] : null };
+    // ?share=1: صفحة المشاريع القديمة تفتح نافذة المشاركة هنا
+    if (/(?:^|&)share=1(?:&|$)/.test(query)) route.share = true;
+    return route;
 }
 
 // رابط الصفحة على تبويب: الافتراضي بلا لاحقة، فيبقى الرابط كما تكتبه «العقارات» والبحث السريع

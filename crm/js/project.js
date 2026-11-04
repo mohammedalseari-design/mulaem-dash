@@ -106,6 +106,10 @@ export async function renderProject(root, projectId) {
         }, { plans: plans.count })
     ]);
     Promise.resolve(profile.start()).catch((error) => console.warn('[CRM] brochure card', error));
+    if (route.share && !project.deleted_at && project.status === 'approved') {
+        history.replaceState(null, '', projectHash(pid, route.tab));
+        openShareSheet(project);
+    }
 }
 
 /* ===================== الترويسة ===================== */

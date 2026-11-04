@@ -76,7 +76,7 @@ async function load() {
         result = { data: null, error };
     }
     if (result.error) return void showError();
-    const view = publicView(result.data);
+    const view = publicView(result.data, params.model);
     if (!view) return void showGone('gone');
     render(view);
 }
@@ -218,7 +218,7 @@ function modelsSection(view) {
     const phone = view.consultant.phone;
     return el('section', { class: 'sh-sec', 'aria-labelledby': 'shModels' }, [
         el('div', { class: 'sh-sec-head' }, [
-            el('h2', { id: 'shModels', text: 'النماذج' }),
+            el('h2', { id: 'shModels', text: view.offer ? 'العرض' : 'النماذج' }),
             el('span', { class: 'sh-sec-meta', text: unitsLine(view.summary) })
         ]),
         el('ul', { class: 'sh-models', role: 'list' }, view.models.map((model) => {

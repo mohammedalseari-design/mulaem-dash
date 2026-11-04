@@ -177,17 +177,20 @@ export function isVisitorId(value) {
     return typeof value === 'string' && VISITOR_RE.test(value);
 }
 
-// base: رابط crm/p.html بلا استعلام. البروفايل يفتح الصفحة نفسها بوضع الطباعة (PDF)
-export function shareLink(base, code, format = 'link') {
-    const url = String(base || '') + '?c=' + encodeURIComponent(String(code || ''));
+// base: رابط crm/p.html بلا استعلام. ord: النموذج الذي يخصه الرابط (عرض واحد يختاره الوسيط). البروفايل يفتح الصفحة نفسها بوضع
+// الطباعة (PDF)
+export function shareLink(base, code, format = 'link', ord = null) {
+    let url = String(base || '') + '?c=' + encodeURIComponent(String(code || ''));
+    if (Number.isInteger(ord) && ord > 0) url += '&m=' + ord;
     return format === 'pdf' ? url + '&print=1' : url;
 }
 
-// ?c=…&print=1 → { code, print }. رمز بشكل غير صالح لا يُسأل عنه الخادم
+// ?c=…&m=2&print=1 → { code, model, print }. رمز بشكل غير صالح لا يُسأل عنه الخادم
 export function readParams(search) {
     const params = new URLSearchParams(String(search || ''));
     const code = params.get('c') || '';
-    return { code: isShareCode(code) ? code : null, given: Boolean(code), print: params.get('print') === '1' };
+    const model = params.get('m') || '';
+    return { code: isShareCode(code) ? code : null, given: Boolean(code), print: params.get('print') === '1', model: /^[1-9][0-9]{0,4}$/.test(model) ? Number(model) : null };
 }
 
 const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -266,13 +269,16 @@ export function mapUrl(lat, lng) {
     return 'https://www.google.com/maps?q=' + a + ',' + b;
 }
 
-// صفحة العميل كلها من رد الخادم: null حين لا رد (رمز غير صالح، أو المشروع لم يعد معتمداً)
-export function publicView(payload) {
+// صفحة العميل كلها من رد الخادم: null حين لا رد (رمز غير صالح، أو المشروع لم يعد معتمداً). ord: عرض واحد (قرار المالك: الرابط
+// والرسالة لنموذج واحد يختاره الوسيط، فلا يظهر غيره ولا تدخل أرقامه). نموذج لم يعد موجوداً: يظهر الكل
+export function publicView(payload, ord = null) {
     if (!payload || typeof payload !== 'object' || !payload.project || typeof payload.project !== 'object') return null;
     const p = payload.project;
-    const units = (Array.isArray(payload.units) ? payload.units : []).map(unitOf).filter(Boolean).sort((a, b) => a.ord - b.ord);
+    const all = (Array.isArray(payload.units) ? payload.units : []).map(unitOf).filter(Boolean).sort((a, b) => a.ord - b.ord);
     const soldOut = p.sold_out === true;
-    if (soldOut) for (const u of units) u.available = 0;
+    if (soldOut) for (const u of all) u.available = 0;
+    const offer = Number.isInteger(ord) && ord > 0 ? all.find((u) => u.ord === ord) || null : null;
+    const units = offer ? [offer] : all;
     const images = [];
     for (const src of Array.isArray(p.images) ? p.images : []) {
         if (typeof src === 'string' && /^https:\/\//i.test(src) && !images.includes(src)) images.push(src);
@@ -301,6 +307,7 @@ export function publicView(payload) {
         mapUrl: mapUrl(p.latitude, p.longitude),
         license: cleanText(p.ad_license, 60),
         soldOut,
+        offer,
         units,
         models: units.filter((u) => u.ord > 0),
         whole: units.find((u) => u.ord === 0) || null,
@@ -321,6 +328,21 @@ export function modelSpecs(model) {
         model.rooms !== null ? countText(Math.round(model.rooms), ['غرفة واحدة', 'غرفتان', 'غرف', 'غرفة']) : '',
         model.area !== null ? number(model.area) + ' م²' : ''
     ].filter(Boolean).join(' · ');
+}
+
+// العرض الذي تبدأ به نافذة المشاركة: النموذج المطلوب باسمه (من المطابقة)، وإلا أول متاح، وإلا الأول. عقار بلا نماذج: null
+export function defaultOffer(view, unitKey = null) {
+    const models = view ? view.models : [];
+    if (!models.length) return null;
+    const wanted = cleanText(unitKey, 80);
+    const named = wanted ? models.find((m) => m.name === wanted) : null;
+    return (named || models.find((m) => m.available > 0) || models[0]).ord;
+}
+
+// سطر النموذج في قائمة «اختر العرض»
+export function offerLabel(model) {
+    if (!model) return '';
+    return [model.name, modelSpecs(model), model.price !== null ? priceText(model.price) : '', model.available > 0 ? '' : 'غير متاح'].filter(Boolean).join(' · ');
 }
 
 // حبّة النموذج: «متاح 6» (أو «متاح» لوحدة واحدة) بالأخضر، و«غير متاح» رمادية
@@ -376,18 +398,16 @@ const startsWithWord = (name) => /^مشروع(\s|$)/.test(name);
 // «من 3 إلى 6 غرف»، ومع قيمة واحدة الرقم وحده
 const spanned = (range, text) => (range.min !== range.max ? 'من ' + text : text);
 
-// ما في الصفحة فعلاً، فلا تَعِد الرسالة بما ليس فيها: «الصور والمخططات والموقع هنا:»
+// ما في الصفحة فعلاً، فلا تَعِد الرسالة بما ليس فيها: «الصور والمخططات هنا:». لا ذكر للموقع (قرار المالك)
 function pageLine(view) {
     const parts = [];
     if (view.images.length) parts.push('الصور');
     if (view.models.some((m) => m.plan)) parts.push('المخططات');
-    else if (view.models.length) parts.push('النماذج');
-    if (view.mapUrl) parts.push('الموقع');
     return (parts.length ? parts.join(' و') : 'التفاصيل') + ' هنا:';
 }
 
-// رسالة الوسيط للعميل في واتساب، بالصيغة التي اعتمدها المالك (2026-11-04): تحية، ثم المشروع والحي، وأرقامه في نقاط، والرابط
-// في سطره (wa.me يجعله قابلاً للضغط)، ثم مستشاره ورقم ملائم للتواصل. ما لا قيمة له لا سطر له
+// رسالة الوسيط للعميل في واتساب، بالصيغة التي اعتمدها المالك (2026-11-04): تحية، ثم المشروع بلا حي ولا مدينة، ثم العرض الواحد
+// بأرقامه في نقاط، والرابط في سطره (wa.me يجعله قابلاً للضغط)، ثم مستشاره ورقم ملائم للتواصل. ما لا قيمة له لا سطر له
 export function shareMessage(format, view, link) {
     if (!view) return String(link || '');
     const s = view.summary;
@@ -398,8 +418,9 @@ export function shareMessage(format, view, link) {
     const c = view.consultant;
     return [
         'السلام عليكم،',
-        (format === 'pdf' ? 'أرسل لك بروفايل ' : 'أرسل لك تفاصيل ') + (startsWithWord(view.name) ? '' : 'مشروع ') + '«' + view.name + '»' + (view.place ? ' في ' + view.place : '') + ':',
-        s.fromPrice === null ? '' : '• ' + s.priceLabel + ' ' + priceText(s.fromPrice),
+        (format === 'pdf' ? 'أرسل لك بروفايل ' : 'أرسل لك تفاصيل ') + (startsWithWord(view.name) ? '' : 'مشروع ') + '«' + view.name + '»:',
+        view.offer && view.offer.name ? '• ' + view.offer.name : '',
+        s.fromPrice === null ? '' : '• ' + (view.offer ? '' : s.priceLabel + ' ') + priceText(s.fromPrice),
         sizes ? '• ' + sizes : '',
         view.delivery ? '• التسليم: ' + view.delivery : view.status ? '• الحالة: ' + view.status : '',
         format === 'pdf' ? 'تقدر تحفظه PDF من هنا:' : pageLine(view),
@@ -415,7 +436,8 @@ export function shareMessage(format, view, link) {
 export function contactMessage(view, kind = 'ask', model = null) {
     if (!view) return '';
     const name = view.consultant && view.consultant.name;
-    const start = 'مرحباً، اطلعت على ' + (startsWithWord(view.name) ? '' : 'مشروع ') + view.name + (name ? ' عن طريق ' + name : '') + ' وأرغب ';
+    const offer = view.offer && view.offer.name && kind !== 'model' ? ' (' + view.offer.name + ')' : '';
+    const start = 'مرحباً، اطلعت على ' + (startsWithWord(view.name) ? '' : 'مشروع ') + view.name + offer + (name ? ' عن طريق ' + name : '') + ' وأرغب ';
     if (kind === 'visit') return start + 'بحجز زيارة.';
     if (kind === 'model' && model) {
         const price = model.price !== null ? ' (' + priceText(model.price) + ')' : '';

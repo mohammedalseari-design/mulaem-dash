@@ -1,7 +1,9 @@
 // «مشاركة المشروع مع عميل»: نافذة المعاينة المعتمدة (ShareSheet) — تختار الصيغة (رابط صفحة، بطاقة صورة، بروفايل PDF)
 // وترى معاينتها، ثم زر واحد «أرسل عبر واتساب»، وبجانبه نسخ الرابط أو تنزيل الصورة أو الملف.
 //
-// openShareSheet({ id, name, district, city }) من صفحة المشروع («مشاركة مع عميل») ومن «مشاركاتي» (my-shares.js).
+// openShareSheet({ id, name, district, city }, { unit, phone, lead, onClose }) من صفحة المشروع («مشاركة مع عميل»)، ومن
+// «مشاركاتي» (my-shares.js)، ومن مطابقات طلب العميل (matching.js: unit نموذج المطابقة، وphone جوال العميل فتُفتح محادثته).
+// عرض واحد (قرار المالك): مشروع له نماذج يختار الوسيط أحدها، والرسالة والرابط والبطاقة والبروفايل لهذا النموذج وحده.
 // عند الفتح: share_project بلا صيغة يعطي رمز الرابط الثابت لهذا الموظف في هذا المشروع ولا يُحسب إرسالاً (038)، ثم
 // get_project_share بالرمز يعطي ما تعرضه صفحة العميل بالضبط (ومن داخل النظام لا يُحسب فتحاً)، فترسم منه المعاينة والبطاقة.
 // كل إرسال يستدعي share_project بصيغته أولاً فيُسجَّل في «مشاركاتي»، والفعل نفسه (واتساب، الحافظة، التنزيل، المشاركة من
@@ -18,7 +20,7 @@ import { el, replace, openModal, closeModal, notify, fail, errorText, icon, load
 import {
     FORMATS, FORMAT_LABEL, FORMAT_HINT, FORMAT_ICON, SH_ICONS, CARD_COLORS, SAR, OFFICE_NAME,
     publicView, placeText, shareLink, shareMessage, waLink, cardFacts, availableText, modelSpecs, priceText,
-    sheetStatsText, cardFileName, qrMatrix
+    sheetStatsText, cardFileName, qrMatrix, defaultOffer, offerLabel
 } from './share-model.js';
 
 // الاستعلام لا يرمي: خطأ الشبكة يصل { error } كخطأ الخادم
@@ -99,12 +101,12 @@ export function openShareSheet(project, options = {}) {
     if (!Number.isInteger(id) || id <= 0) return;
     const base = publicBase();
     const state = {
-        id, format: 'link', code: null, view: null, stats: null, card: null, cardJob: null, cardFrame: null, copyField: null
+        id, format: 'link', code: null, raw: null, full: null, ord: null, view: null, stats: null, card: null, cardJob: null, cardFrame: null, copyField: null
     };
 
     const sub = el('p', { class: 'sh-sub', text: [project.name, placeText(project.district, project.city)].filter(Boolean).join(' · ') });
     const main = el('div', { class: 'sh-main' }, loading('جارٍ تجهيز المشاركة'));
-    const body = el('div', { class: 'sh-sheet' }, [sub, main]);
+    const body = el('div', { class: 'sh-sheet' }, [sub, options.lead ? el('p', { class: 'sh-lead', text: options.lead }) : null, main]);
     openModal('مشاركة المشروع مع عميل', body, { onClose: options.onClose || null });
     const holder = document.getElementById('modalContent');
     if (holder) holder.classList.add('sh-modal');
@@ -133,11 +135,15 @@ export function openShareSheet(project, options = {}) {
     async function loadView() {
         const res = await settle(supabase.rpc('get_project_share', { p_code: state.code, p_visitor: null }));
         if (!body.isConnected) return false;
-        const view = res.error ? null : publicView(res.data);
-        if (!view) {
+        const full = res.error ? null : publicView(res.data);
+        if (!full) {
             replace(main, res.error ? problem(res.error, boot) : refusal('not_found'));
             return false;
         }
+        state.raw = res.data;
+        state.full = full;
+        state.ord = defaultOffer(full, options.unit);
+        const view = publicView(res.data, state.ord);
         state.view = view;
         sub.textContent = [view.name, view.place].filter(Boolean).join(' · ');
         return true;
@@ -154,10 +160,34 @@ export function openShareSheet(project, options = {}) {
         previewHost = el('div', { class: 'sh-pv' });
         whoHost = el('div', { class: 'sh-who-host' });
         actionsHost = el('div', { class: 'sh-acts' });
-        replace(main, [formatPicker(), previewHost, whoHost, actionsHost]);
+        replace(main, [offerPicker(), formatPicker(), previewHost, whoHost, actionsHost]);
         paintPreview();
         paintWho();
         paintActions();
+    }
+
+    /* ---------- العرض ---------- */
+
+    // مشروع له نموذجان فأكثر: يختار الوسيط العرض الذي يرسله، ولا يخرج غيره في الرسالة ولا في الرابط
+    function offerPicker() {
+        if (state.full.models.length < 2) return null;
+        return el('div', { class: 'sh-offer' }, [
+            el('label', { for: 'shOffer', text: 'اختر العرض' }),
+            el('select', { id: 'shOffer', onchange: (event) => chooseOffer(Number(event.target.value)) }, state.full.models.map((model) => el('option', {
+                value: String(model.ord), selected: model.ord === state.ord, text: offerLabel(model)
+            })))
+        ]);
+    }
+
+    function chooseOffer(ord) {
+        state.ord = ord;
+        state.view = publicView(state.raw, ord);
+        state.card = null;
+        state.copyField = null;
+        paintPreview();
+        paintWho();
+        paintActions();
+        if (state.format === 'card') prepareCard();
     }
 
     /* ---------- الصيغة ---------- */
@@ -392,14 +422,14 @@ export function openShareSheet(project, options = {}) {
 
     function sendWhatsApp() {
         const f = state.format;
-        const text = shareMessage(f, state.view, shareLink(base, state.code, f));
+        const text = shareMessage(f, state.view, shareLink(base, state.code, f, state.ord));
         if (f === 'card') return void sendCard(text);
         record(f);
-        openUrl(waLink(null, text));
+        openUrl(waLink(options.phone || null, text));
     }
 
     function copyLink() {
-        const link = shareLink(base, state.code, 'link');
+        const link = shareLink(base, state.code, 'link', state.ord);
         record('link');
         const done = () => notify('نُسخ الرابط. الصقه في محادثة العميل.', 'success');
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, () => showCopyField(link));
@@ -417,7 +447,7 @@ export function openShareSheet(project, options = {}) {
 
     function openPdf() {
         record('pdf');
-        openUrl(shareLink(base, state.code, 'pdf'));
+        openUrl(shareLink(base, state.code, 'pdf', state.ord));
     }
 
     function cardNotReady() {
@@ -457,7 +487,7 @@ export function openShareSheet(project, options = {}) {
 
     function cardFallback(text, name) {
         saveBlob(state.card.blob, name);
-        openUrl(waLink(null, text));
+        openUrl(waLink(options.phone || null, text));
         notify('نُزّلت البطاقة. أرفقها في محادثة العميل مع الرسالة.', 'info', 8000);
     }
 
@@ -466,7 +496,7 @@ export function openShareSheet(project, options = {}) {
         if (state.card || state.cardJob || !state.view || !state.code) return;
         const view = state.view;
         const code = state.code;
-        state.cardJob = renderCard(view, shareLink(base, code, 'card')).then((card) => {
+        state.cardJob = renderCard(view, shareLink(base, code, 'card', state.ord)).then((card) => {
             state.cardJob = null;
             if (state.view !== view || state.code !== code) return void prepareCard();
             card.canvas.className = 'sh-card-canvas';

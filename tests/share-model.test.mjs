@@ -7,7 +7,7 @@ import {
     FORMATS, FORMAT_LABEL, INTEREST_MS, cleanText, cleanBlock, districtText, placeText, constructionText, deliveryText, priceText,
     roomsText, areaText, initialOf, normalizeMobile, intlDigits, phoneDisplay, phoneTel, waLink, isShareCode, isVisitorId,
     shareLink, readParams, newVisitorId, summarize, mapUrl, publicView, modelSpecs, modelPill, unitsLine, availableText,
-    stripFacts, cardFacts, shareMessage, contactMessage, agoText, isInterestedNow, opensText, peopleUnit, lastOpenText,
+    stripFacts, cardFacts, shareMessage, contactMessage, defaultOffer, offerLabel, agoText, isInterestedNow, opensText, peopleUnit, lastOpenText,
     sortShares, formatCounts, stripNumbers, sheetStatsText, cardFileName, monthSubText, weekSubText,
     qrMatrix, qrRawCodewords, qrDataCodewords, qrFormatBits, qrVersionBits, qrMaskAt, rsRemainder, gfMul, qrPenalty
 } from '../crm/js/share-model.js';
@@ -43,9 +43,9 @@ t('visitor id shape', isVisitorId('abcdEFGH') && !isVisitorId('abc') && !isVisit
 t('share link: page, and the profile in print mode', shareLink('https://dash.mulaem.sa/crm/p.html', 'AbCdEfGhIjKlMnOpQrStUv') === 'https://dash.mulaem.sa/crm/p.html?c=AbCdEfGhIjKlMnOpQrStUv'
     && shareLink('https://x/p.html', 'AbCdEfGhIjKlMnOpQrStUv', 'pdf') === 'https://x/p.html?c=AbCdEfGhIjKlMnOpQrStUv&print=1'
     && shareLink('https://x/p.html', 'AbCdEfGhIjKlMnOpQrStUv', 'card') === 'https://x/p.html?c=AbCdEfGhIjKlMnOpQrStUv');
-t('read params: code and print', same(readParams('?c=AbCdEfGhIjKlMnOpQrStUv&print=1'), { code: 'AbCdEfGhIjKlMnOpQrStUv', given: true, print: true }));
-t('read params: malformed code is not asked', same(readParams('?c=<script>'), { code: null, given: true, print: false })
-    && same(readParams(''), { code: null, given: false, print: false }));
+t('read params: code and print', same(readParams('?c=AbCdEfGhIjKlMnOpQrStUv&print=1'), { code: 'AbCdEfGhIjKlMnOpQrStUv', given: true, print: true, model: null }));
+t('read params: malformed code is not asked', same(readParams('?c=<script>'), { code: null, given: true, print: false, model: null })
+    && same(readParams(''), { code: null, given: false, print: false, model: null }));
 t('visitor id: 16 bytes → 22 base64url characters', newVisitorId(Uint8Array.from({ length: 16 }, (_, i) => i)) === 'AAECAwQFBgcICQoLDA0ODw');
 t('visitor id: high bytes use - and _', newVisitorId([251, 255, 255]) === '-___' && isVisitorId(newVisitorId(new Uint8Array(16).fill(200))));
 
@@ -134,11 +134,13 @@ t('card facts: type fills a gap', same(cardFacts(publicView({ project: { name: '
 /* ===================== الرسائل ===================== */
 
 const link = 'https://dash.mulaem.sa/crm/p.html?c=AbCdEfGhIjKlMnOpQrStUv';
+const offerView = publicView(PAYLOAD, 1);
 const APPROVED = (format, line, url) => [
     'السلام عليكم،',
-    'أرسل لك ' + format + ' مشروع «أبراج الشاطئ ٣» في حي الشاطئ، جدة:',
-    '• يبدأ من 1,250,000 ر.س',
-    '• من 3 إلى 6 غرف · من 165 إلى 420 م²',
+    'أرسل لك ' + format + ' مشروع «أبراج الشاطئ ٣»:',
+    '• نموذج A',
+    '• 1,250,000 ر.س',
+    '• 3 غرف · 165 م²',
     '• التسليم: الربع الثاني 2027',
     line,
     url,
@@ -147,18 +149,28 @@ const APPROVED = (format, line, url) => [
     'ملائم العقارية'
 ].join('\n');
 t('district: «مخطط» and «حى» get no extra «حي»', districtText('مخطط سندس') === 'مخطط سندس' && districtText('حى المروة') === 'حى المروة' && districtText('حيّ النزهة') === 'حيّ النزهة' && districtText('حي الشاطئ') === 'حي الشاطئ' && districtText('الشاطئ') === 'حي الشاطئ' && districtText('حيفا') === 'حي حيفا');
-t('share message: the wording the owner approved', shareMessage('link', view, link) === APPROVED('تفاصيل', 'الصور والمخططات والموقع هنا:', link), shareMessage('link', view, link));
-t('share message: the card sends the same message', shareMessage('card', view, link) === shareMessage('link', view, link));
-t('share message: profile', shareMessage('pdf', view, link + '&print=1') === APPROVED('بروفايل', 'تقدر تحفظه PDF من هنا:', link + '&print=1'));
-const noPlans = publicView(Object.assign({}, PAYLOAD, { units: PAYLOAD.units.slice(0, 1) }));
-t('share message: promises only what the page has', shareMessage('link', noPlans, link).includes('\nالصور والنماذج والموقع هنا:\n'));
+t('one offer: only the chosen model', offerView.models.length === 1 && offerView.offer.name === 'نموذج A' && offerView.summary.total === 12 && offerView.summary.fromPrice === 1250000);
+t('one offer: an unknown model shows the project', publicView(PAYLOAD, 99).models.length === 4 && publicView(PAYLOAD, 99).offer === null && publicView(PAYLOAD).offer === null);
+t('default offer: by name, else first available, else first, none without models', defaultOffer(view) === 1 && defaultOffer(view, 'نموذج B') === 2 && defaultOffer(view, 'غير موجود') === 1
+    && defaultOffer(publicView({ project: { name: 'x' }, units: [{ ord: 1, name: 'أ', total: 1, available: 0 }, { ord: 2, name: 'ب', total: 1, available: 1 }] })) === 2
+    && defaultOffer(publicView({ project: { name: 'x' }, units: [{ ord: 1, name: 'أ', total: 1, available: 0 }] })) === 1
+    && defaultOffer(publicView({ project: { name: 'x' }, units: [{ ord: 0, total: 1, available: 1 }] })) === null);
+t('offer label', offerLabel(view.models[0]) === 'نموذج A · 3 غرف · 165 م² · 1,250,000 ر.س' && offerLabel(view.models[2]).endsWith('· غير متاح'), offerLabel(view.models[0]));
+t('share link carries the offer', shareLink('https://x/p.html', 'ABC', 'link', 2) === 'https://x/p.html?c=ABC&m=2' && shareLink('https://x/p.html', 'ABC', 'pdf', 2) === 'https://x/p.html?c=ABC&m=2&print=1' && shareLink('https://x/p.html', 'ABC') === 'https://x/p.html?c=ABC');
+t('read params: the offer', readParams('?c=AbCdEfGhIjKlMnOpQrStUv&m=2').model === 2 && readParams('?c=AbCdEfGhIjKlMnOpQrStUv&m=x').model === null && readParams('?c=AbCdEfGhIjKlMnOpQrStUv&m=0').model === null && readParams('?c=AbCdEfGhIjKlMnOpQrStUv').model === null);
+t('share message: one offer in the wording the owner chose', shareMessage('link', offerView, link) === APPROVED('تفاصيل', 'الصور والمخططات هنا:', link), shareMessage('link', offerView, link));
+t('share message: the card sends the same message', shareMessage('card', offerView, link) === shareMessage('link', offerView, link));
+t('share message: profile', shareMessage('pdf', offerView, link + '&print=1') === APPROVED('بروفايل', 'تقدر تحفظه PDF من هنا:', link + '&print=1'));
+t('share message: no place and no map', !shareMessage('link', offerView, link).includes('في حي') && !shareMessage('link', offerView, link).includes('جدة') && !shareMessage('link', offerView, link).includes('الموقع'));
+t('share message: promises only what the page has', shareMessage('link', publicView(PAYLOAD, 2), link).includes('\nالصور هنا:\n'));
 t('share message: nothing known, no empty lines', shareMessage('link', publicView({ project: { name: 'برج' } }), link)
     === 'السلام عليكم،\nأرسل لك تفاصيل مشروع «برج»:\nالتفاصيل هنا:\n' + link + '\nملائم العقارية');
 t('share message: one room count and one area have no «من»', shareMessage('link', office, link).includes('\n• 6 غرف · 450 م²\n'), shareMessage('link', office, link));
 t('share message: status when no delivery date', shareMessage('link', publicView({ project: { name: 'برج', construction_status: 'تحت_الإنشاء' } }), link).includes('\n• الحالة: تحت الإنشاء\n'));
 t('contact message: the approved wording names the broker', contactMessage(view) === 'مرحباً، اطلعت على مشروع أبراج الشاطئ ٣ عن طريق سعد العتيبي وأرغب بمعرفة المزيد وحجز زيارة.');
+t('contact message: names the offer', contactMessage(offerView) === 'مرحباً، اطلعت على مشروع أبراج الشاطئ ٣ (نموذج A) عن طريق سعد العتيبي وأرغب بمعرفة المزيد وحجز زيارة.');
 t('contact message: visit', contactMessage(view, 'visit') === 'مرحباً، اطلعت على مشروع أبراج الشاطئ ٣ عن طريق سعد العتيبي وأرغب بحجز زيارة.');
-t('contact message: a model with its price', contactMessage(view, 'model', view.models[1]) === 'مرحباً، اطلعت على مشروع أبراج الشاطئ ٣ عن طريق سعد العتيبي وأرغب بمعرفة المزيد عن نموذج B (1,480,000 ر.س).');
+t('contact message: a model with its price', contactMessage(offerView, 'model', offerView.models[0]) === 'مرحباً، اطلعت على مشروع أبراج الشاطئ ٣ عن طريق سعد العتيبي وأرغب بمعرفة المزيد عن نموذج A (1,250,000 ر.س).');
 const named = publicView({ project: { name: 'مشروع النخيل' } });
 t('a name that starts with «مشروع» does not repeat the word', shareMessage('link', named, link).includes('أرسل لك تفاصيل «مشروع النخيل»:')
     && contactMessage(named) === 'مرحباً، اطلعت على مشروع النخيل وأرغب بمعرفة المزيد وحجز زيارة.');

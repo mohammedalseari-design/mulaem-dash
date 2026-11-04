@@ -3199,6 +3199,11 @@ html:has(.dl-selbar:not([hidden])) { scroll-padding-bottom: 110px; }
 /* ---------- الاسم والرقم ---------- */
 
 .sh-who-host { display: grid; gap: 8px; min-width: 0; }
+.sh-lead { margin: 0 0 8px; color: var(--ok); font-size: 0.9rem; font-weight: 600; }
+.sh-offer { display: grid; gap: 6px; min-width: 0; }
+.sh-offer label { color: var(--ink-2); font-size: 0.9rem; font-weight: 600; }
+.sh-offer select { box-sizing: border-box; width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font: 500 0.95rem var(--font); }
+.sh-offer select:focus { outline: 0; border-color: var(--brand); box-shadow: var(--ring); }
 .sh-who { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; color: var(--ink-2); font-size: 0.92rem; }
 .sh-who > .sh-ico { color: var(--muted); }
 .sh-who-text { min-width: 0; overflow-wrap: anywhere; }

@@ -13,7 +13,8 @@ import {
     el, append, replace, clear, loading, empty, errorBox, badge, pager, money, number,
     fmtDate, dash, notify, fail, input, EM_DASH
 } from './ui.js';
-import { districtsText, budgetText, rangeText, deliveryText, sendShareLink } from './requirements.js';
+import { districtsText, budgetText, rangeText, deliveryText } from './requirements.js';
+import { openShareSheet } from './share-project.js';
 import { myRole } from './auth.js';
 import { openDealForm } from './deal-form.js';
 
@@ -226,8 +227,8 @@ function scoreBadge(score, breakdown) {
 }
 
 // تُحفظ المطابقة عند التصرّف فيها فقط. التكرار (23505) يعني أن الصف موجود، فيُحدَّث.
-// «مشاركة مع العميل»: يحفظ العقار في عروض العميل (property_matches بحالة shared) ثم يفتح نافذة الإرسال
-// برابط صفحة العروض والرسالة جاهزة لواتساب. الحفظ وحده لا يصل للعميل، فالنافذة جزء من المشاركة.
+// «مشاركة مع العميل»: يحفظ العقار في عروض العميل (property_matches بحالة shared) ثم يفتح نافذة المشاركة لهذا العرض وحده.
+// الحفظ وحده لا يصل للعميل، فالنافذة جزء من المشاركة
 async function shareMatch(button, dealContext, row, onChanged) {
     const requirementId = dealContext.requirementId;
     button.disabled = true;
@@ -261,14 +262,23 @@ async function shareMatch(button, dealContext, row, onChanged) {
         if (updateError) return void fail(updateError, 'تعذّر تحديث المطابقة');
         if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
         onChanged();
-        return void sendShareLink(button, dealContext.client, requirementId, 'العقار محفوظ من قبل في عروض العميل. أرسل له الرابط ليشاهد عروضه:');
+        return void sendOffer(dealContext, row, 'العقار محفوظ من قبل في عروض العميل. أرسل له هذا العرض:');
     }
 
     button.disabled = false;
     button.textContent = original;
     if (error) return void fail(error, 'تعذّر حفظ المطابقة');
     onChanged();
-    sendShareLink(button, dealContext.client, requirementId, 'حُفظ العقار في عروض العميل. أرسل له الرابط ليشاهد عروضه:');
+    sendOffer(dealContext, row, 'حُفظ العقار في عروض العميل. أرسل له هذا العرض:');
+}
+
+// نافذة المشاركة لهذا العرض وحده، ورسالتها تُفتح في واتساب على جوال العميل
+function sendOffer(dealContext, row, lead) {
+    const project = row.project || {};
+    openShareSheet(
+        { id: row.project_id, name: row.project_name || project.name, district: row.district || project.district, city: row.city },
+        { unit: row.unit_key, phone: dealContext.client && dealContext.client.phone, lead }
+    );
 }
 
 /* ===================== المطابقات المحفوظة ===================== */
@@ -320,6 +330,7 @@ function savedTable(rows, dealContext, onChanged) {
             button.addEventListener('click', () => setState(button, row, option.state, noteBox.value, onChanged));
             buttons.appendChild(button);
         }
+        buttons.appendChild(el('button', { type: 'button', class: 'btn btn-secondary btn-xs', text: 'أرسل للعميل', onclick: () => sendOffer(dealContext, row, null) }));
         append(buttons, dealButton(dealContext, row));
 
         body.appendChild(el('tr', {}, [

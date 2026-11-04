@@ -2257,19 +2257,13 @@ window.viewProject = async function (id) {
 
         ${p.notes ? `<div style="margin-top:20px; background:#f9f9f9; padding:15px; border-radius:10px;"><p><strong>ملاحظات:</strong> ${esc(p.notes)}</p></div>` : ''}
 
-        <div class="share-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border-light); display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})">
+        <div class="share-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border-light); display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
+            ${p.status === 'approved' ? `<a class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px; text-align: center; text-decoration: none;" href="crm/index.html#/project/${p.id}?share=1">
+                <span>مشاركة مع عميل</span>
+            </a>` : ''}
+            ${currentUser && currentUser.role === 'admin' ? `<button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetails(${p.id})">
                 <span>نسخ للنشر (كامل)</span>
-            </button>
-            <button class="btn btn-outline" style="border-color: var(--primary-gold); color: var(--primary-gold); font-size: 0.95em; padding: 12px 20px;" onclick="copyProjectDetailsShort(${p.id})">
-                <span>نسخ للعميل (مختصر)</span>
-            </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsApp(${p.id})">
-                <span>واتساب (كامل)</span>
-            </button>
-            <button class="btn btn-success" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); border-color: transparent; color: #fff; font-size: 0.95em; padding: 12px 20px;" onclick="shareProjectWhatsAppShort(${p.id})">
-                <span>واتساب (مختصر)</span>
-            </button>
+            </button>` : ''}
         </div>
 
         ${images && images.length > 0 ? buildImageSlider(images, p.id) : ''}
@@ -2382,73 +2376,6 @@ window.copyProjectDetails = function(id) {
             confirmButtonColor: '#C9A961'
         });
     });
-};
-
-window.shareProjectWhatsApp = function(id) {
-    const msg = window.getWhatsAppMessage(id);
-    if (!msg) return;
-
-    const _p = projects.find(x => x.id == id);
-    logActivity('مشاركة واتساب كامل', `شارك العرض الكامل عبر واتساب: ${_p ? _p.name : id}`);
-
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
-};
-
-window.getWhatsAppMessageShort = function(id) {
-    const p = projects.find(x => x.id == id);
-    if (!p) return '';
-
-    let msg = `*ملخص عقار: ${p.name}*\n`;
-    msg += `------------------------------------------\n`;
-    msg += `*النوع:* ${p.type}\n`;
-    msg += `*السعر:* ${projectPriceText(p)}\n`;
-    msg += `*المساحة:* ${projectAreaText(p)}\n`;
-    if (p.address) msg += `*العنوان:* ${p.address}\n`;
-    if (p.latitude && p.longitude) {
-        msg += `*رابط الموقع:* https://www.google.com/maps?q=${p.latitude},${p.longitude}\n`;
-    }
-    return msg;
-};
-
-window.copyProjectDetailsShort = function(id) {
-    const msg = window.getWhatsAppMessageShort(id);
-    if (!msg) return;
-
-    const _p = projects.find(x => x.id == id);
-    logActivity('نسخ ملخص للعميل', `نسخ الملخص المختصر للعميل: ${_p ? _p.name : id}`);
-
-    navigator.clipboard.writeText(msg).then(() => {
-        Swal.fire({
-            title: 'تم النسخ بنجاح!',
-            text: 'تم نسخ الملخص المختصر للعميل.',
-            icon: 'success',
-            toast: true,
-            position: 'top-end',
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true
-        });
-    }).catch(err => {
-        console.error('Failed to copy text: ', err);
-        Swal.fire({
-            title: 'خطأ',
-            text: 'فشل نسخ النص.',
-            icon: 'error',
-            confirmButtonColor: '#C9A961'
-        });
-    });
-};
-
-window.shareProjectWhatsAppShort = function(id) {
-    const msg = window.getWhatsAppMessageShort(id);
-    if (!msg) return;
-
-    const _p = projects.find(x => x.id == id);
-    logActivity('مشاركة واتساب مختصر', `شارك الملخص المختصر عبر واتساب: ${_p ? _p.name : id}`);
-
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
 };
 
 window.approveProject = async function (id) {

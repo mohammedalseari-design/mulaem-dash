@@ -7,7 +7,7 @@
 // مركز الاتصال لا يرى هذا النموذج أصلاً: سياسة deals_insert تقتصر على admin/field.
 
 import { supabase } from './supabase.js';
-import { isAdmin } from './auth.js';
+import { isAdmin, canSeeCommission } from './auth.js';
 import { brokerStaff, sanitizeSearch, phoneNeedle } from './data.js';
 import { PURPOSE, REQ_STATUS, label } from './labels.js';
 import {
@@ -140,7 +140,7 @@ export async function openDealForm(client, preset, onSaved) {
             field('الوحدة', unitKey),
             field('العقار', el('div', { class: 'crm-picker' }, [projectSearch, projectSelect]),
                 { span2: true, hint: 'اكتب اسم العقار أو رقمه ثم اختره من القائمة' }),
-            field('قيمة الصفقة (ريال)', amount, { hint: 'تُستعمل أساساً لاحتساب العمولة عند الإتمام' }),
+            field('قيمة الصفقة (ريال)', amount, { hint: canSeeCommission() ? 'تُستعمل أساساً لاحتساب العمولة عند الإتمام' : null }),
             field('الإغلاق المتوقع', expectedClose),
             isAdmin() ? field('الوسيط', broker) : null
         ]),

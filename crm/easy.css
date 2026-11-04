@@ -170,6 +170,7 @@
     #view table.t-props > tbody > tr > td:nth-child(6) { order: 6; flex-basis: 100%; justify-content: space-between; }
     #view table.t-props > tbody > tr > td:nth-child(6)[data-label]::before { display: inline; color: var(--muted); font-size: 0.86rem; font-weight: 600; }
     #view table.t-props > tbody > tr > td:nth-child(6):has(> .pr-none) { display: none; }
+    #view table.t-props.no-commission > tbody > tr > td:nth-child(6) { display: none; }
     #view table.t-props > tbody > tr > td:nth-child(8) { order: 7; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #view table.t-props > tbody > tr > td:nth-child(8) > :not(.btn) { display: contents; }
     #view table.t-props > tbody > tr > td:nth-child(8) .btn { width: 100%; min-height: 44px; justify-content: center; margin: 0; }

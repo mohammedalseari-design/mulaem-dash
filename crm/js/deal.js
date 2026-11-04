@@ -191,7 +191,7 @@ async function openDealEdit(deal, stage, reload) {
                     ? 'الصفقة تمت: تعديل قيمتها للمدير فقط.'
                     : stage && stage.is_won
                         ? 'الصفقة تمت: إن لم يُحصَّل شيء من العمولة تتبعها العمولة تلقائياً، وإلا تُعلَّم للمراجعة.'
-                        : 'أساس العمولة عند الإتمام.'
+                        : canSeeCommission() ? 'أساس العمولة عند الإتمام.' : null
             }),
             field('الإغلاق المتوقع', expectedClose),
             field('الوحدة', unitKey, { span2: true }),

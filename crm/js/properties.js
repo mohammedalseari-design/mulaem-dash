@@ -292,7 +292,8 @@ function table(rows, seeCommission, reload) {
         el('th', { text: 'النوع والحي' }),
         el('th', { text: 'المواصفات' }),
         el('th', { text: 'السعر' }),
-        el('th', { text: 'العمولة' }),
+        // من لا يرى العمولة: الخانة باقية لترتيب الأعمدة (.no-commission يخفيها)، وبلا كلمة تدل عليها
+        el('th', { text: seeCommission ? 'العمولة' : '' }),
         el('th', { text: 'الحالة' }),
         el('th', { text: '' })
     ]));

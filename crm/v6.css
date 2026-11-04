@@ -2166,7 +2166,7 @@ body.pal-open { overflow: hidden; }
 .dl-stage { color: var(--ink); font-size: 0.88rem; font-weight: 500; }
 .dl-path.dl-path-won .dl-seg { background: var(--ok); }
 .dl-path.dl-path-won .dl-stage { color: var(--ok); font-weight: 600; }
-.dl-path.dl-path-lost .dl-stage { color: var(--muted); }
+.dl-path.dl-path-lost .dl-stage { color: var(--danger); font-weight: 600; }
 
 .dl-days { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* «واقفة» تنتظر حركة: كهرمانية كما في صفحة الصفقة و«عملي اليوم»، والأحمر لـ«تجاوز موعد الإغلاق» وحده */

@@ -50,7 +50,7 @@ export async function renderProject(root, projectId) {
     const pid = /^\d{1,10}$/.test(route.id) ? Number(route.id) : NaN;
     if (!(pid <= 2147483647)) return void replace(root, notFound());
     // show: الأرقام، none: لا خانة ولا ذكر للعمولة
-    const seeCommission = myRole() !== 'callcenter' && canSeeCommission();
+    const seeCommission = canSeeCommission();
     const commission = seeCommission ? 'show' : 'none';
 
     const [projectResult, unitsResult, holdsResult] = await Promise.all([

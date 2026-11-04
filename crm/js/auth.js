@@ -56,8 +56,9 @@ async function loadCommissionVisible(admin) {
     }
 }
 
+// المدير دائماً، والوسيط حين يشغّل المدير الزر. مركز الاتصال لا يراها أبداً (قرار المالك 2026-11-04؛ 039 يفرضها في القاعدة)
 export function canSeeCommission() {
-    return Boolean(state.profile) && (isAdmin() || state.commissionVisible === true);
+    return Boolean(state.profile) && (isAdmin() || (state.profile.role === 'field' && state.commissionVisible === true));
 }
 
 export async function signIn(username, password) {

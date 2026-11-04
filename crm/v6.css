@@ -2964,3 +2964,681 @@ html:has(.dl-selbar:not([hidden])) { scroll-padding-bottom: 110px; }
     .pj-backlink, .btn.pj-share, .pj-tabs, .pj-bro, .pj-gal-all, .pj-copy, .pj-plan-reg, .pj-plans-hint { display: none !important; }
     .pj-pane[hidden] { display: block !important; }
 }
+
+/* ===================== مشاركة المشروع و«مشاركاتي» وصفحة العميل (sh-) — الخطوة الرابعة، 2026-11-04 ===================== */
+/* ثلاثة أقسام: نافذة «مشاركة المشروع مع عميل» (share-project.js)، وصفحة «مشاركاتي» (my-shares.js)، وصفحة العميل crm/p.html
+   (public-project.js) وطباعتها PDF. يُلحق بآخر crm/v6.css كما سبقه من الخطوات؛ وp.html يحمّله مباشرة بعد v6.css
+   (لا يحمّل app.css ولا crm.css، فكل ما تحتاجه الصفحة العامة معرّف هنا).
+   متغيرات v6 وحدها، فالوضع الليلي يأتي منها (body.crm-dark). اللون للمعنى: أخضر متاح، رمادي مغلق، كهرماني تنبيه، أحمر خطأ،
+   ولون الشعار للإجراء الرئيسي. الجوال حتى 700px بلا تمرير أفقي عند 320px، ومساحات اللمس 44px فأكثر. */
+
+/* أيقونة خطية بلا اعتماد على app.css (صفحة العميل لا تحمّله) */
+.sh-ico {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.sh-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+.sh-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--hover);
+    color: var(--ink-2);
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.sh-pill-ok { background: var(--ok-soft); color: var(--ok); }
+.sh-pill-muted { background: var(--hover); color: var(--muted); }
+
+/* ===================== النافذة: «مشاركة المشروع مع عميل» ===================== */
+
+#modal .modal-content.sh-modal { max-width: 780px; }
+.sh-sheet, .sh-main { display: grid; gap: 16px; min-width: 0; }
+.sh-sub { margin: -6px 0 0; color: var(--muted); font-size: 0.92rem; overflow-wrap: anywhere; }
+
+/* ---------- اختر الصيغة: ثلاث بطاقات راديو ---------- */
+
+.sh-formats { min-width: 0; margin: 0; padding: 0; border: 0; }
+.sh-formats legend { padding: 0; color: var(--ink-2); font-size: 0.9rem; font-weight: 600; }
+.sh-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.sh-opt {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 13px 14px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+.sh-opt input[type="radio"] { width: 18px; height: 18px; min-height: 0; margin: 0; padding: 0; accent-color: var(--brand); }
+.sh-opt b { font-size: 0.98rem; font-weight: 600; }
+.sh-opt .sh-ico { color: var(--muted); }
+.sh-opt small { grid-column: 2 / 4; color: var(--muted); font-size: 0.82rem; line-height: 1.5; }
+.sh-opt:hover { border-color: var(--brand); }
+.sh-opt:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset 0 0 0 1px var(--brand); }
+.sh-opt:has(input:checked) .sh-ico { color: var(--brand-ink); }
+.sh-opt:has(input:checked) small { color: var(--ink-2); }
+.sh-opt:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ---------- المعاينة: الشكل ثم ما يحتويه ---------- */
+
+.sh-pvb {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 24px;
+    min-height: 272px;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg);
+    overflow: hidden;
+}
+.sh-pvb-link { padding-bottom: 0; }
+.sh-pvb-link .sh-pvt { padding-bottom: 18px; }
+.sh-pvt { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sh-pvt h3 { margin: 0; color: var(--ink); font-size: 0.97rem; font-weight: 600; }
+.sh-checks { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.sh-checks li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start; color: var(--ink-2); font-size: 0.9rem; line-height: 1.6; }
+.sh-checks .sh-ico { width: 16px; height: 16px; margin-top: 4px; color: var(--muted); stroke-width: 2.2; }
+.sh-nb {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: auto 0 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.6;
+}
+.sh-nb .sh-ico, .sh-warn .sh-ico { width: 16px; height: 16px; margin-top: 3px; }
+.sh-warn { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 0; color: var(--amber); font-size: 0.86rem; font-weight: 500; line-height: 1.6; }
+
+/* بديل الصورة: أبراج هادئة بألوان الخطوط تحت صورة المشروع إن وُجدت */
+.sh-ph {
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(var(--line-2), var(--line-2)) 50% 100% / 26% 74% no-repeat,
+        linear-gradient(var(--line-2), var(--line-2)) 26% 100% / 15% 52% no-repeat,
+        linear-gradient(var(--line-2), var(--line-2)) 74% 100% / 17% 60% no-repeat,
+        var(--line);
+}
+.sh-ph img { position: relative; display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* معاينة الرابط: أعلى الصفحة على جوال العميل، مقصوص عند حد الإطار */
+.sh-phone {
+    justify-self: center;
+    align-self: end;
+    box-sizing: border-box;
+    width: 214px;
+    height: 252px;
+    padding: 8px 8px 0;
+    border: 1px solid var(--line-2);
+    border-bottom: 0;
+    border-radius: 30px 30px 0 0;
+    background: var(--surface);
+}
+.sh-phone-screen {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 22px 22px 0 0;
+    background: var(--bg);
+    color: var(--ink);
+}
+.sh-phone-bar { display: grid; place-items: center; height: 26px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--brand-ink); font-size: 10.5px; font-weight: 700; }
+.sh-phone-photo { height: 90px; }
+.sh-phone-body { display: grid; gap: 1px; padding: 7px 10px 0; }
+.sh-phone-name { font-size: 13.5px; font-weight: 700; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-phone-place { color: var(--muted); font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-phone-price { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 3px; }
+.sh-phone-price b { font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.sh-phone-price .sh-pill { padding: 1px 6px; font-size: 8.5px; }
+.sh-phone-who {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 8px 8px 0;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+}
+.sh-phone-who-text { display: grid; min-width: 0; margin-inline-end: auto; line-height: 1.35; }
+.sh-phone-who-text small { color: var(--muted); font-size: 8px; }
+.sh-phone-who-text b { font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-phone-ico { display: grid; place-items: center; flex: none; box-sizing: border-box; width: 24px; height: 24px; border: 1px solid var(--line-2); border-radius: 7px; }
+.sh-phone-ico .sh-ico { width: 12px; height: 12px; stroke-width: 2; }
+.sh-phone-ico-main { border-color: transparent; background: var(--brand-soft); color: var(--brand-ink); }
+.sh-phone-model {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    margin: 8px 8px 0;
+    padding: 7px 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    font-size: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.sh-phone-model span { overflow: hidden; text-overflow: ellipsis; }
+.sh-phone-model b { font-weight: 600; }
+
+/* معاينة البطاقة: اللوحة نفسها (1080×1080) مصغّرة */
+.sh-card-frame {
+    display: grid;
+    place-items: center;
+    justify-self: center;
+    box-sizing: border-box;
+    width: 234px;
+    max-width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    background: var(--surface);
+}
+.sh-card-canvas { display: block; width: 100%; height: 100%; }
+.sh-card-wait { padding: 12px; color: var(--muted); font-size: 0.86rem; line-height: 1.6; text-align: center; }
+
+/* معاينة البروفايل: أول صفحتين */
+.sh-pages-wrap { display: grid; justify-items: center; align-self: center; gap: 8px; }
+.sh-pages { display: flex; gap: 10px; }
+.sh-page {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 113px;
+    height: 160px;
+    overflow: hidden;
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 6px;
+    line-height: 1.5;
+}
+.sh-page-photo { flex: none; height: 57px; }
+.sh-page-title { display: grid; gap: 1px; padding: 7px 7px 0; }
+.sh-page-title b { font-size: 9.5px; font-weight: 700; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sh-page-title span { color: var(--muted); }
+.sh-page-foot { display: flex; justify-content: space-between; gap: 4px; margin-top: auto; padding: 5px 7px; border-top: 1px solid var(--line); font-size: 5.5px; }
+.sh-page-foot b { color: var(--brand-ink); font-weight: 700; white-space: nowrap; }
+.sh-page-foot span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sh-page-list { padding: 8px 7px; font-size: 5.5px; }
+.sh-page-h { display: block; margin-bottom: 4px; font-size: 7.5px; font-weight: 700; }
+.sh-page-h2 { margin-top: 6px; margin-bottom: 2px; }
+.sh-page-row { display: flex; justify-content: space-between; gap: 4px; padding: 4px 0; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+.sh-page-row span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.sh-page-line { display: block; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-pages-cap { color: var(--muted); font-size: 0.8rem; text-align: center; }
+
+/* ---------- الاسم والرقم ---------- */
+
+.sh-who-host { display: grid; gap: 8px; min-width: 0; }
+.sh-who { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; color: var(--ink-2); font-size: 0.92rem; }
+.sh-who > .sh-ico { color: var(--muted); }
+.sh-who-text { min-width: 0; overflow-wrap: anywhere; }
+.sh-who b { color: var(--ink); font-weight: 600; }
+
+/* ---------- الأزرار: رئيسي واحد، وبديل بإطار، والإحصاء نص ---------- */
+
+.sh-acts { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sh-acts-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.sh-acts .btn { width: auto; min-height: 48px; padding: 0 20px; font-weight: 600; text-decoration: none; }
+.btn.sh-alt { border: 1px solid var(--brand); background: var(--surface); color: var(--brand-ink); }
+.btn.sh-alt:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-ink); }
+.sh-stats-slot { margin-inline-start: auto; }
+.sh-stats { display: inline-flex; align-items: center; min-height: 44px; color: var(--brand-ink); font-size: 0.88rem; font-weight: 600; text-decoration: none; }
+.sh-stats:hover { text-decoration: underline; text-underline-offset: 3px; }
+.sh-note { margin: 0; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
+.sh-copy { display: grid; gap: 4px; }
+.sh-copy label { color: var(--ink-2); font-size: 0.86rem; font-weight: 600; }
+.sh-copy .sh-copy-field {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: 500 0.9rem var(--font);
+}
+
+@media (max-width: 700px) {
+    .sh-opts { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .sh-opt { padding: 10px 12px; }
+    .sh-pvb { grid-template-columns: minmax(0, 1fr); gap: 14px; min-height: 0; padding: 14px; }
+    /* الجوال المصغّر يبقى آخر الإطار ملتصقاً بحده، وما يحتويه فوقه */
+    .sh-pvb-link { padding-bottom: 0; }
+    .sh-pvb-link .sh-pvt { order: -1; padding-bottom: 0; }
+    .sh-acts-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .sh-acts .btn { width: 100%; }
+    .sh-stats-slot { margin: 0; justify-self: center; }
+}
+
+/* ===================== ‎#/shares‎ — «مشاركاتي» ===================== */
+
+.crm-view > .sh-strip { margin-bottom: 16px; }
+/* الشرح يلتف سطرين بدل قصّه (kpi-sub سطر واحد في v6) */
+.kpi-sub.sh-kpi-sub { min-height: 0; line-height: 1.5; white-space: normal; overflow: visible; text-overflow: clip; }
+
+.crm-card.sh-list { padding: 0; overflow: hidden; }
+.sh-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 18px; }
+.sh-toolbar .f-row { margin: 0; }
+.sh-toolbar .f-chips { margin: 0; }
+/* الحبّة 34px للعين و44px للمس */
+.sh-toolbar .f-chip { position: relative; }
+.sh-toolbar .f-chip::after { content: ''; position: absolute; inset: -5px 0; }
+.sh-sort { margin-inline-start: auto; color: var(--muted); font-size: 0.84rem; }
+
+.sh-rows { margin: 0; padding: 0; list-style: none; }
+.sh-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) 150px minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--line);
+}
+/* على الشاشة الواسعة خانات الوسط أعمدة في شبكة الصف */
+.sh-meta { display: contents; }
+.sh-pj { display: grid; gap: 2px; min-width: 0; }
+.sh-pj b { color: var(--ink); font-size: 0.98rem; font-weight: 600; overflow-wrap: anywhere; }
+.sh-pj span { color: var(--muted); font-size: 0.86rem; overflow-wrap: anywhere; }
+.sh-fmt {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--hover);
+    color: var(--ink-2);
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.sh-fmt .sh-ico { width: 14px; height: 14px; stroke-width: 2; }
+.sh-op { color: var(--brand-ink); font-size: 0.92rem; font-weight: 600; }
+.sh-op-none { color: var(--muted); font-weight: 400; }
+.sh-lt { display: grid; justify-items: start; gap: 2px; color: var(--ink-2); font-size: 0.88rem; }
+.sh-lt-none { color: var(--muted); }
+.sh-now { display: inline-flex; align-items: center; gap: 6px; color: var(--brand-ink); font-size: 0.82rem; font-weight: 600; }
+.sh-now i { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--brand); }
+.sh-row-acts { display: flex; align-items: center; gap: 2px; }
+.sh-tl {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: none;
+    color: var(--brand-ink);
+    font: 600 0.88rem var(--font);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.sh-tl:hover { background: var(--brand-soft); color: var(--brand-ink); }
+.sh-row-gone { padding: 0 10px; color: var(--muted); font-size: 0.82rem; }
+.sh-foot { margin: 0; padding: 12px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+.sh-rows-host > .crm-error { margin: 12px 18px; }
+.sh-rows-host > .loading { border-top: 1px solid var(--line); }
+.sh-rows-host > .crm-empty { border-top: 1px solid var(--line); }
+
+/* اللوحي: الاسم والأزرار في سطر، والصيغة والفتح والوقت في سطر تحتهما */
+@media (max-width: 1000px) {
+    .sh-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; }
+    .sh-pj { grid-column: 1; grid-row: 1; }
+    .sh-row-acts { grid-column: 2; grid-row: 1; }
+    .sh-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; grid-column: 1 / -1; grid-row: 2; }
+    .sh-lt { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+    .sh-fmt-none { display: none; }
+}
+
+@media (max-width: 700px) {
+    .sh-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); padding: 10px 14px; gap: 8px; overflow: hidden; }
+    .sh-toolbar .f-chips { margin-inline: -14px; padding-block: 5px; }
+    .sh-sort { margin: 0; }
+    .sh-row { padding: 12px 14px; gap: 6px 10px; grid-template-columns: minmax(0, 1fr); }
+    .sh-row-acts { grid-column: 1; grid-row: 3; margin-inline-start: -10px; flex-wrap: wrap; }
+    .sh-foot { padding: 12px 14px; }
+}
+
+/* ---------- «شارك مشروعاً»: اختيار المشروع ---------- */
+
+.sh-pick-field { margin: 4px 0 0; }
+.sh-pick-status { margin: 4px 0 8px; color: var(--muted); font-size: 0.86rem; }
+.sh-pick-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sh-pick {
+    display: grid;
+    gap: 2px;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 56px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.sh-pick:hover { border-color: var(--brand); background: var(--hover); }
+.sh-pick b { font-weight: 600; overflow-wrap: anywhere; }
+.sh-pick span { color: var(--muted); font-size: 0.86rem; }
+
+/* ===================== crm/p.html — صفحة المشروع للعميل ===================== */
+
+body.sh-pub-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.6; }
+.sh-pub { display: block; box-sizing: border-box; max-width: 760px; margin: 0 auto; }
+.sh-pub > .loading { padding: 32px 16px; }
+.sh-pub a { color: var(--brand-ink); }
+.sh-pub a:hover { color: var(--brand-hover); }
+.sh-pub h1, .sh-pub h2, .sh-pub p, .sh-pub ul, .sh-pub figure { margin: 0; }
+
+/* جدول الطباعة كتلٌ عادية على الشاشة (انظر قسم الطباعة) */
+.sh-doc, .sh-doc > tbody, .sh-doc > tbody > tr, .sh-doc > tbody > tr > td { display: block; width: 100%; }
+.sh-doc { border-collapse: collapse; }
+.sh-doc td { padding: 0; }
+.sh-doc > tfoot { display: none; }
+
+.sh-hero { position: relative; height: clamp(230px, 62vw, 380px); overflow: hidden; background: var(--line); }
+.sh-hero > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sh-hero-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.sh-art-ground { fill: var(--line-2); opacity: 0.55; }
+.sh-art-low { fill: var(--line-2); opacity: 0.45; }
+.sh-art-mid { fill: var(--line-2); opacity: 0.7; }
+.sh-art-high { fill: var(--line-2); }
+.sh-brand {
+    position: absolute;
+    top: 14px;
+    inset-inline-start: 14px;
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--brand-ink);
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+.sh-gallery-btn {
+    position: absolute;
+    bottom: 10px;
+    inset-inline-end: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: 600 0.9rem var(--font);
+    cursor: pointer;
+}
+.sh-gallery-btn .sh-ico { width: 16px; height: 16px; }
+
+.sh-intro { display: grid; gap: 4px; padding: 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.sh-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-pub .sh-intro h1 { margin-top: 6px; font-size: 1.65rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.sh-loc { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 0.97rem; }
+.sh-loc .sh-ico { width: 16px; height: 16px; }
+
+/* «يبدأ من» والغرف والتسليم بخطوط رفيعة بينها */
+.sh-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1px;
+    margin-top: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--line);
+}
+.sh-facts-2 { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.sh-facts-1 { grid-template-columns: minmax(0, 1fr); }
+.sh-fact { display: grid; align-content: start; gap: 2px; min-width: 0; padding: 10px 12px; background: var(--surface); }
+.sh-fact span { color: var(--muted); font-size: 0.8rem; }
+.sh-fact strong { font-size: 1.1rem; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sh-fact small { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.sh-pub .sh-avail { margin-top: 8px; font-size: 0.9rem; font-weight: 600; }
+.sh-avail-ok { color: var(--ok); }
+.sh-avail-closed { color: var(--muted); }
+
+.sh-sec { margin: 16px 16px 0; }
+.sh-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.sh-pub .sh-sec h2 { font-size: 1.07rem; font-weight: 700; }
+.sh-pub .sh-about { margin-top: 6px; color: var(--ink-2); font-size: 0.95rem; line-height: 1.8; white-space: pre-line; overflow-wrap: anywhere; }
+
+.sh-sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-bottom: 10px; }
+.sh-sec-meta { margin-inline-start: auto; color: var(--muted); font-size: 0.86rem; }
+.sh-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; list-style: none; }
+.sh-models li { min-width: 0; }
+.sh-mdl {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    box-sizing: border-box;
+    height: 100%;
+    min-height: 44px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    text-decoration: none;
+}
+.sh-pub a.sh-mdl { color: var(--ink); }
+.sh-pub a.sh-mdl:hover { border-color: var(--line-2); background: var(--surface-2); color: var(--ink); }
+.sh-mdl-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 6px; }
+.sh-mdl-top b { min-width: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.sh-mdl-top .sh-pill { padding: 1px 8px; font-size: 0.78rem; }
+.sh-mdl-sz { color: var(--ink-2); font-size: 0.86rem; }
+.sh-mdl-price { font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sh-mdl-price small { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+
+.sh-feats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin-top: 10px; padding: 0; list-style: none; }
+.sh-pub ul.sh-feats { margin-top: 10px; }
+.sh-feats li { display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 0.93rem; line-height: 1.5; overflow-wrap: anywhere; }
+.sh-feats .sh-ico { margin-top: 2px; color: var(--ink-2); }
+
+.sh-pub .sh-where { margin: 4px 0 10px; color: var(--ink-2); font-size: 0.93rem; }
+/* خريطة للزينة، والموقع الحقيقي في الزر تحتها */
+.sh-map { height: 140px; overflow: hidden; border-radius: var(--r-md); background: var(--line); }
+.sh-map svg { display: block; width: 100%; height: 100%; }
+.sh-map-road { fill: none; stroke: var(--surface-2); stroke-width: 4; }
+.sh-map-lane { fill: none; stroke: var(--surface-2); stroke-width: 2.5; opacity: 0.8; }
+.sh-map-pin { fill: var(--brand); }
+.sh-map-dot { fill: var(--surface); }
+
+.sh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+    min-height: 48px;
+    padding: 0 18px;
+    border-radius: 12px;
+    font: 600 1rem var(--font);
+    text-decoration: none;
+    cursor: pointer;
+}
+.sh-pub .sh-btn, .sh-contact .sh-btn { text-decoration: none; }
+.sh-btn-primary, .sh-contact a.sh-btn-primary { border: 1px solid var(--brand); background: var(--brand); color: var(--on-brand); }
+.sh-btn-primary:hover, .sh-contact a.sh-btn-primary:hover { border-color: var(--brand-hover); background: var(--brand-hover); color: var(--on-brand); }
+.sh-btn-outline, .sh-contact a.sh-btn-outline { border: 1px solid var(--brand); background: var(--surface); color: var(--brand-ink); }
+.sh-btn-outline:hover, .sh-contact a.sh-btn-outline:hover { background: var(--brand-soft); color: var(--brand-ink); }
+.sh-pub a.sh-btn-plain, .sh-btn-plain { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font-size: 0.93rem; }
+.sh-pub a.sh-btn-plain:hover { border-color: var(--brand); color: var(--brand-ink); }
+.sh-btn-block { display: flex; width: 100%; margin-top: 10px; min-height: 44px; }
+
+/* مخططات النماذج: على الشاشة وفي البروفايل */
+.sh-plans-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.sh-plan { display: grid; gap: 6px; color: var(--ink-2); font-size: 0.86rem; font-weight: 600; text-align: center; text-decoration: none; }
+.sh-plan img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.sh-photos { display: none; }
+.sh-photos-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.sh-photos-grid img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r-sm); background: var(--line); }
+
+.sh-pub-foot { padding: 20px 16px 18px; color: var(--muted); font-size: 0.84rem; line-height: 1.7; text-align: center; }
+
+/* لوحة المستشار: ملتصقة بأسفل الشاشة طول التمرير */
+.sh-contact {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    box-sizing: border-box;
+    display: grid;
+    gap: 10px;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+}
+.sh-who-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sh-avatar { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 999px; background: var(--hover); color: var(--ink-2); font-size: 1.1rem; font-weight: 600; }
+.sh-who-id { display: grid; min-width: 0; }
+.sh-who-id span { color: var(--muted); font-size: 0.84rem; }
+.sh-who-id strong { font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.sh-contact a.sh-visit { display: inline-flex; align-items: center; flex: none; min-height: 44px; margin-inline-start: auto; padding: 0 4px; color: var(--brand-ink); font-size: 0.93rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.sh-contact a.sh-visit:hover { text-decoration: underline; text-underline-offset: 3px; }
+.sh-cta { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
+.sh-cta-one { grid-template-columns: minmax(0, 1fr); }
+.sh-no-phone { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+/* «كل الصور» */
+.sh-gallery {
+    box-sizing: border-box;
+    width: min(920px, calc(100vw - 24px));
+    max-width: none;
+    max-height: calc(100vh - 24px);
+    margin: auto;
+    padding: 0;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    color: var(--ink);
+}
+.sh-gallery::backdrop { background: var(--ink); opacity: 0.55; }
+.sh-gallery-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-block: 6px;
+    padding-inline: 16px 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+}
+.sh-pub .sh-gallery-head h2 { min-width: 0; font-size: 1rem; font-weight: 700; overflow-wrap: anywhere; }
+.sh-gallery-close { display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; margin-inline-start: auto; border: 0; border-radius: var(--r-md); background: none; color: var(--ink-2); cursor: pointer; }
+.sh-gallery-close:hover { background: var(--hover); }
+.sh-gallery-list { display: grid; gap: 10px; padding: 12px; list-style: none; }
+.sh-gallery-list img { display: block; width: 100%; height: auto; border-radius: var(--r-md); background: var(--line); }
+
+/* رابط غير صالح أو تعذّر التحميل */
+.sh-gone { display: grid; justify-items: center; gap: 8px; max-width: 460px; margin: 0 auto; padding: 72px 20px; text-align: center; }
+.sh-gone-logo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; }
+.sh-pub .sh-gone h1 { margin-top: 8px; font-size: 1.35rem; font-weight: 700; }
+.sh-gone p { color: var(--ink-2); line-height: 1.8; }
+.sh-gone .sh-btn { margin-top: 10px; }
+
+.sh-print-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 12px 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 0.9rem;
+}
+.sh-print-bar .sh-btn { min-height: 44px; margin-inline-start: auto; }
+/* وضع الطباعة على الشاشة: ترتيب البروفايل نفسه */
+body.sh-print-mode .sh-photos { display: block; }
+
+/* الشاشة الواسعة: عمود واحد في الوسط، وبطاقات بإطار */
+@media (min-width: 761px) {
+    .sh-pub { padding-top: 16px; }
+    .sh-hero { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+    .sh-intro { border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    .sh-sec { margin-inline: 0; }
+    .sh-print-bar { margin-inline: 0; }
+    .sh-contact { border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+    .sh-gallery-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* أضيق الجوالات: كل شيء داخل 320px بلا تمرير أفقي */
+@media (max-width: 380px) {
+    .sh-fact { padding: 8px 10px; }
+    .sh-fact strong { font-size: 1rem; }
+    .sh-mdl { padding: 10px; }
+    .sh-cta { grid-template-columns: minmax(0, 1fr) 96px; }
+    .sh-btn { padding: 0 8px; font-size: 0.95rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sh-opt { transition: none; }
+}
+
+/* ===================== الطباعة: البروفايل PDF ===================== */
+/* الجدول حول المحتوى يصير جدولاً حقيقياً: تذييله (اسم المستشار ورقمه) يتكرر أسفل كل صفحة ويُحجز له مكانه */
+
+.sh-print-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; padding-top: 6px; border-top: 1px solid var(--line-2); color: var(--ink-2); font-size: 9.5pt; }
+
+@media print {
+    body.sh-pub-body { background: var(--surface); font-size: 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .sh-print-bar, .sh-contact, .sh-gallery-btn, .sh-gallery, .sh-map, .sh-map-link { display: none !important; }
+    .sh-pub { max-width: none; padding: 0; }
+    .sh-doc { display: table; width: 100%; }
+    .sh-doc > tbody { display: table-row-group; }
+    .sh-doc > tfoot { display: table-footer-group; }
+    .sh-doc > tbody > tr, .sh-doc > tfoot > tr { display: table-row; }
+    .sh-doc > tbody > tr > td, .sh-doc > tfoot > tr > td { display: table-cell; }
+    .sh-hero { height: 90mm; border-radius: 8px; }
+    .sh-intro { padding: 10px 0; border: 0; }
+    .sh-sec { margin: 10px 0 0; }
+    .sh-card { padding: 10px 12px; }
+    .sh-photos { display: block; }
+    .sh-card, .sh-sec-head, .sh-intro, .sh-models li, .sh-photos-grid img, .sh-plans-grid li, .sh-feats li { break-inside: avoid; }
+    .sh-sec-head { break-after: avoid; }
+    .sh-pub .sh-sec h2 { break-after: avoid; }
+    .sh-pub-foot { padding: 12px 0 8px; }
+}

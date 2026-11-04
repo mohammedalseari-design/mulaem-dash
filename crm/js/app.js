@@ -9,6 +9,7 @@ import { renderRequirementMatches } from './matching.js';
 import { renderWork } from './work.js';
 import { renderProperties } from './properties.js';
 import { renderProject } from './project.js';
+import { renderMyShares } from './my-shares.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
 import { renderBoard } from './board.js';
@@ -47,6 +48,9 @@ const ROUTES = [
     { pattern: /^#\/properties\/?$/, view: renderProperties, nav: '#/properties' },
     // صفحة العقار ولوحة وحداته (project.js): تُفتح من اسمه في «العقارات» ومن البحث السريع، فتُضاء «العقارات». لكل الأدوار
     { pattern: /^#\/project\/([^/]+)\/?$/, view: renderProject, nav: '#/properties' },
+    // «مشاركاتي» (my-shares.js، 038): قسم في «العقارات» بجانب «الوحدات». لكل الأدوار: مركز الاتصال يشارك المشروع أيضاً
+    // (أول من يكلّم العميل، ولا عمولة في المشاركة ولا في صفحة العميل)
+    { pattern: /^#\/shares\/?$/, view: renderMyShares, nav: '#/properties' },
     // المواعيد: صفحة كاملة يُفتح من «كل المواعيد» في «عملي اليوم»، فتُضاء «عملي اليوم» في القائمة
     { pattern: /^#\/calendar\/?$/, view: renderCalendar, nav: '#/work' },
     { pattern: /^#\/assistant\/?$/, view: renderAssistant, nav: '#/assistant' },
@@ -107,7 +111,7 @@ const TAB_LABEL = {
 };
 
 // أقسام داخل الأبواب: تُضاء معها في القائمة وفي شريط الجوال (الطلبات والمطابقات مع «العملاء»، والعمولات مع «الصفقات»)
-const SECTION_OF = { '#/requests': '#/clients', '#/matches': '#/clients', '#/commissions': '#/deals', '#/calendar': '#/work' };
+const SECTION_OF = { '#/requests': '#/clients', '#/matches': '#/clients', '#/commissions': '#/deals', '#/calendar': '#/work', '#/shares': '#/properties' };
 
 // أيقونة كل بند (الأسماء في ICON_PATHS في ui.js)
 const NAV_ICON = {

@@ -22,8 +22,14 @@ import { UNIT_STATUS, UNIT_STATUS_TONE, LISTING_PURPOSE, label } from './labels.
 import {
     el, replace, loading, empty, errorBox, badge, pager, input, select,
     moneyInput, parseNumber, money, number, dash, notify, fail, pageHead, actionBtn, countText,
-    filterChips, resultLine
+    filterChips, resultLine, subTabs
 } from './ui.js';
+
+// أقسام «العقارات»: الوحدات، و«مشاركاتي» (my-shares.js: ما شاركه الموظف مع عملائه ومن فتحه)
+export const PROPERTY_TABS = [
+    { hash: '#/properties', label: 'الوحدات', icon: 'building' },
+    { hash: '#/shares', label: 'مشاركاتي', icon: 'link' }
+];
 
 // القائمة كما تُفتح أول مرة، وكما يعيدها «مسح التصفية»: «المتاح فقط» مفعّل وبقية المرشّحات فارغة
 const freshView = () => ({
@@ -65,6 +71,7 @@ export async function renderProperties(root) {
         pageHead('العقارات', 'كل الوحدات المعتمدة للبيع والإيجار. إضافة المشروع وتعديله من صفحة المشاريع.', [
             actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' })
         ]),
+        subTabs('أقسام العقارات', PROPERTY_TABS, '#/properties'),
         el('div', { class: 'crm-card' }, [toolbar, purposeChips.node, body])
     ]);
 

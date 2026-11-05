@@ -45,7 +45,7 @@ export async function renderHelp(root) {
     if (isAdmin()) {
         root.appendChild(el('div', { class: 'crm-card help-admin' }, [
             el('h2', { text: 'للمدير' }),
-            el('p', { text: 'كل أدواتك في صفحة «الإدارة»: طلبات الاعتماد، عروض واتساب، التقارير، المستخدمون، الإعدادات… وكل بطاقة تشرح نفسها.' }),
+            el('p', { text: 'كل أدواتك في صفحة «الإدارة»: طلبات الاعتماد، عروض واتساب، التقارير، المستخدمون، الإعدادات (ومنها الربط مع مقسم)… وكل بطاقة تشرح نفسها.' }),
             el('a', { class: 'btn btn-outline btn-sm', href: '#/admin', text: 'افتح الإدارة' })
         ]));
     }

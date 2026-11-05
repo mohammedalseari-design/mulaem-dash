@@ -18,6 +18,7 @@ const LIMIT = 6;
 const DELAY = 220;
 
 // الصفحات والإجراءات. admin: للمدير وحده، deny: دور لا يراها. keys: كلمات إضافية يُطابق بها البحث.
+// onlySearch: لا تظهر في القائمة قبل الكتابة (أدوات المدير بابها «الإدارة»)، وتظهر لمن يبحث عنها.
 const ACTIONS = [
     { title: 'عميل جديد', icon: 'userPlus', keys: 'إضافة عميل جديد مالك مشتري مستأجر', run: newClient },
     { title: 'عملي اليوم', icon: 'today', hash: '#/work', keys: 'الرئيسية المتابعات المتأخرة' },
@@ -30,6 +31,7 @@ const ACTIONS = [
     { title: 'العمولات', icon: 'wallet', hash: '#/commissions', deny: 'callcenter', commission: true, keys: 'التحصيل الفواتير المستحقة' },
     { title: 'إضافة عرض', icon: 'sparkle', hash: '#/assistant', keys: 'المساعد عرض جديد مطور واتساب رابط' },
     { title: 'الإدارة', icon: 'settings', hash: '#/admin', admin: true, keys: 'الاعتماد التقارير المستخدمون الإعدادات واتساب' },
+    { title: 'الربط مع مقسم', icon: 'link', hash: '#/settings/maqsam', admin: true, onlySearch: true, keys: 'اربط مقسم المكالمات الإعدادات Maqsam API' },
     { title: 'كيف أبدأ؟', icon: 'help', hash: '#/help', keys: 'مساعدة شرح دليل' }
 ];
 
@@ -61,7 +63,7 @@ function fold(text) {
 
 function matchActions(term) {
     const list = ACTIONS.filter(allowed);
-    if (!term) return list;
+    if (!term) return list.filter((a) => !a.onlySearch);
     const needle = fold(term);
     return list.filter((a) => fold(a.title + ' ' + (a.keys || '')).includes(needle));
 }

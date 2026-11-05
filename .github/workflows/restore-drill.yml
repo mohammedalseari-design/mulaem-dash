@@ -60,6 +60,8 @@ jobs:
           supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
           supabase db dump --db-url "$SUPABASE_DB_URL" -f data.sql --use-copy --data-only
           start=$(date +%s)
+          # كما في docs/RECOVERY.md: النسخة لا تسجّل صلاحية إلا بالفرق عن افتراضي Postgres، فيُسحب ما يمنحه المشروع الجديد قبل البنية، وآخر schema.sql يعيده.
+          psql --variable ON_ERROR_STOP=1 --command 'alter default privileges in schema public revoke all on functions from anon, authenticated, service_role' --command 'alter default privileges in schema public revoke all on tables from anon, authenticated, service_role' --command 'alter default privileges in schema public revoke all on sequences from anon, authenticated, service_role' --dbname "$LOCAL_DB"
           # الأدوار وحدها أولاً وبلا توقف: فيها إعدادات أدوار (مثل log_min_messages) لا يملك postgres تغييرها في مشروع جديد،
           # وغيابها لا يمس البيانات (تجربة 2026-10-08). ثم البنية في معاملة واحدة تتوقف عند أول خطأ.
           psql --variable ON_ERROR_STOP=0 --file roles.sql --dbname "$LOCAL_DB" > roles.log 2>&1 || true

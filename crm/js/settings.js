@@ -9,6 +9,8 @@
 // حدود المساعد اليومية تُقرأ قبل كل نداء نموذج (agent_router_budget في 022_agent_router.sql،
 // وwa_triage_daily_usd_cap في 026_wa_triage.sql)، فتغييرها يسري على الطلب التالي. ورقم واتساب
 // المكتب يظهر في صفحة العروض للعميل («أنا مهتم») متى أعادته get_client_share (029).
+//
+// «الربط مع مقسم» له صفحته (maqsam-link.js)، وهنا بطاقة تفتحها وتقول حالته فقط: قيمه في Vault لا في crm_settings.
 
 import { supabase } from './supabase.js';
 import {
@@ -17,6 +19,8 @@ import {
 } from './ui.js';
 import { loadPolicy, openProjectCommission, pickProjectForCommission } from './project-commission.js';
 import { parseRate, formatRate, commissionAt } from './commission-rate.js';
+import { linkStatusLine } from './maqsam-link.js';
+import { LINK_TITLE, LINK_INTRO } from './maqsam-link-model.js';
 
 // الحدود اليومية: مفتاح crm_settings، والقيمة الافتراضية كما في الترحيل، وأقصى ما يُقبل من الشاشة
 const LIMITS = [
@@ -146,7 +150,8 @@ export async function renderSettings(root) {
 
     if (!root.isConnected) return;
     replace(root, [
-        pageHead('الإعدادات', 'العمولة، وأوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        pageHead('الإعدادات', 'ربط مقسم، والعمولة، وأوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        maqsamCard(),
         commissionCard(),
         form,
         limitsForm(stored),
@@ -226,6 +231,20 @@ function officeForm(stored) {
         await saveRows(saveBtn, 'حفظ الرقم', [{ key: 'office_whatsapp', value: value ? waNumber(value) : '' }], 'تم حفظ رقم واتساب المكتب');
     });
     return form;
+}
+
+// الحالة تصل بعد رسم الصفحة كما في صرف المساعد أعلاه. الوظيفة قد لا تكون نُشرت بعد، فالفشل يترك السطر فارغاً بلا رسالة
+function maqsamCard() {
+    const status = el('div', { class: 'crm-subtle', text: 'الحالة: جارٍ التحقق…' });
+    linkStatusLine().catch(() => null).then((line) => {
+        if (status.isConnected) status.textContent = line || '';
+    });
+    return el('section', { class: 'crm-card', 'aria-labelledby': 'mqCardTitle' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { id: 'mqCardTitle', text: LINK_TITLE })]),
+        el('p', { class: 'mq-line', text: LINK_INTRO }),
+        status,
+        el('div', { class: 'btn-row mq-open' }, el('a', { class: 'btn btn-outline btn-sm', href: '#/settings/maqsam', text: 'فتح صفحة الربط' }))
+    ]);
 }
 
 /* ===================== العمولة (037) ===================== */

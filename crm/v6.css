@@ -3647,3 +3647,76 @@ body.sh-print-mode .sh-photos { display: block; }
     .sh-pub .sh-sec h2 { break-after: avoid; }
     .sh-pub-foot { padding: 12px 0 8px; }
 }
+
+/* ===================== ‎#/settings/maqsam‎ — «الربط مع مقسم» (crm/js/maqsam-link.js) ===================== */
+/* البطاقات والحقول والأزرار والشارات من الأصناف العامة، وهنا ما لا تغطيه فقط: الخطوات المرقّمة، وصفوف «اسم وقيمة» بخطوط رفيعة،
+   وقائمة الموظفين، ورسالة الفشل بسطرين. ألوان v6 وحدها، فالوضع الليلي يأتي منها (body.crm-dark). كل زر ≥ 44px على الجوال،
+   ولا تمرير أفقي على 320px: البريد والعنوان الطويلان يلتفان. */
+
+.mq-back .ico { transform: scaleX(-1); }
+.mq-line { margin: 0; color: var(--ink-2); line-height: 1.75; }
+.mq-open { margin-top: 12px; }
+.mq-open .btn { text-decoration: none; }
+
+.mq-steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; counter-reset: mq-step; }
+.mq-steps > li { position: relative; padding-inline-start: 34px; line-height: 1.75; counter-increment: mq-step; }
+.mq-steps > li::before {
+    content: counter(mq-step);
+    position: absolute;
+    top: 1px;
+    inset-inline-start: 0;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--line-2);
+    border-radius: 50%;
+    color: var(--ink-2);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.mq-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 6px; }
+.mq-mail { color: var(--brand-ink); font-weight: 600; overflow-wrap: anywhere; text-underline-offset: 3px; }
+
+.mq-form .crm-card-head + div > .mq-line { margin-bottom: 12px; }
+.mq-form .form-grid { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
+.mq-form input[aria-invalid="true"] { border-color: var(--danger); }
+/* الشريط العلوي وشريط الجوال ثابتان فوق الصفحة: ما يُمرَّر إليه يبقى ظاهراً بينهما */
+.mq-result, .mq-form input, .mq-form .btn { scroll-margin-block: 96px; }
+.mq-result > * { margin-bottom: 12px; }
+.mq-after { margin-top: 8px; color: var(--muted); font-size: 0.86rem; }
+
+.mq-fail { display: grid; justify-content: stretch; gap: 2px; }
+.mq-fail > strong { font-weight: 600; }
+.mq-fail-do { color: var(--ink-2); }
+.mq-fail > .crm-retry { justify-self: start; margin-top: 6px; }
+.crm-card > .mq-fail { margin-bottom: 8px; }
+.mq-page > .crm-error { margin-bottom: 16px; }
+
+.mq-rows { margin: 0; }
+.mq-rows > div { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: 2px 16px; padding: 9px 0; border-top: 1px solid var(--line); }
+.mq-rows > div:first-child { border-top: 0; }
+.mq-rows dt { color: var(--muted); font-size: 0.88rem; font-weight: 500; }
+.mq-rows dd { margin: 0; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mq-rows dd .badge { margin-inline-start: 8px; font-weight: 500; }
+.mq-actions { margin-top: 12px; }
+
+.mq-advice { display: grid; gap: 8px; margin: 0 0 8px; list-style: none; font-weight: 500; line-height: 1.75; }
+
+.mq-sub { margin: 18px 0 4px; color: var(--ink); font-size: 0.95rem; font-weight: 600; }
+.mq-agents { margin: 0; padding: 0; list-style: none; }
+.mq-agents > li { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding: 8px 0; border-top: 1px solid var(--line); }
+.mq-agent-mail { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.mq-agent-none { color: var(--muted); }
+.mq-agent-count { flex: none; color: var(--ink-2); font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+
+.mq-foot { margin: 0 2px 16px; color: var(--muted); font-size: 0.86rem; line-height: 1.75; }
+
+@media (max-width: 700px) {
+    .mq-page .btn, .mq-open .btn { min-height: 44px; }
+    .mq-mail { display: inline-flex; align-items: center; min-height: 44px; }
+    /* القيمة بجانب اسمها إن اتسع السطر، وإلا تحته: لا يُكسر عنوان أو تاريخ في خانة ضيقة */
+    .mq-rows > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 12px; }
+    .mq-rows dd { min-width: 0; max-width: 100%; }
+    .mq-actions .btn-primary { flex: 1 1 100%; }
+}

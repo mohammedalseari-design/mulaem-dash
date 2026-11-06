@@ -183,9 +183,9 @@ export function statusView(link, nowMs = Date.now()) {
     };
 }
 
-// سطر الحالة في بطاقة الإعدادات
+// سطر الحالة في بطاقة الإعدادات، تحته سطر Zoho
 export function settingsLine(link) {
-    return 'الحالة: ' + statusView(link).badge.text;
+    return 'مقسم: ' + statusView(link).badge.text;
 }
 
 /* ===================== أرقام آخر 7 أيام ===================== */

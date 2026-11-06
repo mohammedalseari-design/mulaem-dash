@@ -10,7 +10,7 @@
 // وwa_triage_daily_usd_cap في 026_wa_triage.sql)، فتغييرها يسري على الطلب التالي. ورقم واتساب
 // المكتب يظهر في صفحة العروض للعميل («أنا مهتم») متى أعادته get_client_share (029).
 //
-// «الربط مع مقسم» له صفحته (maqsam-link.js)، وهنا بطاقة تفتحها وتقول حالته فقط: قيمه في Vault لا في crm_settings.
+// «ربط الأنظمة» (مقسم وZoho CRM) له صفحته (links.js)، وهنا بطاقة تفتحها وتقول حالة كل ربط فقط: قيمهما في Vault لا في crm_settings.
 
 import { supabase } from './supabase.js';
 import {
@@ -20,7 +20,8 @@ import {
 import { loadPolicy, openProjectCommission, pickProjectForCommission } from './project-commission.js';
 import { parseRate, formatRate, commissionAt } from './commission-rate.js';
 import { linkStatusLine } from './maqsam-link.js';
-import { LINK_TITLE, LINK_INTRO } from './maqsam-link-model.js';
+import { zohoStatusLine } from './zoho-link.js';
+import { LINKS_TITLE, LINKS_INTRO } from './zoho-link-model.js';
 
 // الحدود اليومية: مفتاح crm_settings، والقيمة الافتراضية كما في الترحيل، وأقصى ما يُقبل من الشاشة
 const LIMITS = [
@@ -150,8 +151,8 @@ export async function renderSettings(root) {
 
     if (!root.isConnected) return;
     replace(root, [
-        pageHead('الإعدادات', 'ربط مقسم، والعمولة، وأوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
-        maqsamCard(),
+        pageHead('الإعدادات', 'ربط مقسم وZoho، والعمولة، وأوزان المطابقة، والمدينة الافتراضية، وحدود المساعد اليومية، ورقم واتساب المكتب. التغيير يسري فوراً.'),
+        linksCard(),
         commissionCard(),
         form,
         limitsForm(stored),
@@ -233,17 +234,21 @@ function officeForm(stored) {
     return form;
 }
 
-// الحالة تصل بعد رسم الصفحة كما في صرف المساعد أعلاه. الوظيفة قد لا تكون نُشرت بعد، فالفشل يترك السطر فارغاً بلا رسالة
-function maqsamCard() {
-    const status = el('div', { class: 'crm-subtle', text: 'الحالة: جارٍ التحقق…' });
-    linkStatusLine().catch(() => null).then((line) => {
-        if (status.isConnected) status.textContent = line || '';
-    });
-    return el('section', { class: 'crm-card', 'aria-labelledby': 'mqCardTitle' }, [
-        el('div', { class: 'crm-card-head' }, [el('h2', { id: 'mqCardTitle', text: LINK_TITLE })]),
-        el('p', { class: 'mq-line', text: LINK_INTRO }),
-        status,
-        el('div', { class: 'btn-row mq-open' }, el('a', { class: 'btn btn-outline btn-sm', href: '#/settings/maqsam', text: 'فتح صفحة الربط' }))
+// الحالتان تصلان بعد رسم الصفحة كما في صرف المساعد أعلاه. الوظيفة قد لا تكون نُشرت بعد، فالفشل يترك سطرها فارغاً بلا رسالة
+function linksCard() {
+    const statusLine = (name, read) => {
+        const line = el('div', { class: 'crm-subtle', text: name + ': جارٍ التحقق…' });
+        read().catch(() => null).then((text) => {
+            if (line.isConnected) line.textContent = text || '';
+        });
+        return line;
+    };
+    return el('section', { class: 'crm-card', 'aria-labelledby': 'lkCardTitle' }, [
+        el('div', { class: 'crm-card-head' }, [el('h2', { id: 'lkCardTitle', text: LINKS_TITLE })]),
+        el('p', { class: 'mq-line', text: LINKS_INTRO }),
+        statusLine('مقسم', linkStatusLine),
+        statusLine('Zoho CRM', zohoStatusLine),
+        el('div', { class: 'btn-row mq-open' }, el('a', { class: 'btn btn-outline btn-sm', href: '#/settings/links', text: 'فتح صفحة الربط' }))
     ]);
 }
 

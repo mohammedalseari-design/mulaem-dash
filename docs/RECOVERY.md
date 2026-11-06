@@ -61,19 +61,22 @@ buckets_vectors / vector_indexes» (جداول Supabase داخلية لا نست
 ### 4. عنوان المشروع الجديد في الملفات
 رقم المشروع (ref) يظهر في رابطه: `https://<ref>.supabase.co`. اطلب من Claude أن يستبدل `niykzsspdehexphewlxa` بالرقم الجديد
 في: `js/config.js` (ومعه المفتاح العام من Project Settings ← API)، و`.github/workflows/deploy-agent-run.yml`،
-و`.github/workflows/deploy-maqsam-link.yml`، و`.github/workflows/keepalive.yml` (ومفتاحه العام)، و`.github/workflows/storage-backup.yml`، وتحديث جديد للقاعدة
-يعيد كتابة الدالة `agent_cron_tick` بالعنوان الجديد (يُطبَّق بإجراء migrate وضغطة Approve).
+و`.github/workflows/deploy-maqsam-link.yml`، و`.github/workflows/deploy-zoho-link.yml`، و`.github/workflows/keepalive.yml` (ومفتاحه العام)، و`.github/workflows/storage-backup.yml`، وتحديث جديد للقاعدة
+يعيد كتابة الدالتين `agent_cron_tick` و`maqsam_sync_cron_tick` بالعنوان الجديد (يُطبَّق بإجراء migrate وضغطة Approve).
+وفي التحديث نفسه لنقل الملخصات: احذف `maqsam_sync_cron_secret` القديم من `vault.secrets` (مشفّر بمفتاح المشروع القديم) وأعد آخر قسمين من `042_zoho_link.sql`،
+فينشأ السر من جديد وتُجدول مهمة `maqsam-sync-tick`، لأن مهام pg_cron ليست في النسخة.
 
 ### 5. سر دورة المساعد
 أسرار Vault لا تنتقل بين المشاريع (مشفّرة بمفتاح المشروع القديم). في تحديث الخطوة 4 نفسه: احذف `agent_cron_secret`
 القديم من `vault.secrets` وأنشئ واحداً جديداً بـ `vault.create_secret(...)` كما في `020_agent_run.sql`.
-مفتاحا مقسم لا ينتقلان كذلك، ولا يلزمهما SQL: يُلصقان من جديد في صفحة الربط (الخطوة 8).
+مفتاحا مقسم لا ينتقلان كذلك، ولا يلزمهما SQL: يُلصقان من جديد في صفحة الربط (الخطوة 8). ومفاتيح Zoho الثلاثة مثلهما: رمز جديد في صفحة الربط، بلا SQL.
 
 ### 6. وظائف المساعد
 - أسرار الوظائف في لوحة Supabase ← **Edge Functions ← Secrets**: `OPENROUTER_API_KEY` (مفتاحك في OpenRouter).
 - انشر `agent-run` بإجراء **deploy-agent-run** (Actions ← Run workflow ← ثم Approve).
 - `wa-triage` و`admin-users`: يُنشران من لوحة Supabase أو بطلب من Claude بأداة supabase.
 - `maqsam-link`: دفعة الخطوة 4 تمس ملف إجرائها فتبدأ **deploy-maqsam-link** وحدها، فاضغط Approve. (هذا الإجراء بلا زر Run workflow.)
+- `zoho-link` و`maqsam-sync`: كذلك تبدأ **deploy-zoho-link** وحدها، فاضغط Approve. (بلا زر Run workflow أيضاً.)
 
 ### 7. الصور
 نزّل آخر `mulaem-images-backup-encrypted`، فكّه بمفتاحك (`age -d -i <المفتاح> -o images.tar.gz <الملف>.age` ثم
@@ -88,6 +91,8 @@ buckets_vectors / vector_indexes» (جداول Supabase داخلية لا نست
 5. أرسل طلباً صغيراً للمساعد وتأكد أنه يكتمل.
 6. افتح `#/settings/maqsam`: ستقول «مربوط» بأرقام قديمة، لأن صف الحالة انتقل بلا المفتاحين، وتبقى كذلك حتى يُعاد الربط. اضغط «فحص الربط الآن»:
    تقول الصفحة «لا يوجد ربط محفوظ.» وتفتح نموذج الربط. الصق القيم من مقسم من جديد.
+7. تبويب **Zoho CRM** مثله: «مربوط» حتى يُفحص، ثم يلزمه رمز جديد من Zoho. والمفتاح القديم يبقى صالحاً عند Zoho لأن قيمه ضاعت: احذفه من حساب من ربطه هناك.
+   إن كان النقل مفعّلاً فكل دورة تسجّل `zoho_not_connected` ولا تكتب شيئاً حتى يعود الربطان. ولا تتكرر ملاحظة: جدول `maqsam_sync_calls` انتقل مع البيانات.
 
 ## كيف أعرف أن هذا الدليل ما زال صالحاً؟
 إجراء **restore-drill** يجرّب كل ثلاثة أشهر أخذ نسخة بالطريقة الليلية نفسها واستعادتها، ويكتب في صفحة التشغيل جدولاً

@@ -12,7 +12,7 @@ import { renderProject } from './project.js';
 import { renderMyShares } from './my-shares.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
-import { renderMaqsamLink } from './maqsam-link.js';
+import { renderLinks } from './links.js';
 import { renderBoard } from './board.js';
 import { renderDeal } from './deal.js';
 import { renderDashboard } from './dashboard.js';
@@ -70,7 +70,9 @@ const ROUTES = [
     { pattern: /^#\/whatsapp\/?$/, view: renderWhatsApp, nav: '#/admin', admin: true },
     { pattern: /^#\/inventory\/?$/, view: renderInventory, nav: '#/admin', admin: true },
     { pattern: /^#\/settings\/?$/, view: renderSettings, nav: '#/admin', admin: true },
-    { pattern: /^#\/settings\/maqsam\/?$/, view: renderMaqsamLink, nav: '#/admin', admin: true },
+    // «ربط الأنظمة»: اللاحقة (tab=zoho) تصل links.js كما هي، والرابط القديم لصفحة مقسم يفتح تبويبه
+    { pattern: /^#\/settings\/links\/?(?:\?(.*))?$/, view: renderLinks, nav: '#/admin', admin: true },
+    { pattern: /^#\/settings\/maqsam\/?$/, view: renderLinks, nav: '#/admin', admin: true },
     { pattern: /^#\/mortgage\/?$/, view: renderMortgage, nav: '#/admin', admin: true },
     { pattern: /^#\/financing\/?$/, view: renderFinancing, nav: '#/admin', admin: true },
     { pattern: /^#\/users\/?$/, view: renderUsers, nav: '#/admin', admin: true },

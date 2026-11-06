@@ -142,9 +142,9 @@ t('stale: an unreadable date does not count', statusView(Object.assign({}, ON, {
 t('stale: no check is not stale', statusView(Object.assign({}, ON, { check: null }), AT).stale === false && statusView(Object.assign({}, ON, { check: null }), AT).checkedAt === null);
 t('stale: the text names the button', STALE_TEXT === 'هذه أرقام قديمة. اضغط «فحص الربط الآن».');
 
-t('settings line: not connected', settingsLine(OFF) === 'الحالة: غير مربوط');
-t('settings line: connected', settingsLine(ON) === 'الحالة: مربوط');
-t('settings line: problem', settingsLine(Object.assign({}, ON, { check: { ok: false, code: 'timeout', at: 'x', stats: null } })) === 'الحالة: فيه مشكلة');
+t('settings line: not connected', settingsLine(OFF) === 'مقسم: غير مربوط');
+t('settings line: connected', settingsLine(ON) === 'مقسم: مربوط');
+t('settings line: problem', settingsLine(Object.assign({}, ON, { check: { ok: false, code: 'timeout', at: 'x', stats: null } })) === 'مقسم: فيه مشكلة');
 
 /* ===================== الأرقام ===================== */
 

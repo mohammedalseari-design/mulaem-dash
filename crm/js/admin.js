@@ -26,7 +26,7 @@ const TOOLS = [
     { hash: '#/activity', label: 'سجل النشاطات', icon: 'clock',
         desc: 'من فعل ماذا ومتى.' },
     { hash: '#/settings', label: 'الإعدادات', icon: 'settings',
-        desc: 'رقم واتساب المكتب، وحدود المساعد اليومية، والعمولة الافتراضية، وربط مقسم.' }
+        desc: 'رقم واتساب المكتب، وحدود المساعد اليومية، والعمولة الافتراضية، وربط مقسم وZoho.' }
 ];
 
 export async function renderAdmin(root) {

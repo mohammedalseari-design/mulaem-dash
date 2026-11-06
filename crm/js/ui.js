@@ -229,7 +229,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([t
 
 export function initModal() {
     const modal = document.getElementById('modal');
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    // الضغطة الثانية من نقرة مزدوجة فتحت النافذة تقع على خلفيتها: لا تغلقها
+    modal.addEventListener('click', (e) => { if (e.target === modal && e.detail < 2) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
     // Tab يدور داخل النافذة المفتوحة ولا يخرج إلى الصفحة التي خلفها
     modal.addEventListener('keydown', (e) => {

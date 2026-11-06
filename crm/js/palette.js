@@ -31,7 +31,8 @@ const ACTIONS = [
     { title: 'العمولات', icon: 'wallet', hash: '#/commissions', deny: 'callcenter', commission: true, keys: 'التحصيل الفواتير المستحقة' },
     { title: 'إضافة عرض', icon: 'sparkle', hash: '#/assistant', keys: 'المساعد عرض جديد مطور واتساب رابط' },
     { title: 'الإدارة', icon: 'settings', hash: '#/admin', admin: true, keys: 'الاعتماد التقارير المستخدمون الإعدادات واتساب' },
-    { title: 'الربط مع مقسم', icon: 'link', hash: '#/settings/maqsam', admin: true, onlySearch: true, keys: 'اربط مقسم المكالمات الإعدادات Maqsam API' },
+    { title: 'ربط الأنظمة', icon: 'link', hash: '#/settings/links', admin: true, onlySearch: true, keys: 'اربط مقسم الربط مع مقسم المكالمات الإعدادات Maqsam API' },
+    { title: 'ربط Zoho CRM', icon: 'link', hash: '#/settings/links?tab=zoho', admin: true, onlySearch: true, keys: 'اربط زوهو الربط مع زوهو نقل ملخصات المكالمات الإعدادات Zoho API' },
     { title: 'كيف أبدأ؟', icon: 'help', hash: '#/help', keys: 'مساعدة شرح دليل' }
 ];
 

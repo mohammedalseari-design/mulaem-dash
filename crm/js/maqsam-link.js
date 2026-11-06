@@ -1,21 +1,21 @@
-// ‎#/settings/maqsam‎ — «الربط مع مقسم» (للمدير وحده، ويُفتح من بطاقة في «الإعدادات»).
+// تبويب «مقسم» في «ربط الأنظمة» (links.js، للمدير وحده). الرأس ورابط الرجوع في الصفحة الواحدة، وهنا ما تحتهما.
 //
 // يلصق المدير «رقم مفتاح التعريف» و«كلمة السر» من صفحة «مفاتيح واجهة برمجة التطبيقات» في مقسم (الرابط الأساسي معبّأ)، فتختبرها وظيفة maqsam-link وتحفظها مشفّرة إن نجح الاختبار،
-// ثم تعرض الصفحة حالة الربط وأرقام آخر 7 أيام: هل تظهر مكالمات الموظفين في مقسم أصلاً، وهل لها نصوص.
+// ثم يعرض التبويب حالة الربط وأرقام آخر 7 أيام: هل تظهر مكالمات الموظفين في مقسم أصلاً، وهل لها نصوص.
 //
-// قواعد هذه الصفحة:
+// قواعد هذا التبويب:
 // - المتصفح لا يكلّم مقسم أبداً، وكل شيء عبر الوظيفة. القيم الحساسة تُرسل مرة وتبقى في حقولها فقط، فلا تُخزَّن ولا تُسجَّل،
-//   وبعد نجاح الحفظ تختفي الحقول من الصفحة. بعد فشله تبقى عقد الحقول نفسها ليصحح المدير ما كتب.
+//   وبعد نجاح الحفظ تختفي الحقول. بعد فشله تبقى عقد الحقول نفسها ليصحح المدير ما كتب.
 // - كل ما يُرسم يأتي من آخر ربط ردّه الخادم، ونصوص الخادم تدخل نصاً (textContent) لا HTML.
-// - زر رئيسي واحد في الصفحة، والحالة بكلمة لا بلون وحده، والنتائج تُعلن في منطقة aria-live.
+// - زر رئيسي واحد في التبويب، والحالة بكلمة لا بلون وحده، والنتائج تُعلن في منطقة aria-live.
 
 import { supabase } from './supabase.js';
 import {
-    el, replace, loading, errorBox, field, input, badge, icon, notify, openModal, closeModal, pageHead,
+    el, replace, loading, errorBox, field, input, badge, icon, notify, openModal, closeModal,
     number, countText, fmtDateTime, EM_DASH
 } from './ui.js';
 import {
-    LINK_TITLE, LINK_INTRO, DEFAULT_HOST, REQUEST_TEXT, TEXTS_REQUEST, FAULT_REQUEST, SUPPORT_EMAIL, STALE_TEXT, UNREACHABLE_TEXT, UNREACHABLE_HINT,
+    LINK_INTRO, DEFAULT_HOST, REQUEST_TEXT, TEXTS_REQUEST, FAULT_REQUEST, SUPPORT_EMAIL, STALE_TEXT, UNREACHABLE_TEXT, UNREACHABLE_HINT,
     checkCopy, saveFailureCopy, savedFailureCopy, readReply, statusView, settingsLine, statsRows, agentsView, advice, asksMaqsam, mailHref
 } from './maqsam-link-model.js';
 
@@ -42,26 +42,23 @@ async function callLink(payload) {
     }
 }
 
-// سطر الحالة لبطاقة الإعدادات: null إن لم تُقرأ الحالة، والبطاقة تسكت عندها
-export async function linkStatusLine() {
+// الربط كما ردّه الخادم لمن يسأل من خارج التبويب: null إن لم تُقرأ الحالة، ومن يسأل يسكت عندها
+export async function linkStatus() {
     const reply = await callLink({ action: 'status' });
-    return reply.kind === 'ok' ? settingsLine(reply.link) : null;
+    return reply.kind === 'ok' ? reply.link : null;
 }
 
-/* ===================== عناصر الصفحة ===================== */
-
-// السهم في ui.js يشير يساراً (إلى الأمام في العربية)، ويُعكس في v6.css ليشير إلى الرجوع
-function backLink() {
-    return el('a', { class: 'pj-backlink mq-back', href: '#/settings' }, [
-        icon('arrow'),
-        el('span', { class: 'w4-sr', text: 'رجوع إلى ' }),
-        el('span', { text: 'الإعدادات' })
-    ]);
+// سطر الحالة لبطاقة الإعدادات
+export async function linkStatusLine() {
+    const link = await linkStatus();
+    return link ? settingsLine(link) : null;
 }
+
+/* ===================== عناصر التبويب: يستعملها تبويب Zoho أيضاً ===================== */
 
 // el() تتخطى القيمة false، وخاصية spellcheck منطقية فلا تصح بالنص «false»: تُكتب صفة صريحة.
 // اللصق يستبدل القيمة كلها: هذه قيم تُنسخ كاملة، وبعد رفضها تبقى في الحقل (نقاطاً في كلمة السر)، فلصق جديد فوقها كان يُضاف إليها دون أن يُرى.
-function credentialInput(attrs) {
+export function credentialInput(attrs) {
     const node = input(Object.assign({ dir: 'ltr', autocapitalize: 'off', autocomplete: 'off' }, attrs));
     node.setAttribute('spellcheck', 'false');
     node.setAttribute('autocorrect', 'off');
@@ -74,12 +71,12 @@ function credentialInput(attrs) {
     return node;
 }
 
-function cardHead(id, title, side) {
+export function cardHead(id, title, side) {
     return el('div', { class: 'crm-card-head' }, [el('h2', { id, tabindex: '-1', text: title }), side]);
 }
 
 // ما حدث وما يُفعل، بلون الخطأ ونصه
-function failBox(copy, retry) {
+export function failBox(copy, retry) {
     return el('div', { class: 'crm-error mq-fail' }, [
         el('strong', { text: copy.title }),
         copy.action ? el('span', { class: 'mq-fail-do', text: copy.action }) : null,
@@ -88,7 +85,7 @@ function failBox(copy, retry) {
 }
 
 // الوظيفة لم يُوصل إليها (لم تُنشر بعد، أو انقطع الاتصال). errorBox يترجم انقطاع الإنترنت، ودوره alert فيُعلن نفسه
-function unreachableBox(retry) {
+export function unreachableBox(retry) {
     return errorBox(new Error(UNREACHABLE_HINT), UNREACHABLE_TEXT, () => retry());
 }
 
@@ -110,7 +107,7 @@ function factRow(row) {
     ]);
 }
 
-function factRows(rows) {
+export function factRows(rows) {
     return el('dl', { class: 'mq-rows' }, rows.map(factRow));
 }
 
@@ -167,9 +164,10 @@ function supportLine(text, onCopy) {
     return el('p', { class: 'mq-line mq-ask' }, [el('span', { text: 'دعم مقسم:' }), ...contact(text, onCopy)]);
 }
 
-/* ===================== الصفحة ===================== */
+/* ===================== التبويب ===================== */
 
-export async function renderMaqsamLink(root) {
+// hooks.onState(link): كلما رُسمت حالة الربط، ليقولها اسم التبويب ويعرفها تبويب Zoho
+export async function renderMaqsamLink(root, hooks = {}) {
     const live = el('div', { class: 'w4-sr', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
     const body = el('div', { class: 'mq-page' }, loading());
     let link = null;      // آخر ربط ردّه الخادم
@@ -179,7 +177,7 @@ export async function renderMaqsamLink(root) {
     let busy = false;
     let liveTimer = 0;
 
-    replace(root, [backLink(), pageHead(LINK_TITLE, LINK_INTRO), live, body]);
+    replace(root, [el('p', { class: 'mq-line lk-intro', text: LINK_INTRO }), live, body]);
     await load();
 
     // المنطقة تُفرَّغ أولاً حتى تُقرأ الرسالة نفسها إذا تكررت
@@ -223,6 +221,7 @@ export async function renderMaqsamLink(root) {
     function paint() {
         const view = statusView(link);
         if (!view.connected && !form) form = newForm(DEFAULT_HOST);
+        if (hooks.onState) hooks.onState(link);
         replace(body, [notice].concat(view.connected ? connectedCards(view) : [stepsCard(view, copyRequest), formNode(false), el('p', { class: 'mq-foot', text: FOOTNOTE })]));
     }
 
@@ -452,7 +451,8 @@ export async function renderMaqsamLink(root) {
 
     // بعد الحفظ أو الفصل تتغير الصفحة كلها: تبدأ من أولها، فالحالة أول ما يُرى
     function focusFromTop() {
-        window.scrollTo(0, 0);
+        // الرد وصل والمدير في التبويب الآخر: لا تتحرك صفحته
+        if (!root.hidden) window.scrollTo(0, 0);
         const target = statusView(link).connected ? testBtn : body.querySelector('#mqStepsTitle');
         if (target) target.focus({ preventScroll: true });
     }

@@ -58,8 +58,8 @@ const time = (iso) => {
 const byId = (a, b) => String(a).localeCompare(String(b));
 const byStuck = (a, b) => (b.days - a.days) || (time(a.entered) - time(b.entered)) || byId(a.deal.id, b.deal.id);
 
-// صفقات الموظف من كل ما تُريه سياسة deals_select (007): الوسيط يرى أيضاً صفقة أنشأها ثم جعل المدير وسيطها غيره
-// (created_by)، وهي ليست له: لا يملك نقلها (deals_update لوسيطها وحده) ولا تُحسب له عمولتها. فلا تدخل عدّه ولا «واقف»
+// صفقات الموظف من كل ما تُريه سياسة deals_select (007، 043): الوسيط يرى أيضاً صفقة أنشأها ثم جعل المدير وسيطها غيره
+// (created_by) ما دام يرى عميلها، وهي ليست له: لا يملك نقلها (deals_update لوسيطها وحده) ولا تُحسب له عمولتها. فلا تدخل عدّه ولا «واقف»
 // ولا «عمولتي». everyone للمدير: الفريق كله، كبقية صفحته.
 export function ownDeals(deals, userId, everyone = false) {
     const list = (deals || []).filter(Boolean);

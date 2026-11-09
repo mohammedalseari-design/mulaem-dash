@@ -1,11 +1,12 @@
 // ‎#/clients/:id‎ — ملف العميل: بطاقة بياناته وثلاثة ألسنة (الطلبات، المتابعات، السجل).
 
 import { supabase } from './supabase.js';
-import { myRole } from './auth.js';
+import { isAdmin, myRole } from './auth.js';
 import { staffMap, staffName } from './data.js';
 import { CLIENT_STATUS, CLIENT_STATUS_TONE, CLIENT_TYPE, label } from './labels.js';
 import { el, append, clear, replace, loading, errorBox, badge, fmtDateTime, dash, fail, phoneLinks, actionBtn } from './ui.js';
 import { openClientForm } from './client-form.js';
+import { openTransferClient, openDeleteClient } from './client-admin.js';
 import { renderRequirements } from './requirements.js';
 import { renderFollowUps } from './followups.js';
 import { renderTimeline } from './timeline.js';
@@ -132,7 +133,7 @@ function renderHeader(host, context) {
         el('div', { class: 'kv-grid' }, [
             kv('الجوال', phone ? phoneLinks(phone) : null),
             kv('المدينة', client.city),
-            kv('الوسيط المسؤول', staffName(context.names, client.owner_id))
+            kv('الوسيط المسؤول', ownerValue(client, context))
         ]),
         more,
         client.notes
@@ -140,7 +141,28 @@ function renderHeader(host, context) {
                 el('span', { text: 'ملاحظات' }),
                 el('span', { class: 'tl-body', text: client.notes })
             ])
+            : null,
+        // الحذف للمدير وحده، وفي آخر البطاقة بعيداً عن أزرار العمل اليومي
+        isAdmin()
+            ? el('div', { class: 'client-admin-row' }, el('button', {
+                type: 'button', class: 'link-btn link-danger', text: 'حذف العميل', 'aria-haspopup': 'dialog',
+                onclick: () => openDeleteClient(client)
+            }))
             : null
         ])
+    ]);
+}
+
+// الوسيط المسؤول، وبجانبه «تحويل» للمدير وحده: ينقل العميل وطلباته ومتابعاته المفتوحة وصفقاته الجارية (043)
+function ownerValue(client, context) {
+    const name = staffName(context.names, client.owner_id);
+    if (!isAdmin()) return name;
+    return el('span', { class: 'kv-owner' }, [
+        el('strong', { class: 'kv-owner-name', text: name }),
+        el('button', {
+            type: 'button', class: 'link-btn', text: client.owner_id ? 'تحويل' : 'إسناد لوسيط', 'aria-haspopup': 'dialog',
+            'aria-label': client.owner_id ? 'تحويل العميل إلى وسيط آخر' : 'إسناد العميل لوسيط',
+            onclick: () => openTransferClient(client, () => context.reload())
+        })
     ]);
 }

@@ -7,6 +7,7 @@ import { supabase } from './supabase.js';
 import { canAssign, isAdmin } from './auth.js';
 import { defaultCity, fieldStaff, normalizePhone, staffMap } from './data.js';
 import { CLIENT_SOURCES, CLIENT_STATUS, CLIENT_TYPE } from './labels.js';
+import { transferDoneText, isMissingFunction } from './client-admin-model.js';
 import {
     el, append, clear, field, input, select, optionList, openModal, closeModal,
     notify, fail, errorText, toAsciiDigits
@@ -111,8 +112,11 @@ export async function openClientForm(client, onSaved) {
             notes: notes.value.trim() || null
         };
         if (editing) payload.status = status.value;
-        // الإسناد لا يُرسل إلا إذا غيّره المستخدم فعلاً
-        if (canAssign() && !ownerLocked && owner.value !== originalOwner) payload.owner_id = owner.value || null;
+        // الإسناد لا يُرسل إلا إذا غيّره المستخدم فعلاً. المدير حين ينقل عميلاً قائماً إلى وسيط يمر على transfer_client (043)
+        // كما من زر «تحويل»: ينتقل معه طلباته ومتابعاته المفتوحة وصفقاته الجارية، لا العميل وحده
+        const ownerChanged = canAssign() && !ownerLocked && owner.value !== originalOwner;
+        const transferTo = ownerChanged && editing && isAdmin() && owner.value ? owner.value : null;
+        if (ownerChanged && !transferTo) payload.owner_id = owner.value || null;
 
         saveBtn.disabled = true;
         saveBtn.textContent = 'جارٍ الحفظ…';
@@ -135,6 +139,28 @@ export async function openClientForm(client, onSaved) {
         }
         // صفر صفوف بلا خطأ = RLS رشّحت الصف، فلا يجوز أن نقول "تم"
         if (!data) return void notify('لا تملك صلاحية تعديل هذا السجل', 'error', 8000);
+
+        if (transferTo) {
+            // الزر معطّل حتى ينتهي التحويل: ضغطة ثانية كانت تعيد الحفظ وتحويلاً لا يغيّر شيئاً
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'جارٍ التحويل…';
+            let moved = await supabase.rpc('transfer_client', { p_client: client.id, p_to: transferTo });
+            if (moved.error && isMissingFunction(moved.error)) {
+                // قبل 043 أو بعد التراجع عنه: الإسناد وحده كما كان قبله
+                const direct = await supabase.from('clients').update({ owner_id: transferTo }).eq('id', client.id).select('id').maybeSingle();
+                moved = direct.error ? { error: direct.error }
+                    : direct.data ? { data: { changed: true } } : { error: { message: 'لا تملك صلاحية تعديل هذا السجل' } };
+            }
+            closeModal();
+            if (moved.error) {
+                fail(moved.error, 'حُفظت البيانات، وتعذّر تحويل العميل');
+            } else {
+                const broker = staffOptions.find((o) => o.value === transferTo);
+                notify(transferDoneText(data.full_name, broker ? broker.label : '', moved.data), 'success', 8000);
+            }
+            if (onSaved) onSaved(data);
+            return;
+        }
 
         closeModal();
         notify((editing ? 'تم حفظ التعديل' : 'تم إضافة العميل') + ' — الجوال: ' + data.phone, 'success', 6000);

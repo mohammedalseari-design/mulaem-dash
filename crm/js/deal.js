@@ -69,7 +69,7 @@ export async function renderDeal(root, dealId) {
     const stage = stages.find((s) => s.id === deal.stage_id) || null;
     const reload = () => renderDeal(root, dealId);
     const seeCommission = canSeeCommission();
-    // من يكتب الصفقة: المدير أو وسيطها (deals_update). منشئها يقرؤها ولو صار وسيطها غيره، ولا يكتبها
+    // من يكتب الصفقة: المدير أو وسيطها (deals_update). منشئها يقرؤها ولو صار وسيطها غيره ما دام يرى عميلها (043)، ولا يكتبها
     const me = myId();
     const canMove = isAdmin() || (me !== null && deal.broker_id === me);
 
@@ -101,13 +101,15 @@ function headerCard(deal, stage, names, reload) {
         el('span', {}, value instanceof Node ? value : document.createTextNode(dash(value)))
     ]);
 
-    const clientName = deal.client ? deal.client.full_name : 'العميل';
+    // العميل لا يصل مع الصفقة حين لا يراه المستخدم (حُوّل لغيره، 043): اسمه نص بلا روابط إلى صفحات ترفضه
+    const clientGone = !deal.client;
+    const clientName = clientGone ? 'عميل ليس عندك' : deal.client.full_name;
     const projectText = deal.project
         ? deal.project.name + (deal.project.district ? ' — ' + deal.project.district : '')
         : (deal.project_id ? 'عقار رقم ' + deal.project_id : null);
 
     const rows = [
-        kv('العميل', el('a', { href: '#/clients/' + deal.client_id, text: clientName })),
+        kv('العميل', clientGone ? clientName : el('a', { href: '#/clients/' + deal.client_id, text: clientName })),
         kv('العقار', projectText),
         kv('الوحدة', deal.unit_key),
         kv('قيمة الصفقة', money(deal.amount) + ' ريال'),
@@ -117,7 +119,7 @@ function headerCard(deal, stage, names, reload) {
         kv('الإغلاق المتوقع', fmtDate(deal.expected_close_date)),
         kv('أُغلقت في', deal.closed_at ? fmtDateTime(deal.closed_at) : null)
     ];
-    if (deal.requirement_id) {
+    if (deal.requirement_id && !clientGone) {
         rows.push(kv('الطلب المرتبط', el('a', {
             href: '#/clients/' + deal.client_id + '/requirements/' + deal.requirement_id,
             text: 'فتح الطلب والمطابقات'
@@ -135,7 +137,7 @@ function headerCard(deal, stage, names, reload) {
             ]),
             el('div', { class: 'btn-row' }, [
                 el('a', { class: 'btn btn-outline btn-sm', href: '#/deals', text: 'رجوع إلى اللوحة' }),
-                el('a', { class: 'btn btn-secondary btn-sm', href: '#/clients/' + deal.client_id, text: 'ملف العميل' }),
+                clientGone ? null : el('a', { class: 'btn btn-secondary btn-sm', href: '#/clients/' + deal.client_id, text: 'ملف العميل' }),
                 el('button', {
                     type: 'button', class: 'btn btn-outline btn-sm', text: 'تعديل الصفقة',
                     onclick: () => openDealEdit(deal, stage, reload)
@@ -339,7 +341,8 @@ function pathCard(deal, stages, firstHistory, seeCommission, canMove, reload) {
     const history = firstHistory && !firstHistory.error ? (firstHistory.data || []) : null;
     const model = pathSteps(stages, deal.stage_id);
     const since = sinceLine(stages, deal, history);
-    const actions = pathActions(stages, deal.stage_id, isAdmin(), canMove);
+    // العميل لا يصل مع الصفقة حين لا يراه المستخدم (حُوّل لغيره): المغلقة لا يعيد فتحها إلا المدير (deals_reopen_guard، 043)
+    const actions = pathActions(stages, deal.stage_id, isAdmin(), canMove, !deal.client);
 
     const commission = seeCommission && model.status !== 'unknown'
         ? el('div', { class: 'dp-com dp-loading', role: 'group', 'aria-label': 'العمولة', 'aria-busy': 'true' }, [

@@ -20,6 +20,11 @@ export function staff() {
     return staffPromise;
 }
 
+// يُفرغ ذاكرة الطاقم فتُقرأ من جديد في الطلب التالي (حوار التحويل بعد إضافة وسيط أو تعطيله في الجلسة نفسها)
+export function resetStaff() {
+    staffPromise = null;
+}
+
 export async function staffMap() {
     const list = await staff();
     const map = new Map();

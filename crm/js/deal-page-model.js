@@ -132,6 +132,8 @@ export const REOPEN_WON_NOTE = 'الصفقة مغلقة («تمت»). لإعاد
 export const REOPEN_LOST_NOTE = 'الصفقة مغلقة («خسرت»). لإعادة فتحها اختر مرحلة، ثم تُغلق بـ«تمت» أو «خسرت» من جديد.';
 export const PICK_NOTE = 'اختر المرحلة التي وصلت إليها الصفقة فعلاً، ولو تخطّت مرحلة. «تمت» تطلب السعر النهائي.';
 export const OTHER_BROKER_NOTE = 'الصفقة عند وسيط آخر: يغيّر مرحلتها وسيطها أو المدير.';
+// صفقة مغلقة لعميل لا يراه وسيطها (حُوّل العميل لغيره): الخادم يرفض إعادة فتحها لغير المدير (deals_reopen_guard في 043)
+export const CLIENT_GONE_NOTE = 'الصفقة مغلقة، وعميلها ليس عندك: إعادة فتحها للمدير.';
 
 // ما تحت المسار. الجارية: زر رئيسي واحد للمرحلة التالية («تمّت الصفقة…» حين تكون التالية «تمت»: نموذج السعر النهائي)،
 // وروابط نصية: «رجّعها مرحلة» (لا تظهر في الأولى)، و«مرحلة أخرى…» لمن تخطّت مرحلة (كانت كل المراحل أزراراً قبل هذا
@@ -139,8 +141,9 @@ export const OTHER_BROKER_NOTE = 'الصفقة عند وسيط آخر: يغيّ�
 // المغلقة تُعاد إلى مرحلة جارية أولاً، فلا تُتمّ خاسرة بضغطة ولا تُقلب «تمت» خاسرة، و«تمت» يعيد فتحها المدير وحده (034):
 // لغيره ملاحظة فقط.
 // canMove: هل يكتب هذا المستخدم الصفقة (المدير أو وسيطها، deals_update). منشئها يقرؤها (deals_select) ولو صار وسيطها غيره،
-// فلا يُعرض له زر يرفضه الخادم، بل ملاحظة تقول من يغيّر المرحلة. «تمت» تبقى بملاحظتها: إعادة فتحها للمدير وحده.
-export function pathActions(stages, stageId, admin, canMove = true) {
+// ما دام يرى عميلها (043)، فلا يُعرض له زر يرفضه الخادم، بل ملاحظة تقول من يغيّر المرحلة. «تمت» تبقى بملاحظتها: إعادة فتحها للمدير وحده.
+// clientGone: الصفحة لا ترى عميل الصفقة (نُقل لغيره): المغلقة لا يعيد فتحها إلا المدير، والجارية تُنقل كما كانت.
+export function pathActions(stages, stageId, admin, canMove = true, clientGone = false) {
     const current = stageOf(stages, stageId);
     const result = { primary: null, back: null, other: null, lose: null, reopen: null, note: null };
     if (current && current.is_terminal && current.is_won && !admin) {
@@ -149,6 +152,10 @@ export function pathActions(stages, stageId, admin, canMove = true) {
     }
     if (!admin && canMove === false) {
         result.note = OTHER_BROKER_NOTE;
+        return result;
+    }
+    if (!admin && clientGone && current && current.is_terminal) {
+        result.note = CLIENT_GONE_NOTE;
         return result;
     }
     if (current && current.is_terminal) {

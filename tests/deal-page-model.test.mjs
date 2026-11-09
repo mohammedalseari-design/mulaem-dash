@@ -4,7 +4,7 @@
 // التشغيل: node tests/deal-page-model.test.mjs   أو   deno run tests/deal-page-model.test.mjs
 import {
     sar, pathOrder, pathSteps, showLost, calendarDays, lostFrom, sinceLine, pathActions, commissionBase, unitPriceKey, commissionBox,
-    LOST_STAGE_ID, LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, OTHER_BROKER_NOTE, NO_BASE_HINT, NO_AMOUNT_TEXT
+    LOST_STAGE_ID, LOCKED_NOTE, REOPEN_WON_NOTE, REOPEN_LOST_NOTE, PICK_NOTE, OTHER_BROKER_NOTE, CLIENT_GONE_NOTE, NO_BASE_HINT, NO_AMOUNT_TEXT
 } from '../crm/js/deal-page-model.js';
 
 let pass = 0, fail = 0;
@@ -149,6 +149,18 @@ t('won, admin: reopen to an open stage only', wonAdmin.reopen && ids(wonAdmin.re
 const lostAny = pathActions(STAGES, 7, false);
 t('lost: anyone reopens to an open stage', lostAny.reopen && ids(lostAny.reopen.stages) === '1,2,3,4,5' && lostAny.reopen.note === REOPEN_LOST_NOTE
     && !lostAny.primary && !lostAny.lose && lostAny.note === null);
+// العميل حُوّل لغير وسيط الصفقة (043): المغلقة لا يعيد فتحها إلا المدير، والجارية تبقى كما هي
+t('the note for a closed deal whose client moved', CLIENT_GONE_NOTE === 'الصفقة مغلقة، وعميلها ليس عندك: إعادة فتحها للمدير.');
+const goneLost = pathActions(STAGES, 7, false, true, true);
+t('client gone, lost, broker: note only, no reopen', goneLost.note === CLIENT_GONE_NOTE && !goneLost.reopen && !goneLost.primary && !goneLost.lose && !goneLost.other && !goneLost.back);
+const goneWon = pathActions(STAGES, 6, false, true, true);
+t('client gone, won, broker: the won lock note wins', goneWon.note === LOCKED_NOTE && !goneWon.reopen);
+const goneAdmin = pathActions(STAGES, 7, true, true, true);
+t('client gone, lost, admin: reopen as usual', goneAdmin.reopen && goneAdmin.note === null);
+const goneOpen = pathActions(STAGES, 3, false, true, true);
+t('client gone, open deal the manager gave him: moves as usual', JSON.stringify(goneOpen) === JSON.stringify(pathActions(STAGES, 3, false)));
+const goneOther = pathActions(STAGES, 7, false, false, true);
+t('client gone and a deal held by another broker: the other-broker note', goneOther.note === OTHER_BROKER_NOTE && !goneOther.reopen);
 const unknown = pathActions(STAGES, 99, false);
 t('unknown stage: no primary, every step to choose, خسرت still possible', unknown.primary === null && unknown.back === null
     && ids(unknown.other.stages) === '1,2,3,4,5,6' && unknown.lose.stage.id === 7);

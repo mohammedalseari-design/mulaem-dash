@@ -102,7 +102,10 @@ function table(rows, names, reload) {
     for (const row of rows) {
         body.appendChild(el('tr', {}, [
             el('td', { text: fmtDateTime(row.due_at) }),
-            el('td', {}, el('a', { href: '#/clients/' + row.client_id, text: row.client ? row.client.full_name : 'فتح ملف العميل' })),
+            // متابعة منتهية لعميل حُوّل لغيره (043): لا رابط إلى ملف يرفضه
+            el('td', {}, row.client || row.status === 'pending'
+                ? el('a', { href: '#/clients/' + row.client_id, text: row.client ? row.client.full_name : 'فتح ملف العميل' })
+                : el('span', { class: 'crm-subtle', text: 'عميل ليس عندك' })),
             el('td', {}, phoneLinks(row.client && row.client.phone)),
             el('td', {}, row.channel === 'visit' ? badge(label(CHANNEL, row.channel), 'gold') : document.createTextNode(label(CHANNEL, row.channel))),
             el('td', { text: dash(row.purpose) }),

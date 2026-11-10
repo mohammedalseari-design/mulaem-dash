@@ -143,7 +143,7 @@ export async function openClientForm(client, onSaved) {
         if (transferTo) {
             // الزر معطّل حتى ينتهي التحويل: ضغطة ثانية كانت تعيد الحفظ وتحويلاً لا يغيّر شيئاً
             saveBtn.disabled = true;
-            saveBtn.textContent = 'جارٍ التحويل…';
+            saveBtn.textContent = originalOwner ? 'جارٍ التحويل…' : 'جارٍ الإسناد…';
             let moved = await supabase.rpc('transfer_client', { p_client: client.id, p_to: transferTo });
             if (moved.error && isMissingFunction(moved.error)) {
                 // قبل 043 أو بعد التراجع عنه: الإسناد وحده كما كان قبله
@@ -153,10 +153,10 @@ export async function openClientForm(client, onSaved) {
             }
             closeModal();
             if (moved.error) {
-                fail(moved.error, 'حُفظت البيانات، وتعذّر تحويل العميل');
+                fail(moved.error, originalOwner ? 'حُفظت البيانات، وتعذّر تحويل العميل' : 'حُفظت البيانات، وتعذّر إسناد العميل');
             } else {
                 const broker = staffOptions.find((o) => o.value === transferTo);
-                notify(transferDoneText(data.full_name, broker ? broker.label : '', moved.data), 'success', 8000);
+                notify(transferDoneText(data.full_name, broker ? broker.label : '', moved.data, !originalOwner), 'success', 8000);
             }
             if (onSaved) onSaved(data);
             return;

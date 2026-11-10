@@ -38,7 +38,7 @@ export async function renderFollowUps(host, context) {
         if (!data || data.length === 0) return void replace(body, empty('لا توجد متابعات لهذا العميل بعد'));
 
         replace(body, [
-            el('div', { class: 'crm-table-wrap' }, table(data, context, load)),
+            el('div', { class: 'crm-table-wrap' }, table(data, context)),
             pager(view.page, count || data.length, (p) => { view.page = p; load(); }, PAGE_SIZE)
         ]);
     }
@@ -46,7 +46,7 @@ export async function renderFollowUps(host, context) {
     await load();
 }
 
-function table(rows, context, reload) {
+function table(rows, context) {
     const head = el('thead', {}, el('tr', {}, [
         el('th', { text: 'الموعد' }),
         el('th', { text: 'القناة' }),
@@ -69,7 +69,9 @@ function table(rows, context, reload) {
             el('td', { class: 'cell-actions' }, row.status === 'pending'
                 ? el('button', {
                     type: 'button', class: 'btn btn-success btn-xs', text: 'تم',
-                    onclick: () => openDoneForm(row, reload)
+                    // الصفحة كلها لا الجدول: إن كانت آخر شغله على عميل ليس له خرج العميل من يده (043)، فتقول الصفحة ذلك
+                    // بدل أزرار يرفضها الخادم؛ وإلا عادت على التبويب نفسه وفيها «المتابعة القادمة» المحدّثة
+                    onclick: () => openDoneForm(row, () => context.reload())
                 })
                 : null)
         ]));

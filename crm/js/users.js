@@ -6,6 +6,7 @@
 
 import { supabase, PAGE_SIZE, pageRange } from './supabase.js';
 import { myId, ROLE_AR } from './auth.js';
+import { resetStaff } from './data.js';
 import {
     el, replace, loading, empty, errorBox, badge, pager, field, input, select,
     openModal, closeModal, notify, fail, fmtDate, dash, pageHead, actionBtn
@@ -91,6 +92,8 @@ async function callAdmin(payload) {
         throw new Error(message);
     }
     if (data && data.status === 'error') throw new Error(data.message || 'تعذّر تنفيذ العملية');
+    // تغيّر الطاقم: قائمة الوسطاء في «تعديل البيانات» و«تحويل» تُقرأ من جديد
+    resetStaff();
     return data;
 }
 

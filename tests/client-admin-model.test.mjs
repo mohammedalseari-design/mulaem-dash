@@ -2,7 +2,7 @@
 // التشغيل: node tests/client-admin-model.test.mjs
 import {
     countOf, joinAnd, TRANSFER_NOTE, transferDoneText, deleteBlocked, deleteBlockedText, deleteWarnText, deleteDoneText, isHasDealsError,
-    isMissingFunction, NOT_READY_TEXT, ASSIGN_NOTE, transferTitle
+    isMissingFunction, NOT_READY_TEXT, ASSIGN_NOTE, ASSIGN_LEAD_NOTE, transferNote, transferTitle
 } from '../crm/js/client-admin-model.js';
 
 let pass = 0, fail = 0;
@@ -29,8 +29,8 @@ t('join: one part, none', joinAnd(['أ']) === 'أ' && joinAnd([]) === '' && join
 
 /* ===================== التحويل ===================== */
 
-t('transfer note says what moves and what stays', /طلباته المفتوحة/.test(TRANSFER_NOTE) && /ما عند الوسيط الحالي من متابعات مفتوحة وصفقات جارية/.test(TRANSFER_NOTE)
-    && /يبقى باسم من عمل عليه/.test(TRANSFER_NOTE) && /ما أسندته لموظف آخر يبقى عنده/.test(TRANSFER_NOTE) && /لا يعود يرى العميل/.test(TRANSFER_NOTE));
+t('transfer note says what moves and what stays', /طلباته النشطة/.test(TRANSFER_NOTE) && /ما عند الوسيط الحالي من متابعات مفتوحة وصفقات جارية/.test(TRANSFER_NOTE)
+    && /يبقى باسم من عمل عليه/.test(TRANSFER_NOTE) && /ولو كان عندك أو عند مركز الاتصال/.test(TRANSFER_NOTE) && /لا يعود يرى العميل/.test(TRANSFER_NOTE));
 t('transfer done: names and what moved',
     transferDoneText('محمد', 'نجود', { changed: true, requirements: 2, follow_ups: 1, deals: 3 })
     === 'حُوّل محمد إلى نجود. انتقل معه: طلبان، ومتابعة مفتوحة، و3 صفقات جارية.',
@@ -46,6 +46,19 @@ t('transfer done: missing names and reply', transferDoneText('', '', null) === '
 t('assign: title, note and toast say «إسناد»', transferTitle(true) === 'إسناد العميل لوسيط' && transferTitle(false) === 'تحويل العميل لوسيط'
     && /الوسيط الذي أدخله/.test(ASSIGN_NOTE) && /لا يعود يرى العميل/.test(ASSIGN_NOTE)
     && transferDoneText('محمد', 'نجود', { changed: true, requirements: 1, follow_ups: 0, deals: 1 }, true) === 'أُسند محمد إلى نجود. انتقل معه: طلب واحد، وصفقة جارية.');
+t('assign note when a broker added it: he leaves unless he is the one chosen', transferNote(true, true) === ASSIGN_NOTE
+    && /إلا إن أسندته إليه/.test(ASSIGN_NOTE) && /ولو كان عندك أو عند مركز الاتصال/.test(ASSIGN_NOTE));
+t('assign note for a lead no active broker added: only its requests move, held work stays even with the manager or the call center',
+    transferNote(true, false) === ASSIGN_LEAD_NOTE && /^ينتقل معه طلباته النشطة\./.test(ASSIGN_LEAD_NOTE)
+    && /تبقى عند من هي عنده/.test(ASSIGN_LEAD_NOTE) && /ولو كانت عندك أو عند مركز الاتصال/.test(ASSIGN_LEAD_NOTE)
+    && /بلا مكلَّف/.test(ASSIGN_LEAD_NOTE) && !/أدخله/.test(ASSIGN_LEAD_NOTE) && !/لا يعود يرى/.test(ASSIGN_LEAD_NOTE)
+    && !/ما ليس مسنداً لأحد/.test(ASSIGN_LEAD_NOTE));
+t('every note: held work stays even with the manager or the call center; a disabled broker\'s or holder-less work moves (043)',
+    [TRANSFER_NOTE, ASSIGN_NOTE, ASSIGN_LEAD_NOTE].every((s) => /عندك أو عند مركز الاتصال، إلا ما كان عند وسيط معطّل أو بلا مكلَّف فينتقل معه\./.test(s)));
+t('every note says «طلباته النشطة» (open + matched, what transfer_client moves), never «طلباته المفتوحة»',
+    [TRANSFER_NOTE, ASSIGN_NOTE, ASSIGN_LEAD_NOTE].every((s) => /^ينتقل معه طلباته النشطة[،.]/.test(s) && !/طلباته المفتوحة/.test(s)));
+t('transfer note whatever the creator', transferNote(false, true) === TRANSFER_NOTE && transferNote(false, false) === TRANSFER_NOTE);
+t('no note says «أسندته لموظف»: the call center assigns too', ![TRANSFER_NOTE, ASSIGN_NOTE, ASSIGN_LEAD_NOTE].some((s) => /أسندته لموظف/.test(s)));
 
 /* ===================== الحذف ===================== */
 

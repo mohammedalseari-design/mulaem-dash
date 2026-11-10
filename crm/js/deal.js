@@ -143,7 +143,8 @@ function headerCard(deal, stage, names, reload) {
                     onclick: () => openDealEdit(deal, stage, reload)
                 }),
                 // بإطار لا ممتلئ: الزر الرئيسي في الصفحة «انقل إلى…» في بطاقة المسار تحت هذه (زر رئيسي واحد في المكان)
-                el('button', {
+                // المستندات تحمل اسم العميل: من لم يعد العميل عنده لا يطبعها باسم بديل (المدير يطبعها)
+                clientGone ? null : el('button', {
                     type: 'button', class: 'btn btn-outline btn-sm', text: 'المستندات',
                     onclick: () => openDocumentMenu(deal, stage, names)
                 })

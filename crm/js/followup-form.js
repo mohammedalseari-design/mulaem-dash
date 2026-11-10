@@ -175,11 +175,24 @@ export function openDoneForm(followUp, onDone) {
         closeModal();
         if (onDone) onDone();
         // المتابعة أُنجزت فعلاً؛ فشل التالية يُقال صراحة حتى تُجدول يدوياً من ملف العميل
-        if (nextError) return void fail(nextError, 'تم إنجاز المتابعة، لكن تعذّرت جدولة التالية');
+        if (nextError) {
+            // كانت آخر شغله على عميل ليس له: بإنجازها خرج العميل من يده (043)، فيُقال السبب لا «لا تملك صلاحية»
+            if (nextError.code === '42501' && await clientLeft(followUp.client_id)) {
+                return void notify('تم إنجاز المتابعة. ولم تُجدول التالية لأن العميل لم يعد عندك.', 'info', 8000);
+            }
+            return void fail(nextError, 'تم إنجاز المتابعة، لكن تعذّرت جدولة التالية');
+        }
         notify('تم إنجاز المتابعة، والتالية: ' + fmtDateTime(created.due_at), 'success', 6000);
     });
 
     openModal('نتيجة المتابعة', form, { narrow: true });
+}
+
+// لم يعد العميل ظاهراً للموظف (RLS في 043: يراه من عليه شغل جارٍ فيه). خطأ القراءة لا يُحسب خروجاً
+async function clientLeft(clientId) {
+    if (!clientId) return false;
+    const { count, error } = await supabase.from('clients').select('id', { count: 'exact', head: true }).eq('id', clientId);
+    return !error && count === 0;
 }
 
 // «لم يرد — أجّلها»: يُنقل موعد المتابعة نفسها (تبقى معلّقة)، ثم تُكتب ملاحظة في سجل العميل لأن نقل الموعد
@@ -197,10 +210,13 @@ async function postpone(followUp, later, saveBtn, onDone) {
         .eq('id', followUp.id)
         .eq('status', 'pending')
         .select('id, due_at');
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'تأجيل المتابعة';
-    if (error) return void fail(error, 'تعذّر تأجيل المتابعة');
-    if (!updated || updated.length === 0) return void notify('لا تملك صلاحية تعديل هذه المتابعة أو أنها لم تعد معلّقة', 'error', 8000);
+    // نجح النقل: يبقى الزر معطّلاً حتى تُكتب الملاحظة وتُغلق النافذة، فلا تؤجَّل مرتين ولا تُكتب الملاحظة مرتين
+    if (error || !updated || updated.length === 0) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'تأجيل المتابعة';
+        if (error) return void fail(error, 'تعذّر تأجيل المتابعة');
+        return void notify('لا تملك صلاحية تعديل هذه المتابعة أو أنها لم تعد معلّقة', 'error', 8000);
+    }
 
     const when = fmtDateTime(updated[0].due_at);
     const note = later.note.value.trim();

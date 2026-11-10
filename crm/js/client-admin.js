@@ -7,25 +7,29 @@ import { supabase } from './supabase.js';
 import { fieldStaff, resetStaff } from './data.js';
 import { el, field, select, openModal, closeModal, notify, fail, loading, replace } from './ui.js';
 import {
-    TRANSFER_NOTE, ASSIGN_NOTE, transferTitle, transferDoneText, deleteBlocked, deleteBlockedText, deleteWarnText, deleteDoneText,
+    transferNote, transferTitle, transferDoneText, deleteBlocked, deleteBlockedText, deleteWarnText, deleteDoneText,
     isHasDealsError, isMissingFunction, NOT_READY_TEXT
 } from './client-admin-model.js';
 
 const cancelBtn = (text = 'إلغاء') => el('button', { type: 'button', class: 'btn btn-outline btn-sm', text: text, onclick: closeModal });
 
 export async function openTransferClient(client, onDone) {
-    // غير مسند: «إسناد» لا «تحويل»، والوسيط الذي أدخله هو من يخرج منه
+    // غير مسند: «إسناد» لا «تحويل»، والوسيط الذي أدخله (إن كان وسيطاً) هو من يخرج منه
     const assigning = !client.owner_id;
     const title = transferTitle(assigning);
     const verb = assigning ? 'إسناد' : 'تحويل';
-    let brokers;
+    let activeBrokers;
     try {
         // من جديد: وسيط أُضيف أو عُطّل في الجلسة نفسها يظهر كما هو الآن
         resetStaff();
-        brokers = (await fieldStaff()).filter((p) => p.id !== client.owner_id);
+        activeBrokers = await fieldStaff();
     } catch (error) {
         return fail(error, 'تعذّر تحميل الوسطاء');
     }
+
+    const brokers = activeBrokers.filter((p) => p.id !== client.owner_id);
+    // الوسطاء النشطون فقط في القائمة: أدخله وسيط معطّل أو مركز الاتصال = لا يخرج منه أحد يعمل
+    const addedByBroker = assigning && activeBrokers.some((p) => p.id === client.created_by);
 
     if (!brokers.length) {
         openModal(title, [
@@ -42,7 +46,7 @@ export async function openTransferClient(client, onDone) {
     const form = el('form', { class: 'client-transfer' }, [
         el('p', { text: (assigning ? 'لمن يُسنَد ' : 'إلى من ينتقل ') + client.full_name + '؟' }),
         field(assigning ? 'الوسيط' : 'الوسيط الجديد', target, { required: true }),
-        el('p', { class: 'hint', text: assigning ? ASSIGN_NOTE : TRANSFER_NOTE }),
+        el('p', { class: 'hint', text: transferNote(assigning, addedByBroker) }),
         el('div', { class: 'btn-row btn-row-end' }, [cancelBtn(), go])
     ]);
 

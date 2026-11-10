@@ -25,11 +25,19 @@ import {
     filterChips, resultLine, subTabs
 } from './ui.js';
 
-// أقسام «العقارات»: الوحدات، و«مشاركاتي» (my-shares.js: ما شاركه الموظف مع عملائه ومن فتحه)
+// أقسام «العقارات»: الوحدات، و«مشاركاتي» (my-shares.js: ما شاركه الموظف مع عملائه ومن فتحه)، و«الخريطة» (map.js: المشاريع
+// المعتمدة على خريطة داكنة بصورها وأسعارها، وجولة بينها)
 export const PROPERTY_TABS = [
     { hash: '#/properties', label: 'الوحدات', icon: 'building' },
-    { hash: '#/shares', label: 'مشاركاتي', icon: 'link' }
+    { hash: '#/shares', label: 'مشاركاتي', icon: 'link' },
+    { hash: '#/map', label: 'الخريطة', icon: 'map' }
 ];
+
+// صفحة المشاريع القديمة (‎../projects.html‎) باب الإضافة والتعديل: المدير يعدّل كل مشروع، والوسيط يضيف ويعدّل ما أضافه
+// (js/script.js: canEdit). مركز الاتصال لا يضيف ولا يعدّل هناك، والخريطة صارت هنا، فلا زر له
+function canEditProjects() {
+    return myRole() === 'admin' || myRole() === 'field';
+}
 
 // القائمة كما تُفتح أول مرة، وكما يعيدها «مسح التصفية»: «المتاح فقط» مفعّل وبقية المرشّحات فارغة
 const freshView = () => ({
@@ -68,8 +76,11 @@ export async function renderProperties(root) {
     const purposeChips = filterChips('غرض العرض', PURPOSE_CHIPS, view.purpose, (value) => { view.purpose = value; if (ready) reload(); });
 
     replace(root, [
-        pageHead('العقارات', 'كل الوحدات المعتمدة للبيع والإيجار. إضافة المشروع وتعديله من صفحة المشاريع.', [
-            actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' })
+        // الخريطة قسم بجانب «الوحدات» (PROPERTY_TABS)، وهذا الزر لمن يضيف المشاريع ويعدّلها في صفحة المشاريع
+        pageHead('العقارات', canEditProjects()
+            ? 'كل الوحدات المعتمدة للبيع والإيجار. إضافة المشروع وتعديله من صفحة المشاريع.'
+            : 'كل الوحدات المعتمدة للبيع والإيجار، وخريطتها في قسم «الخريطة».', [
+            canEditProjects() ? actionBtn('إضافة وتعديل المشاريع', 'building', { href: '../projects.html' }) : null
         ]),
         subTabs('أقسام العقارات', PROPERTY_TABS, '#/properties'),
         el('div', { class: 'crm-card' }, [toolbar, purposeChips.node, body])

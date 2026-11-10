@@ -67,15 +67,18 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
 .sk-block { width: 100%; height: 64px; border-radius: 14px; }
 .sk-row { display: flex; gap: 12px; width: 100%; }
 
-/* الحاوية: بلا سطر v6 القديم، وتظهر بعد لحظة فلا تومض في التحميل السريع */
-.loading.sk-wrap {
+/* الحاوية: بلا سطر v6 القديم، وتظهر بعد لحظة فلا تومض في التحميل السريع.
+   :where() يبقيها بوزن .loading نفسه، فحشوة الألواح (.wq-body > .loading وأمثالها) تبقى لها؛ وjustify-items: stretch
+   يلغي start الذي يضعه v6.css على .loading فكان يضغط الهيكل إلى عرض صفر */
+.loading:where(.sk-wrap) {
     display: block;
+    justify-items: stretch;
     padding: 6px 0;
     color: inherit;
     animation: look-skin 0.25s 0.15s both;
 }
 .loading.sk-wrap::after { content: none; }
-.sk-shape { display: grid; gap: 12px; }
+.sk-shape { display: grid; gap: 12px; width: 100%; }
 .sk-page .sk-shape { gap: 14px; }
 .sk-page .sk-row { margin: 6px 0 4px; }
 .sk-inline { padding: 4px 0; }
@@ -126,16 +129,22 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
     .side .crm-nav a.active, body.crm-dark .side .crm-nav a.active { color: #ffffff; }
     /* الصفحة الحالية: خيط نحاسي من لون العلامة */
     .side .crm-nav a.active::after { height: 3px; background: var(--look-copper-2); }
+    /* «كيف أبدأ؟»: easy.css يلوّنه بالحبر عند المرور وبالأخضر حين يكون الصفحة الحالية، وكلاهما لا يُقرأ على الداكن (1.91:1) */
     .side .crm-nav a.nav-foot { color: var(--look-on-ink-muted); }
+    .side .crm-nav a.nav-foot:hover { color: var(--look-on-ink); }
+    .side .crm-nav a.nav-foot.active, body.crm-dark .side .crm-nav a.nav-foot.active { color: #ffffff; }
 
-    .side-search input, body.crm-dark .side-search input {
+    /* بوزن واحد (0,2,1) للراحة والمرور والتركيز، فيعمل المرور والتركيز في الليلي أيضاً؛ وحلقة نحاسية لمن يصل بـTab
+       (easy.css يلغي حلقة الحقول بـoutline: 0) */
+    .side .side-search input {
         border-color: rgba(255, 255, 255, 0.16);
         background: rgba(255, 255, 255, 0.07);
         color: var(--look-on-ink);
     }
-    .side-search input::placeholder { color: var(--look-on-ink-muted); opacity: 1; }
-    .side-search input:hover { border-color: rgba(255, 255, 255, 0.32); }
-    .side-search input:focus { border-color: var(--look-copper-2); background: rgba(255, 255, 255, 0.11); box-shadow: none; }
+    .side .side-search input::placeholder { color: var(--look-on-ink-muted); opacity: 1; }
+    .side .side-search input:hover { border-color: rgba(255, 255, 255, 0.32); }
+    .side .side-search input:focus { border-color: var(--look-copper-2); background: rgba(255, 255, 255, 0.11); box-shadow: none; }
+    .side .side-search input:focus-visible { outline: 2px solid var(--look-copper-2); outline-offset: 2px; }
     .side-search-ico { color: var(--look-on-ink-muted); }
     .side .side-search-kbd { border-color: rgba(255, 255, 255, 0.22); background: transparent; color: var(--look-on-ink-muted); }
 
@@ -145,6 +154,14 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
 
     /* التركيز من لوحة المفاتيح على الشريط الداكن: حلقة نحاسية تُرى */
     .side :where(a, summary, input):focus-visible { outline: 2px solid var(--look-copper-2); outline-offset: 2px; }
+}
+
+/* اللوحي: حقل البحث دائرة بعدسة فقط (v6.css)؛ النص والتلميح و«Ctrl K» لا تظهر فوقها.
+   «Ctrl K» كان يظهر هنا أصلاً (v6.css:193 يلغي إخفاءه في :189) ومربعه المعتم يغطي الدائرة */
+@media (min-width: 701px) and (max-width: 1100px) {
+    .side .side-search input { color: transparent; }
+    .side .side-search input::placeholder { color: transparent; }
+    .side .side-search-kbd { display: none; }
 }
 
 /* ===================== الجوال: شريط رفيع بالعلامة أعلى الصفحة ===================== */
@@ -191,7 +208,9 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
     color: var(--look-on-copper);
 }
 
-/* ===================== شاشة الدخول: صورة مشروع بالشعار الأبيض، والنموذج بجانبها ===================== */
+/* ===================== شاشة الدخول: نافورة جدة بالشعار الأبيض، والنموذج بجانبها ===================== */
+/* الصورة (images/brand/fountain-*.webp): «King Fahd’s Fountain 2025.jpg» من ويكيميديا كومنز، تصوير ほっきー، CC0 (حرة بلا شروط)؛
+   ظلالها مسحوبة إلى أخضر ملائم الداكن، والنافورة وأضواء المدينة بلونها. النافورة عند ثلث عرض الصورة من اليسار. */
 
 .login-container {
     display: grid;
@@ -215,7 +234,8 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: 50% 30%;
+    /* الطرف الأيسر: النافورة في وسط الصورة على الكمبيوتر، وفي ثلثها الأيسر على الجوال بعيداً عن الشعار */
+    object-position: 0% 50%;
 }
 /* تعتيم من أسفل بلون الشعار الداكن حتى يُقرأ الشعار الأبيض والجملة */
 .login-hero::after {
@@ -247,6 +267,8 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
     background: transparent;
     box-shadow: none;
     text-align: start;
+    /* حلقة التركيز حول زر «دخول» تخرج عن الصندوق بلا حشوة؛ القص كان يخفيها من ثلاث جهات */
+    overflow: visible;
 }
 .login-logo { display: block; width: 54px; height: 40px; margin: 0 0 18px; border: 0; border-radius: 0; object-fit: contain; }
 .login-box h1 { margin: 0 0 4px; color: var(--ink); font-size: 1.6rem; text-align: start; }
@@ -257,12 +279,11 @@ body.crm-dark .sk::after { background: linear-gradient(90deg, transparent 0%, rg
 /* اللوحي والجوال: الصورة شريط أعلى الشاشة، والنموذج بطاقة تعلوه قليلاً */
 @media (max-width: 900px) {
     .login-container { display: block; }
-    .login-hero { height: clamp(220px, 36vh, 340px); }
-    .login-hero-photo { object-position: 50% 22%; }
-    /* الشعار وسط الصورة هنا: تعتيم أعمّ حتى يُقرأ فوق المبنى المضيء */
-    .login-hero::after { background: linear-gradient(to top, rgba(18, 40, 44, 0.92) 0%, rgba(18, 40, 44, 0.62) 45%, rgba(18, 40, 44, 0.42) 100%); }
-    .login-hero-text { inset-inline: 0; bottom: 52px; justify-items: center; text-align: center; }
-    .login-hero-logo { width: 104px; }
+    .login-hero { height: clamp(240px, 38vh, 360px); }
+    /* الصورة ليلية داكنة أصلاً: تعتيم أخف، والشعار في جهة البداية تحت الأفق والنافورة في الجهة الأخرى */
+    .login-hero::after { background: linear-gradient(to top, rgba(18, 40, 44, 0.9) 0%, rgba(18, 40, 44, 0.45) 42%, rgba(18, 40, 44, 0.12) 100%); }
+    .login-hero-text { inset-inline: 24px; bottom: 48px; justify-items: start; text-align: start; }
+    .login-hero-logo { width: 96px; }
     .login-hero-line { display: none; }
     .login-box, body.crm-dark .login-box {
         position: relative;

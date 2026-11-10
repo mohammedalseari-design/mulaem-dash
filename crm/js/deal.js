@@ -33,7 +33,7 @@ import { commissionState } from './deal-path.js';
 import { pathOrder, pathSteps, showLost, sinceLine, pathActions, commissionBox, unitPriceKey } from './deal-page-model.js';
 
 export async function renderDeal(root, dealId) {
-    replace(root, loading());
+    replace(root, loading('جارٍ تحميل الصفقة', 'page'));
 
     // أول صفحة من سجل المراحل تُقرأ مع الصفقة نفسها: منها سطر «في «تفاوض» من 6 أيام» فوق المسار، وهي نفسها أول
     // صفحة في جدول السجل أسفل الصفحة، فلا تُطلب مرتين

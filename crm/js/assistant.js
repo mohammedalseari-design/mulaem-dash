@@ -318,7 +318,7 @@ function nextStep(row) {
 const POLL_MS = 4000;
 
 export async function renderAgentRequest(root, requestId) {
-    replace(root, loading());
+    replace(root, loading('جارٍ التحميل', 'page'));
     await drawAgentRequest(root, requestId);
 }
 
@@ -615,7 +615,7 @@ function sourceMeta(row) {
 // الرابط الموقّع يُطلب عند الضغط لا عند بناء الصفحة: عمره دقيقتان ولا يُخزَّن.
 async function showSource(row, holder, button) {
     button.disabled = true;
-    replace(holder, loading('جارٍ إصدار رابط موقّع'));
+    replace(holder, loading('جارٍ إصدار رابط موقّع', 'inline'));
     try {
         // صفحة قُرئت من رابط تُحفظ نصاً (أو ملف PDF إن كان الرابط ملفاً)
         if (row.kind === 'text' || (row.kind === 'url' && !/\.pdf$/i.test(row.storage_path || ''))) {

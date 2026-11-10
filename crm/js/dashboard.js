@@ -78,7 +78,7 @@ export async function renderDashboard(root) {
         el('div', { class: 'dashboard-grid' }, [card('لماذا نخسر (90 يوماً)', lostBody), card('آخر 12 شهراً', monthsBody)])
     ]));
 
-    replace(stats, loading());
+    replace(stats, loading('جارٍ التحميل', 'inline'));
     replace(systemBody, loading());
     renderSystem(systemBody);
     for (const body of [attentionBody, funnelBody, brokersBody, lostBody, monthsBody]) replace(body, loading());

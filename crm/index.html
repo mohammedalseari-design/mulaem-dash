@@ -10,6 +10,12 @@
     <link rel="icon" type="image/png" sizes="32x32" href="../images/brand/favicon-32.png">
     <link rel="apple-touch-icon" href="../images/brand/apple-touch-icon.png">
     <meta name="theme-color" content="#12282c">
+    <!-- يُضاف إلى الشاشة الرئيسية للجوال تطبيقاً باسم «ملائم» وأيقونته (manifest.webmanifest) -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="ملائم">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
     <!-- خط عربي واحد للنظام كله: IBM Plex Sans Arabic (التصميم السادس يعود إليه وحده: أوضح في الجداول والأرقام) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,13 +46,37 @@
     <!-- يظهر حين ينقطع الإنترنت (app.js: wireOffline) -->
     <div class="offline-bar" id="offlineBar" role="status" hidden>لا يوجد اتصال بالإنترنت — ما تراه قد لا يكون محدّثاً، ولن يُحفظ شيء حتى يعود الاتصال.</div>
 
-    <!-- تظهر حتى تُقرأ الجلسة، ثم تُخفى -->
-    <div class="loading" id="bootScreen" style="padding-top:90px">جارٍ التحقق من الجلسة</div>
+    <!-- شاشة الإقلاع حتى تُقرأ الجلسة، ثم تُخفى (app.js): هيكل النظام نفسه — الشريط الداكن بعلامة ملائم وأسطر رمادية
+         مكان الصفحة (look.css)، والجملة لقارئ الشاشة. حارس الإقلاع أسفل الصفحة يضع رسالة الخطأ مكانها إن فشل التحميل. -->
+    <div class="boot" id="bootScreen" role="status" aria-busy="true">
+        <div class="boot-bar">
+            <img class="boot-mark" src="../images/brand/mark.svg" alt="" width="38" height="28">
+            <span class="boot-name">ملائم العقارية</span>
+        </div>
+        <div class="boot-page" aria-hidden="true">
+            <span class="sk sk-title"></span>
+            <span class="sk sk-line"></span>
+            <span class="sk-row"><span class="sk sk-kpi"></span><span class="sk sk-kpi"></span><span class="sk sk-kpi"></span><span class="sk sk-kpi"></span></span>
+            <span class="sk sk-block"></span>
+            <span class="sk sk-block"></span>
+            <span class="sk sk-block"></span>
+        </div>
+        <span class="look-sr">جارٍ التحقق من الجلسة</span>
+    </div>
 
-    <!-- شاشة الدخول: لا تظهر إلا إذا لم تكن هناك جلسة -->
+    <!-- شاشة الدخول: لا تظهر إلا إذا لم تكن هناك جلسة. صورة مشروع من مشاريع ملائم بشعارها الأبيض (look.css)، والنموذج بجانبها -->
     <div class="login-container crm-hidden" id="loginScreen">
+        <div class="login-hero" aria-hidden="true">
+            <img class="login-hero-photo" src="../images/brand/hero-720.webp"
+                srcset="../images/brand/hero-720.webp 720w, ../images/brand/hero-1200.webp 1200w"
+                sizes="(max-width: 700px) 100vw, 50vw" alt="" decoding="async">
+            <div class="login-hero-text">
+                <img class="login-hero-logo" src="../images/brand/lockup-on-dark.svg" alt="" width="190" height="208">
+                <p class="login-hero-line">عملاؤك وعقاراتك وصفقاتك في مكان واحد</p>
+            </div>
+        </div>
         <div class="login-box">
-            <img src="../images/logo.jpg" class="login-logo" alt="شعار النظام">
+            <img src="../images/brand/mark.svg" class="login-logo" alt="شعار ملائم" width="54" height="40">
             <h1>نظام ملائم العقاري</h1>
             <p>إدارة العملاء</p>
 
@@ -73,7 +103,7 @@
         <div class="shell">
             <aside class="side">
                 <div class="side-brand">
-                    <img src="../images/logo.jpg" class="side-logo" alt="شعار ملائم">
+                    <img src="../images/brand/mark.svg" class="side-logo" alt="شعار ملائم" width="38" height="28">
                     <div class="side-name">
                         <strong>ملائم العقارية</strong>
                         <span>إدارة العملاء</span>
@@ -117,6 +147,7 @@
                 if (!boot || shown || boot.className.indexOf('crm-hidden') !== -1) return;
                 shown = true;
                 boot.className = 'crm-error';
+                boot.removeAttribute('aria-busy');
                 boot.style.cssText = 'margin:90px auto 0;max-width:640px';
                 // صفحة مفتوحة من ملف على الجهاز (file://): المتصفح يمنع تحميل وحدات
                 // JavaScript منها فيتوقف الإقلاع دائماً. رسالة صريحة برابط الموقع بدل config.js.

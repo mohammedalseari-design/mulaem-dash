@@ -27,7 +27,7 @@ const BREAKDOWN_AR = {
 };
 
 export async function renderRequirementMatches(root, clientId, requirementId) {
-    replace(root, loading());
+    replace(root, loading('جارٍ التحميل', 'page'));
 
     const [{ data: requirement, error }, { data: client }] = await Promise.all([
         supabase.from('client_requirements').select('*').eq('id', requirementId).maybeSingle(),

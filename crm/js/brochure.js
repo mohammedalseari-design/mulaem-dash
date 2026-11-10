@@ -138,7 +138,7 @@ async function mediaOf(id) {
 }
 
 export async function renderBrochureReading(root, requestId, lastStage) {
-    if (lastStage === undefined) replace(root, loading('جارٍ فتح البروشور'));
+    if (lastStage === undefined) replace(root, loading('جارٍ فتح البروشور', 'page'));
     const { data: req, error } = await supabase.from('agent_requests')
         .select('id, kind, title, status, stage, error_ar, result, created_at').eq('id', requestId).maybeSingle();
     if (!root.isConnected) return;

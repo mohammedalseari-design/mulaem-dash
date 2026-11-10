@@ -68,7 +68,7 @@ function visitorId() {
 /* ===================== التحميل ===================== */
 
 async function load() {
-    replace(root, loading('جارٍ تحميل المشروع'));
+    replace(root, loading('جارٍ تحميل المشروع', 'page'));
     let result;
     try {
         result = await client.rpc('get_project_share', { p_code: params.code, p_visitor: visitorId() });

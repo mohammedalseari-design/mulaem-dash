@@ -29,7 +29,7 @@ function visibleTabs() {
 }
 
 export async function renderClient(root, clientId) {
-    replace(root, loading());
+    replace(root, loading('جارٍ تحميل العميل', 'page'));
 
     const [{ data: client, error }, names] = await Promise.all([
         supabase.from('clients').select('*').eq('id', clientId).maybeSingle(),

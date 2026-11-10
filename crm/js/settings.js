@@ -45,7 +45,7 @@ const WEIGHTS = [
 const DEFAULT_WEIGHTS = { district: 35, budget: 30, area: 20, rooms: 10, delivery: 5 };
 
 export async function renderSettings(root) {
-    replace(root, loading());
+    replace(root, loading('جارٍ التحميل', 'page'));
 
     const { data, error } = await supabase
         .from('crm_settings')

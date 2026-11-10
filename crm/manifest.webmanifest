@@ -1,0 +1,25 @@
+{
+  "name": "ملائم — إدارة العملاء",
+  "short_name": "ملائم",
+  "description": "نظام ملائم العقاري: العملاء والعقارات والصفقات والمتابعات.",
+  "id": "/crm/",
+  "start_url": "/crm/",
+  "scope": "/crm/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12282c",
+  "theme_color": "#12282c",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "../images/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "../images/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "../images/brand/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "../images/brand/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "عملي اليوم", "url": "/crm/#/work", "icons": [{ "src": "../images/brand/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "العملاء", "url": "/crm/#/clients", "icons": [{ "src": "../images/brand/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}

@@ -43,7 +43,7 @@ const NBSP = '\u00a0';
 const settle = (query) => Promise.resolve(query).catch((error) => ({ data: null, error }));
 
 export async function renderProject(root, projectId) {
-    replace(root, loading('جارٍ تحميل العقار'));
+    replace(root, loading('جارٍ تحميل العقار', 'page'));
     // «12» أو «12?tab=plans» (التبويب المحفوظ في الرابط)
     const route = parseProjectRoute(projectId);
     // رقم العقار عدد صحيح دائماً (projects.id integer): رابط غيره خاطئ، فلا يُسأل الخادم عنه ولا تظهر رسالته الإنجليزية

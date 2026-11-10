@@ -486,7 +486,7 @@ function statusBadges(drafts) {
 /* ===================== صفحة الاعتماد ===================== */
 
 export async function renderApproval(root, requestId) {
-    replace(root, loading());
+    replace(root, loading('جارٍ التحميل', 'page'));
 
     const { data: request, error } = await supabase
         .from('agent_requests')
@@ -633,7 +633,7 @@ function draftCard(draft, names, reload, twinState, context) {
     if (isNew) {
         replace(fieldsBox, fieldsTable(draft, null));
     } else {
-        replace(fieldsBox, loading('جارٍ قراءة السجل الهدف'));
+        replace(fieldsBox, loading('جارٍ قراءة السجل الهدف', 'inline'));
         targetRow(draft.target_kind, draft.target_id).then((row) => {
             if (!fieldsBox.isConnected) return;
             if (row) titleNode.textContent = 'تعديل على: ' + targetName(draft, row);

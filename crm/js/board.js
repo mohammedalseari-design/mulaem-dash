@@ -42,7 +42,7 @@ const LOOKUP_CAP = 100;
 const remembered = { tab: TAB_ALL, page: 0, search: '', broker: '', sort: DEFAULT_SORT };
 
 export async function renderBoard(root) {
-    replace(root, loading());
+    replace(root, loading('جارٍ التحميل', 'page'));
     const admin = isAdmin();
 
     const [stages, names, brokers] = await Promise.all([

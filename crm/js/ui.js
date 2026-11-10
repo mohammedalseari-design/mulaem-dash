@@ -50,9 +50,23 @@ export function replace(node, children) {
 
 /* ===================== حالات الشاشة ===================== */
 
-export function loading(message = 'جارٍ التحميل') {
-    // role=status وaria-busy: قارئ الشاشة يعلن الانتظار، وcrm/v6.css يرسم أسطراً رمادية مكان المحتوى
-    return el('div', { class: 'loading', role: 'status', 'aria-busy': 'true', text: message });
+// هيكل رمادي بشكل ما سيظهر مكانه (look.css)، والجملة لقارئ الشاشة وحده (role=status وaria-busy):
+//   'page'   أول الصفحة كلها: عنوان وسطر وأربعة أرقام وصفوف
+//   'list'   صفوف قائمة أو جدول (الافتراضي: أكثر الاستدعاءات جسم قسم تحت رأس الصفحة)
+//   'inline' سطر واحد داخل نافذة أو بطاقة صغيرة أو شريط أرقام
+// يظهر بعد لحظة قصيرة (look.css) فلا يومض في التحميل السريع.
+export function loading(message = 'جارٍ التحميل', shape = 'list') {
+    const sk = (kind) => el('span', { class: 'sk sk-' + kind });
+    const shapes = {
+        page: () => [sk('title'), sk('line'), el('span', { class: 'sk-row' }, [sk('kpi'), sk('kpi'), sk('kpi'), sk('kpi')]),
+            sk('block'), sk('block'), sk('block')],
+        list: () => [sk('block'), sk('block'), sk('block')],
+        inline: () => [sk('line')]
+    };
+    return el('div', { class: 'loading sk-wrap sk-' + (shapes[shape] ? shape : 'list'), role: 'status', 'aria-busy': 'true' }, [
+        el('span', { class: 'look-sr', text: message }),
+        el('span', { class: 'sk-shape', 'aria-hidden': 'true' }, (shapes[shape] || shapes.list)())
+    ]);
 }
 
 // حالة فارغة: جملة تقول ما الذي لا يوجد، وسطر اختياري يقول ما الذي يُفعل، وإجراء اختياري (زر أو رابط).

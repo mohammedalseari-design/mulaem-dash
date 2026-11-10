@@ -16,7 +16,8 @@
 // التعديل في صفحة المشاريع (‎../projects.html‎) كما في «العقارات»، وهذه نافذة عليه.
 
 import { supabase, fetchAll } from './supabase.js';
-import { myId, myRole, isAdmin, canSeeCommission } from './auth.js';
+import { state, myId, myRole, isAdmin, canSeeCommission } from './auth.js';
+import { mapHash } from './map-model.js';
 import { openDealForm } from './deal-form.js';
 import { openShareSheet } from './share-project.js';
 import {
@@ -55,7 +56,7 @@ export async function renderProject(root, projectId) {
 
     const [projectResult, unitsResult, holdsResult] = await Promise.all([
         settle(supabase.from('projects')
-            .select('id, name, type, purpose, city, district, address, latitude, longitude, availability, status, deleted_at,'
+            .select('id, name, type, purpose, city, district, address, latitude, longitude, availability, status, deleted_at, added_by,'
                 + ' delivery_date, rega_ad_license, listing_expires_at, notes, images, details')
             .eq('id', pid)
             .maybeSingle()),
@@ -123,16 +124,32 @@ function backLink() {
     ]);
 }
 
-// «المشاريع والخريطة» بإطار، و«مشاركة مع عميل» الزر الرئيسي الوحيد في الترويسة. لا مشاركة لعقار غير معتمد أو محذوف:
-// العميل لا يرى إلا المعتمد (get_client_share)، وغير المعتمد لا يراه حتى بقية الموظفين
+// «على الخريطة» (‎#/map?p=12‎: خريطة المشاريع على هذا المشروع وبطاقته) بإطار، و«مشاركة مع عميل» الزر الرئيسي الوحيد في
+// الترويسة. الخريطة والمشاركة للمعتمد غير المحذوف وحده: العميل لا يرى إلا المعتمد (get_client_share)، والخريطة لا تعرض غيره.
+// «تعديل في صفحة المشاريع» (‎../projects.html‎، حيث يُعدَّل المشروع اليوم) لمن يملك تعديله هناك وحده
 function headActions(project) {
-    const mapLink = actionBtn('المشاريع والخريطة', 'map', { href: '../projects.html' });
-    mapLink.classList.add('pj-head-link');
-    if (project.deleted_at || project.status !== 'approved' || openShareSheet.stub) return [mapLink];
+    const live = !project.deleted_at && project.status === 'approved';
+    const mapLink = live ? actionBtn('على الخريطة', 'map', { href: mapHash(project.id) }) : null;
+    if (mapLink) mapLink.classList.add('pj-head-link');
+    const edit = canEditProject(project)
+        ? actionBtn('تعديل في صفحة المشاريع', null, { href: '../projects.html', title: 'افتح صفحة المشاريع، ثم «تعديل» على هذا المشروع' })
+        : null;
+    if (edit) {
+        edit.insertBefore(svgIcon(PATHS.external), edit.firstChild);
+        edit.classList.add('pj-head-link');
+    }
+    if (!live || openShareSheet.stub) return [mapLink, edit];
     const share = actionBtn('مشاركة مع عميل', null, { onclick: () => openShareSheet(project) }, true);
     share.insertBefore(svgIcon(PATHS.share), share.firstChild);
     share.classList.add('pj-share');
-    return [mapLink, share];
+    return [mapLink, edit, share];
+}
+
+// كما تقرّره صفحة المشاريع (js/script.js: canEdit): المدير يعدّل كل مشروع، والوسيط ما أضافه هو. مركز الاتصال لا يعدّل
+function canEditProject(project) {
+    if (isAdmin()) return true;
+    const me = state.profile;
+    return myRole() === 'field' && Boolean(me && me.username && project.added_by && project.added_by === me.username);
 }
 
 // الحي · المدينة · المطوّر · حالة البناء · التسليم، من صف العقار وتفاصيله (المطوّر بأسمائه الثلاثة كما يقرؤها v_units)

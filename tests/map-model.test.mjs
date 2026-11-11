@@ -8,7 +8,7 @@ import {
     filterProjects, activeFilterCount, placed, unplaced, cityChips, typeOptions, countWords, projectsText, onMapText, noLocationText,
     unitsAvailableText, priceFromText, placeText, statusPill, pinLabel, clusterLabel, haversineKm, nearestProject, kmText, nearestText,
     tourOrder, tourProgressText, boundsOf, inBounds, parseMapRoute, mapHash, MAP_COLORS, ARABIC_NAME, recolorStyle,
-    JEDDAH_BOUNDS, inJeddah, nearestLandmarks, nearbyText
+    JEDDAH_BOUNDS, inJeddah, nearestLandmarks, nearbyText, spreadDuplicates, tightGroup, listSearchTerm
 } from '../crm/js/map-model.js';
 import { LANDMARKS, LANDMARK_CATEGORIES } from '../crm/js/map-landmarks.js';
 
@@ -124,6 +124,11 @@ t('place: «district — city»', placeText(byId(101)) === 'الروضة — ج�
 t('status pill: sold out first, then ready / under construction', same(statusPill(byId(103)), { text: 'نفد بالكامل', tone: 'out' })
     && same(statusPill(byId(101)), { text: 'جاهز', tone: 'ready' }) && same(statusPill(byId(102)), { text: 'تحت الإنشاء', tone: 'building' })
     && statusPill(Object.assign({}, byId(101), { construction: '' })) === null);
+{
+    const held = summarizeUnits([row({ project_id: 120, project_name: 'محجوز كله', unit_status: 'reserved', unit_ord: 0, price: 800000 })])[0];
+    t('status pill: a project whose units are all reserved (none sold) says «محجوز بالكامل», not «نفد بالكامل»',
+        held.soldOut === true && held.reservedUnits === 2 && same(statusPill(held), { text: 'محجوز بالكامل', tone: 'out' }));
+}
 t('pin name for screen readers: name, place, price', pinLabel(byId(101)) === 'فلل الروضة، الروضة — جدة، من 650,000 ر.س');
 t('cluster name says what a press does', clusterLabel(13) === '13 مشروعاً هنا. اضغط لتكبير الخريطة عليها');
 
@@ -230,6 +235,19 @@ t('nearest landmarks on the real data: the fountain is the closest to itself', (
     const f = LANDMARKS.find((l) => l.osm === 'node/3098654094');
     return f && nearestLandmarks(f, LANDMARKS, 1)[0].landmark === f;
 })());
+
+{
+    const a = { id: 1, lat: 21.5, lng: 39.2 }, b = { id: 2, lat: 21.5, lng: 39.2 }, c = { id: 3, lat: 21.6, lng: 39.1 };
+    const at = spreadDuplicates([a, b, c]);
+    const km = (x, y) => haversineKm({ lat: x[1], lng: x[0] }, { lat: y[1], lng: y[0] });
+    t('stacked pins: two projects on one point are spread about 80 m apart, a lone project stays where it is',
+        km(at.get(1), at.get(2)) > 0.07 && km(at.get(1), at.get(2)) < 0.09 && same(at.get(3), [39.1, 21.6]));
+    t('stacked pins: a group within 150 m is tight, a spread one is not',
+        tightGroup([[39.2, 21.5], [39.2005, 21.5004]]) === true && tightGroup([[39.2, 21.5], [39.1, 21.6]]) === false && tightGroup([[39.2, 21.5]]) === false);
+    const shown = [{ name: 'فلل الروضة', district: 'الروضة' }, { name: 'شقق السلامة', district: 'السلامة' }];
+    t('list link: the map search goes to «العقارات» only when the list can find it, without «حي»',
+        listSearchTerm('حي الروضة', shown) === 'الروضة' && listSearchTerm('فيلا جدة', shown) === '' && listSearchTerm('  ', shown) === '');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -202,11 +202,11 @@ export async function renderMap(root, query) {
     const countPill = el('p', { class: 'mp-count', role: 'status', 'aria-live': 'polite', text: '…' });
     const noLocLink = el('a', {
         class: 'mp-noloc', href: '#/properties', hidden: true,
-        onclick: () => { if (st.filters.query.trim()) presetPropertySearch(st.filters.query); }
+        onclick: () => openInList(M.unplaced(st.shown))
     });
     const tourBtn = el('button', { type: 'button', class: 'mp-btn mp-tour-btn', onclick: startTour }, [playIcon(), el('span', { text: 'جولة' })]);
     const listLink = el('a', {
-        class: 'mp-btn', href: '#/properties', onclick: () => { if (st.filters.query.trim()) presetPropertySearch(st.filters.query); }
+        class: 'mp-btn', href: '#/properties', onclick: () => openInList(st.shown)
     }, [icon('menu'), el('span', { text: 'القائمة' })]);
     // «جولة» و«القائمة» في الزاوية (بداية السطر)، والعدد في الوسط
     const bottom = el('div', { class: 'mp-bottom' }, [
@@ -299,6 +299,33 @@ export async function renderMap(root, query) {
         }
     }
 
+    // حقوق الخريطة نص ثابت مبني بعناصر: AttributionControl في MapLibre يضع نص الحقوق القادم من خادم البلاطات بـ innerHTML
+    function attributionControl() {
+        let box = null;
+        const link = (text, href) => el('a', { href, target: '_blank', rel: 'noopener noreferrer', text });
+        return {
+            onAdd() {
+                box = el('div', { class: 'maplibregl-ctrl maplibregl-ctrl-attrib' }, [
+                    el('div', { class: 'maplibregl-ctrl-attrib-inner' }, [
+                        link('OpenFreeMap', 'https://openfreemap.org'), ' · ',
+                        link('© OpenMapTiles', 'https://www.openmaptiles.org/'), ' · ',
+                        link('© OpenStreetMap', 'https://www.openstreetmap.org/copyright')
+                    ])
+                ]);
+                return box;
+            },
+            onRemove() { if (box) box.remove(); box = null; }
+        };
+    }
+
+    // «القائمة» و«بلا موقع» تفتحان «العقارات» ببحث تفهمه: مشروع واحد بمعرّفه، وإلا نص البحث إن وجدته القائمة (تطابق الاسم أو
+    // الحي بنص واحد، وبحث الخريطة أوسع: كلمات بأي ترتيب والمدينة والنوع)، وإلا القائمة كلها بدل قائمة فارغة
+    function openInList(projects) {
+        if (projects.length === 1) return void presetPropertySearch(projects[0].name, projects[0].id);
+        if (!st.filters.query.trim()) return;
+        presetPropertySearch(M.listSearchTerm(st.filters.query, projects));
+    }
+
     function createMap(lib, style) {
         const focus = st.forceId ? st.byId.get(st.forceId) : null;
         const placed = M.placed(st.shown);
@@ -324,7 +351,7 @@ export async function renderMap(root, query) {
         st.map = map;
         if (map.touchZoomRotate && map.touchZoomRotate.disableRotation) map.touchZoomRotate.disableRotation();
         if (map.keyboard && map.keyboard.disableRotation) map.keyboard.disableRotation();
-        map.addControl(new lib.AttributionControl({ compact: false }), 'bottom-left');
+        map.addControl(attributionControl(), 'bottom-left');
         // خريطة لا يكتمل رسمها الأول في وقته (شبكة معطّلة، جهاز ضعيف): القائمة بدل شاشة داكنة صامتة
         const slow = setTimeout(() => { if (!st.loaded && st.map === map) fallback(new Error('انتهت مهلة رسم الخريطة')); }, LOAD_MS + 5000);
         let tilesWarned = false;
@@ -377,10 +404,11 @@ export async function renderMap(root, query) {
     }
 
     function geojson(list) {
+        const at = M.spreadDuplicates(list);
         return {
             type: 'FeatureCollection',
             features: list.map((p) => ({
-                type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { id: p.id, img: p.image || null }
+                type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: at.get(p.id) }, properties: { id: p.id, img: p.image || null }
             }))
         };
     }
@@ -453,9 +481,14 @@ export async function renderMap(root, query) {
             const source = map && map.getSource('mp-projects');
             if (!source) return;
             let zoom = map.getZoom() + 2;
-            try { zoom = await source.getClusterExpansionZoom(props.cluster_id); } catch (_) { /* التكبير الافتراضي */ }
+            let close = false;
+            try {
+                zoom = await source.getClusterExpansionZoom(props.cluster_id);
+                // مشاريع متلاصقة (على نفس النقطة تقريباً): التكبير حتى تنفصل دبابيسها
+                if (zoom > 13) close = M.tightGroup((await source.getClusterLeaves(props.cluster_id, 50, 0)).map((f) => f.geometry.coordinates));
+            } catch (_) { /* التكبير الافتراضي */ }
             if (st.destroyed) return;
-            map.easeTo({ center: coords, zoom: Math.min(Math.max(zoom, map.getZoom() + 1), 16), duration: reduced ? 0 : 600 });
+            map.easeTo({ center: coords, zoom: close ? 17 : Math.min(Math.max(zoom, map.getZoom() + 1), 16), duration: reduced ? 0 : 600 });
         });
         return node;
     }
@@ -666,12 +699,15 @@ export async function renderMap(root, query) {
                 el('span', { text: 'المشاريع الجديدة تُضاف من «إضافة عرض» أو من صفحة المشاريع، وتظهر هنا بعد اعتمادها.' })];
         } else if (!M.placed(st.all).length) {
             parts = [el('strong', { text: 'لا مشاريع لها موقع على الخريطة بعد' }), el('span', { text: 'الموقع يُضاف للمشروع من صفحة المشاريع.' })];
+        } else if (st.shown.length) {
+            parts = [el('strong', { text: filtered ? 'المشاريع المطابقة بلا موقع على الخريطة' : 'المشاريع المتاحة الآن بلا موقع على الخريطة' }),
+                el('span', { text: 'تجدها في القائمة من «بلا موقع» أسفل الخريطة. الموقع يُضاف للمشروع من صفحة المشاريع.' })];
         } else if (filtered) {
             parts = [el('strong', { text: 'لا مشاريع مطابقة على الخريطة' }), el('span', { text: 'وسّع البحث أو امسح الفلاتر.' }),
                 el('button', { type: 'button', class: 'mp-btn mp-btn-copper', text: 'مسح البحث والفلاتر', onclick: resetAll })];
         } else {
             parts = [el('strong', { text: 'لا مشاريع فيها وحدات متاحة الآن' }),
-                el('span', { text: 'كل المشاريع المعتمدة نفدت. أطفئ «المتاح فقط» في «الفلاتر» لتراها على الخريطة.' }),
+                el('span', { text: 'كل المشاريع المعتمدة نفدت أو حُجزت. أطفئ «المتاح فقط» في «الفلاتر» لتراها على الخريطة.' }),
                 el('button', { type: 'button', class: 'mp-btn mp-btn-copper', text: 'الفلاتر', onclick: openFilters })];
         }
         replace(empty, parts);
@@ -720,12 +756,14 @@ export async function renderMap(root, query) {
                 changed();
             }
         });
+        // فتح الفلاتر وحده لا يغيّر شيئاً: مشروع الرابط (?p=) وبطاقته يبقيان حتى يتغيّر فلتر فعلاً
+        const paintShow = () => { showBtn.textContent = M.placed(st.shown).length ? 'اعرض ' + M.onMapText(M.placed(st.shown).length) : 'لا مشاريع مطابقة'; };
         function changed() {
             st.forceId = null;
             apply();
-            showBtn.textContent = M.placed(st.shown).length ? 'اعرض ' + M.onMapText(M.placed(st.shown).length) : 'لا مشاريع مطابقة';
+            paintShow();
         }
-        changed();
+        paintShow();
         openModal('فلاتر الخريطة', el('div', { class: 'mp-filters' }, [
             el('div', { class: 'mp-filter' }, [el('span', { class: 'mp-filter-label', text: 'الغرض' }), purpose.node]),
             field('نوع العقار', typeBox),

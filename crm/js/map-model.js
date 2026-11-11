@@ -107,6 +107,7 @@ export function summarizeUnits(rows) {
                 construction: constructionKind(row.construction_status),
                 projectAvailable: row.availability === undefined || row.availability === 'available',
                 availableUnits: 0,
+                reservedUnits: 0,
                 totalUnits: 0,
                 minPrice: null
             };
@@ -114,6 +115,7 @@ export function summarizeUnits(rows) {
         }
         const units = row.unit_count === undefined || row.unit_count === null ? 1 : Math.max(count(row.unit_count) || 0, 0);
         p.totalUnits += units;
+        if (row.unit_status === 'reserved' && p.projectAvailable) p.reservedUnits += Math.max(units, 1);
         if (!isAvailable(row)) continue;
         // نموذج بعدة وحدات: ما بقي منه بعد حجوزات الصفقات (030)، وإلا عدده كله
         const left = count(row.units_left);
@@ -240,10 +242,11 @@ export function placeText(project) {
     return [text(project && project.district), text(project && project.city)].filter(Boolean).join(' — ');
 }
 
-// شارة الحالة: نفد بالكامل أولاً، ثم حالة البناء
+// شارة الحالة: نفد بالكامل أولاً (أو «محجوز بالكامل» حين لا متاح وبعض وحداته محجوزة لا مبيعة)، ثم حالة البناء
 export function statusPill(project) {
     if (!project) return null;
-    if (project.soldOut || !project.projectAvailable) return { text: 'نفد بالكامل', tone: 'out' };
+    if (!project.projectAvailable) return { text: 'نفد بالكامل', tone: 'out' };
+    if (project.soldOut) return project.reservedUnits > 0 ? { text: 'محجوز بالكامل', tone: 'out' } : { text: 'نفد بالكامل', tone: 'out' };
     if (project.construction === 'ready') return { text: CONSTRUCTION_TEXT.ready, tone: 'ready' };
     if (project.construction === 'building') return { text: CONSTRUCTION_TEXT.building, tone: 'building' };
     return null;
@@ -514,4 +517,48 @@ export function recolorStyle(style) {
     for (const [key, value] of Object.entries(s.sources || {})) if (used.has(key)) sources[key] = value;
     s.sources = sources;
     return s;
+}
+
+/* ===================== دبابيس على نفس النقطة ===================== */
+
+// مشاريع على نفس النقطة (موقع منسوخ من مشروع لآخر، أو مبانٍ في مخطط واحد): تتوزّع على دائرة نحو 40 م حولها ليظهر كل دبوس
+// وحده عند التكبير. للرسم فقط: البطاقة والمسافات و«بالقرب من المشروع» على الموقع الحقيقي. يرجع Map: id ← [lng, lat]
+export function spreadDuplicates(list) {
+    const groups = new Map();
+    for (const p of Array.isArray(list) ? list : []) {
+        const key = p.lat.toFixed(4) + ',' + p.lng.toFixed(4);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(p);
+    }
+    const out = new Map();
+    for (const group of groups.values()) {
+        if (group.length === 1) { out.set(group[0].id, [group[0].lng, group[0].lat]); continue; }
+        const lat0 = group.reduce((s, p) => s + p.lat, 0) / group.length;
+        const lng0 = group.reduce((s, p) => s + p.lng, 0) / group.length;
+        const meters = 40 * Math.max(1, group.length / 6);
+        const dLat = meters / 111320;
+        const dLng = meters / (111320 * Math.cos((lat0 * Math.PI) / 180));
+        group.forEach((p, i) => {
+            const a = (2 * Math.PI * i) / group.length;
+            out.set(p.id, [lng0 + dLng * Math.sin(a), lat0 + dLat * Math.cos(a)]);
+        });
+    }
+    return out;
+}
+
+// نقاط [lng, lat] كلها داخل نحو 150 م: مجموعة لا تنفصل إلا بتكبير قريب
+export function tightGroup(points, km = 0.15) {
+    const list = (Array.isArray(points) ? points : []).filter((c) => Array.isArray(c) && c.length >= 2);
+    if (list.length < 2) return false;
+    const [lng0, lat0] = list[0];
+    return list.every(([lng, lat]) => haversineKm({ lat: lat0, lng: lng0 }, { lat, lng }) <= km);
+}
+
+// بحث الخريطة كما تفهمه «العقارات» (نص واحد في اسم العقار أو حيّه): كلمات البحث بلا «حي» و«مشروع»، إن وجدته في أحد
+// المشاريع المعروضة؛ وإلا '' فتفتح القائمة كلها بدل قائمة فارغة
+export function listSearchTerm(query, projects) {
+    const term = String(query || '').trim().split(/\s+/).filter((w) => searchTokens(w).length).join(' ');
+    if (!term) return '';
+    const t = term.toLowerCase();
+    return (Array.isArray(projects) ? projects : []).some((p) => [p.name, p.district].some((v) => String(v || '').toLowerCase().includes(t))) ? term : '';
 }

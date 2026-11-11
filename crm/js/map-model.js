@@ -292,6 +292,33 @@ export function nearestText(found) {
     return found ? 'أقرب مشروع: ' + found.project.name + ' — ' + kmText(found.km) : '';
 }
 
+/* ===================== المعالم ===================== */
+
+// مربع جدة الذي أُخذت منه المعالم (map-landmarks.js): جنوب، غرب، شمال، شرق
+export const JEDDAH_BOUNDS = { south: 21.25, west: 39.05, north: 21.95, east: 39.35 };
+
+export function inJeddah(point) {
+    const p = point && validPoint(point.lat, point.lng);
+    const b = JEDDAH_BOUNDS;
+    return Boolean(p) && p.lat >= b.south && p.lat <= b.north && p.lng >= b.west && p.lng <= b.east;
+}
+
+// «بالقرب من المشروع»: أقرب n معالم إلى نقطة (المشروع بموقعه)، الأقرب أولاً والتعادل بالاسم، فالنتيجة ثابتة. بلا موقع: لا شيء
+export function nearestLandmarks(point, list, n = 3) {
+    const at = point && validPoint(point.lat, point.lng);
+    if (!at || !(n > 0)) return [];
+    return (Array.isArray(list) ? list : [])
+        .filter((l) => l && validPoint(l.lat, l.lng))
+        .map((landmark) => ({ landmark, km: haversineKm(at, landmark) }))
+        .sort((a, b) => a.km - b.km || a.landmark.name.localeCompare(b.landmark.name, 'ar'))
+        .slice(0, Math.trunc(n));
+}
+
+// «ردسي مول · 1.2 كم» (المسافة بصيغة «أقرب مشروع» نفسها)
+export function nearbyText(item) {
+    return item && item.landmark ? item.landmark.name + ' · ' + kmText(item.km) : '';
+}
+
 // ترتيب «الجولة»: من المشروع الأقرب إلى نقطة البداية (وسط الخريطة)، ثم كل مرة إلى أقرب مشروع لم تزره الجولة، فتقصر الرحلات
 export function tourOrder(list, start) {
     const left = placed(list).slice().sort((a, b) => a.id - b.id);

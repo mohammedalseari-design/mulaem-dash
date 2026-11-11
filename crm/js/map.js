@@ -19,9 +19,24 @@ import { presetPropertySearch } from './properties.js';
 import { LISTING_PURPOSE, label } from './labels.js';
 import { el, replace, clear, icon, errorBox, pageHead, openModal, closeModal, filterChips, select, field, number } from './ui.js';
 import * as M from './map-model.js';
+import { LANDMARKS, LANDMARK_CATEGORIES } from './map-landmarks.js';
 
 // المرشّحات ومكان الخريطة تبقى ما دامت الصفحة مفتوحة في المتصفح: الرجوع من صفحة مشروع يعيد الخريطة كما تُركت
 const remembered = { filters: M.freshFilters(), camera: null };
+
+// «المعالم» مطفأة أول مرة، واختيار الموظف يبقى لجلسة التبويب (sessionStorage، وإن مُنع التخزين فما دامت الصفحة مفتوحة)
+const LM_KEY = 'mulaem-map-landmarks';
+let landmarksChoice = null;
+function landmarksWanted() {
+    if (landmarksChoice !== null) return landmarksChoice;
+    try { return sessionStorage.getItem(LM_KEY) === '1'; } catch (_) { return false; }
+}
+function rememberLandmarks(on) {
+    landmarksChoice = on;
+    try { sessionStorage.setItem(LM_KEY, on ? '1' : '0'); } catch (_) { /* تخزين محجوب */ }
+}
+// أسماء المعالم تظهر من هذا التكبير، وتحته نقاطها وحدها حتى لا تزدحم المدينة
+const LM_NAMES_ZOOM = 12.5;
 
 const LOAD_MS = 20000;
 const FAIL_TEXT = 'تعذّر تحميل الخريطة — تحقق من اتصالك بالإنترنت ثم أعد المحاولة، أو تصفّح المشاريع كقائمة.';
@@ -135,7 +150,8 @@ export async function renderMap(root, query) {
     const st = {
         all: [], byId: new Map(), shown: [], filters: Object.assign(M.freshFilters(), remembered.filters, { query: remembered.filters.query || '' }),
         forceId: route.focus, lib: null, map: null, loaded: false, failed: false, markers: new Map(), selected: null, user: null, userMarker: null,
-        nearest: null, tour: null, pitched: false, destroyed: false, msgTimer: 0, fitTimer: 0, searchTimer: 0, opener: null
+        nearest: null, tour: null, pitched: false, destroyed: false, msgTimer: 0, fitTimer: 0, searchTimer: 0, opener: null,
+        lmMarkers: [], lmPopup: null
     };
     window.scrollTo(0, 0);
 
@@ -162,11 +178,15 @@ export async function renderMap(root, query) {
     const filtersBtn = chip('الفلاتر', 'sliders', openFilters, { 'aria-haspopup': 'dialog' }, filterCount);
     const meBtn = chip('موقعي', 'target', locateMe);
     const fitBtn = chip('إعادة التمركز', 'refresh', () => { closeCard(); fitAll(true); }, { class: 'mp-chip mp-fit' });
+    const lmBtn = el('button', {
+        type: 'button', class: 'mp-chip mp-lm-chip', 'aria-pressed': landmarksWanted() ? 'true' : 'false',
+        title: 'أماكن معروفة في جدة: مولات ومستشفيات وجامعات ومعالم', onclick: () => toggleLandmarks()
+    }, [lmIcon('sight', 'ico'), el('span', { text: 'المعالم' })]);
     const cityRow = el('span', { class: 'mp-cities', role: 'group', 'aria-label': 'المدن' });
     const nearBtn = el('button', { type: 'button', class: 'mp-near', hidden: true, onclick: () => { if (st.nearest) openCard(st.nearest.project, { fly: true, focus: true }); } });
     const top = el('div', { class: 'mp-top' }, [
         searchForm,
-        el('div', { class: 'mp-chips', role: 'group', 'aria-label': 'أدوات الخريطة' }, [filtersBtn, meBtn, fitBtn, cityRow]),
+        el('div', { class: 'mp-chips', role: 'group', 'aria-label': 'أدوات الخريطة' }, [filtersBtn, meBtn, lmBtn, fitBtn, cityRow]),
         nearBtn
     ]);
 
@@ -231,7 +251,8 @@ export async function renderMap(root, query) {
     const onKey = (event) => {
         if (event.key !== 'Escape' || (!page.contains(document.activeElement) && document.activeElement !== document.body)) return;
         if (document.getElementById('modal') && document.getElementById('modal').classList.contains('active')) return;
-        if (st.tour) { event.preventDefault(); endTour(); } else if (!card.hidden) { event.preventDefault(); closeCard(true); }
+        if (st.lmPopup) { event.preventDefault(); closeLandmarkPopup(true); }
+        else if (st.tour) { event.preventDefault(); endTour(); } else if (!card.hidden) { event.preventDefault(); closeCard(true); }
     };
     window.addEventListener('resize', onResize);
     window.addEventListener('hashchange', onHash);
@@ -331,6 +352,8 @@ export async function renderMap(root, query) {
             skeleton.hidden = true;
             page.dataset.state = 'ready';
             syncMarkers();
+            if (landmarksWanted()) showLandmarks(true);
+            paintLandmarkNames();
             if (focus) {
                 if (focus.lat === null) say('«' + focus.name + '» بلا موقع على الخريطة بعد. تفاصيله في البطاقة.');
                 openCard(focus, { fly: false, focus: false });
@@ -345,10 +368,12 @@ export async function renderMap(root, query) {
         });
         map.on('click', (event) => {
             const target = event.originalEvent && event.originalEvent.target;
-            if (target && target.closest && target.closest('.mp-pin, .mp-me')) return;
+            if (target && target.closest && target.closest('.mp-pin, .mp-me, .mp-lm, .maplibregl-popup')) return;
+            closeLandmarkPopup();
             if (!st.tour) closeCard();
         });
         map.on('dragstart', (event) => { if (st.tour && st.tour.playing && event.originalEvent) tourPause(true); });
+        map.on('zoomend', paintLandmarkNames);
     }
 
     function geojson(list) {
@@ -442,6 +467,75 @@ export async function renderMap(root, query) {
             node.classList.toggle('is-on', on);
             node.style.zIndex = on ? '3' : '';
         }
+    }
+
+    /* ===================== المعالم ===================== */
+
+    // «المعالم»: نقطة صغيرة رمادية مخضرّة لكل معلم برمز فئته واسمه العربي، أصغر من دبابيس المشاريع وتحتها دائماً (look-map.css)،
+    // وبلا نحاسي. الضغط عليها يقول اسمها وفئتها في فقاعة صغيرة، لا بطاقة كالمشاريع
+    function toggleLandmarks() {
+        const on = lmBtn.getAttribute('aria-pressed') !== 'true';
+        rememberLandmarks(on);
+        showLandmarks(on);
+        live.textContent = on ? 'ظهرت على الخريطة ' + M.countWords(LANDMARKS.length, ['معلم واحد', 'معلمان', 'معالم', 'معلماً', 'معلم']) + ' من جدة' : 'أُخفيت المعالم';
+    }
+
+    function showLandmarks(on) {
+        lmBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        page.classList.toggle('has-landmarks', on);
+        if (!on) {
+            closeLandmarkPopup();
+            for (const marker of st.lmMarkers) marker.remove();
+            st.lmMarkers = [];
+            return;
+        }
+        if (!st.map || !st.lib || st.lmMarkers.length) return;
+        for (const lm of LANDMARKS) {
+            const cat = LANDMARK_CATEGORIES[lm.category];
+            const node = el('button', { type: 'button', class: 'mp-lm', dataset: { cat: lm.category, osm: lm.osm } }, [
+                el('span', { class: 'mp-lm-dot', 'aria-hidden': 'true' }, lmIcon(lm.category)),
+                el('span', { class: 'mp-lm-name', 'aria-hidden': 'true', text: lm.name })
+            ]);
+            node.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openLandmarkPopup(lm, event.detail === 0);
+            });
+            st.lmMarkers.push(new st.lib.Marker({ element: node, anchor: 'center' }).setLngLat([lm.lng, lm.lat]).addTo(st.map));
+            // MapLibre يكتب «Map marker» عند الإضافة: الاسم العربي وفئته بعدها
+            node.setAttribute('aria-label', lm.name + '، ' + (cat ? cat.one : ''));
+        }
+        paintLandmarkNames();
+    }
+
+    // الأسماء من تكبير 12.5، وتحته النقاط وحدها
+    function paintLandmarkNames() {
+        if (st.map) page.classList.toggle('mp-lm-far', st.map.getZoom() < LM_NAMES_ZOOM);
+    }
+
+    function openLandmarkPopup(lm, byKeyboard) {
+        if (!st.map || !st.lib) return;
+        closeLandmarkPopup();
+        const opener = document.activeElement;
+        const cat = LANDMARK_CATEGORIES[lm.category];
+        st.lmPopup = new st.lib.Popup({ closeButton: true, closeOnClick: false, offset: 16, maxWidth: '260px', className: 'mp-lm-pop', focusAfterOpen: byKeyboard })
+            .setLngLat([lm.lng, lm.lat])
+            .setDOMContent(el('div', { class: 'mp-lm-pop-body' }, [
+                el('strong', { class: 'mp-lm-pop-name', text: lm.name }),
+                el('span', { class: 'mp-lm-pop-cat' }, [lmIcon(lm.category, 'ico'), el('span', { text: cat ? cat.one : '' })])
+            ]))
+            .addTo(st.map);
+        const popup = st.lmPopup;
+        popup.mpOpener = opener;
+        popup.on('close', () => { if (st.lmPopup === popup) st.lmPopup = null; });
+    }
+
+    function closeLandmarkPopup(byUser = false) {
+        const popup = st.lmPopup;
+        if (!popup) return;
+        st.lmPopup = null;
+        popup.remove();
+        // Esc يعيد التركيز إلى المعلم الذي فتحها
+        if (byUser && popup.mpOpener && popup.mpOpener.isConnected) popup.mpOpener.focus({ preventScroll: true });
     }
 
     /* ===================== الحجم والمساحة ===================== */
@@ -650,6 +744,8 @@ export async function renderMap(root, query) {
         markSelected();
         const pill = M.statusPill(p);
         const price = M.priceFromText(p.minPrice);
+        // «بالقرب من المشروع»: أقرب ثلاثة معالم ومسافتها، للمشروع الذي له موقع (ظاهرة أكانت «المعالم» مفعّلة أم لا)
+        const near = p.lat !== null ? M.nearestLandmarks(p, LANDMARKS, 3) : [];
         const title = el('h2', { class: 'mp-card-title', id: 'mpCardTitle', tabindex: '-1', text: p.name });
         const share = el('button', { type: 'button', class: 'btn btn-outline mp-card-share', onclick: () => openShareSheet({ id: p.id, name: p.name, district: p.district, city: p.city }) },
             [icon('link'), el('span', { text: 'مشاركة مع عميل' })]);
@@ -667,6 +763,13 @@ export async function renderMap(root, query) {
                 price ? el('p', { class: 'mp-card-price', text: price }) : null,
                 el('p', { class: 'mp-card-units', text: M.unitsAvailableText(p.availableUnits) }),
                 p.lat === null ? el('p', { class: 'mp-card-note', text: 'هذا المشروع بلا موقع على الخريطة بعد.' }) : null,
+                near.length ? el('div', { class: 'mp-card-near' }, [
+                    el('h3', { class: 'mp-card-sub', text: 'بالقرب من المشروع' }),
+                    el('ul', { class: 'mp-near-list', role: 'list' }, near.map((x) => el('li', { class: 'mp-near-item', dataset: { osm: x.landmark.osm } }, [
+                        el('span', { class: 'mp-near-ico', 'aria-hidden': 'true' }, lmIcon(x.landmark.category)),
+                        el('span', { class: 'mp-near-text', text: M.nearbyText(x) })
+                    ])))
+                ]) : null,
                 el('div', { class: 'mp-card-actions' }, [
                     el('a', { class: 'btn btn-primary mp-card-open', href: '#/project/' + p.id }, [el('span', { text: 'عرض المشروع' })]),
                     share
@@ -869,6 +972,8 @@ export async function renderMap(root, query) {
         st.loaded = false;
         st.failed = true;
         st.markers.clear();
+        st.lmMarkers = [];
+        st.lmPopup = null;
         st.userMarker = null;
         if (st.tour) endTour();
         closeCard();
@@ -922,6 +1027,8 @@ export async function renderMap(root, query) {
         }
         st.map = null;
         st.markers.clear();
+        st.lmMarkers = [];
+        st.lmPopup = null;
     }
 }
 
@@ -947,5 +1054,19 @@ function lineIcon(paths) {
     return svg;
 }
 const playIcon = () => lineIcon(['M8 5.5v13l10.5-6.5z']);
+// رمز كل فئة من المعالم بخطوط كأيقونات ui.js: علم، حقيبة تسوق، صليب طبي، قبعة تخرج، قطار، كرة
+const LM_PATHS = {
+    sight: ['M5 21V4', 'M5 4h11l-2.5 4L16 12H5'],
+    mall: ['M6 8h12l-1 12H7L6 8z', 'M9 8V7a3 3 0 0 1 6 0v1'],
+    hospital: ['M12 6v12', 'M6 12h12'],
+    university: ['M2 9.5L12 5l10 4.5-10 4.5L2 9.5z', 'M6.5 11.5v4.5c3 2 8 2 11 0v-4.5'],
+    transport: ['M7 4h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M5 11h14', 'M9 21l1.5-4M15 21l-1.5-4'],
+    sport: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M3.5 9h17M3.5 15h17', 'M12 3c3 3.5 3 14.5 0 18'],
+};
+function lmIcon(category, cls = 'ico mp-lm-ico') {
+    const svg = lineIcon(LM_PATHS[category] || LM_PATHS.sight);
+    svg.setAttribute('class', cls);
+    return svg;
+}
 const pauseIcon = () => lineIcon(['M8 5v14', 'M16 5v14']);
 const arrowIcon = (dir) => lineIcon(dir === 'next' ? ['M15 6l-6 6 6 6'] : ['M9 6l6 6-6 6']);

@@ -7,8 +7,10 @@ import {
     coordinate, validPoint, constructionKind, coverUrl, summarizeUnits, normalizeText, searchTokens, matchesSearch, freshFilters,
     filterProjects, activeFilterCount, placed, unplaced, cityChips, typeOptions, countWords, projectsText, onMapText, noLocationText,
     unitsAvailableText, priceFromText, placeText, statusPill, pinLabel, clusterLabel, haversineKm, nearestProject, kmText, nearestText,
-    tourOrder, tourProgressText, boundsOf, inBounds, parseMapRoute, mapHash, MAP_COLORS, ARABIC_NAME, recolorStyle
+    tourOrder, tourProgressText, boundsOf, inBounds, parseMapRoute, mapHash, MAP_COLORS, ARABIC_NAME, recolorStyle,
+    JEDDAH_BOUNDS, inJeddah, nearestLandmarks, nearbyText
 } from '../crm/js/map-model.js';
+import { LANDMARKS, LANDMARK_CATEGORIES } from '../crm/js/map-landmarks.js';
 
 let pass = 0, fail = 0;
 function t(name, cond, extra) {
@@ -200,6 +202,34 @@ t('style: hidden 3D buildings right after the flat ones', (() => {
     return b && b.id === 'mp-building-3d' && b.type === 'fill-extrusion' && b.layout.visibility === 'none' && b['source-layer'] === 'building';
 })());
 t('style: empty input gives an empty valid shell', same(recolorStyle(null).layers, []) && same(recolorStyle({}).sources, {}));
+
+/* ===================== المعالم ===================== */
+
+t('landmarks: 35 to 50, from every category', LANDMARKS.length >= 35 && LANDMARKS.length <= 50
+    && Object.keys(LANDMARK_CATEGORIES).every((c) => LANDMARKS.some((l) => l.category === c)), LANDMARKS.length);
+t('landmarks: every one inside the Jeddah box', LANDMARKS.every((l) => inJeddah(l)), LANDMARKS.filter((l) => !inJeddah(l)).map((l) => l.name));
+t('landmarks: a known category, an Arabic and an English name', LANDMARKS.every((l) => LANDMARK_CATEGORIES[l.category]
+    && /[؀-ۿ]/.test(l.name) && /[A-Za-z]/.test(l.en)));
+t('landmarks: unique names and unique OpenStreetMap ids', new Set(LANDMARKS.map((l) => l.name)).size === LANDMARKS.length
+    && new Set(LANDMARKS.map((l) => l.osm)).size === LANDMARKS.length);
+t('landmarks: every one says which OpenStreetMap element it came from', LANDMARKS.every((l) => /^(node|way|relation)\/\d+$/.test(l.osm)));
+t('landmarks: the data cannot be changed by a page', Object.isFrozen(LANDMARKS) && Object.isFrozen(LANDMARKS[0]));
+t('Jeddah box and inJeddah', JEDDAH_BOUNDS.south < 21.5 && JEDDAH_BOUNDS.north > 21.7 && inJeddah({ lat: 21.54, lng: 39.17 })
+    && !inJeddah({ lat: 24.71, lng: 46.67 }) && !inJeddah(null) && !inJeddah({ lat: 'x', lng: 39.1 }));
+const L3 = [{ name: 'ج', lat: 21.60, lng: 39.20 }, { name: 'أ', lat: 21.50, lng: 39.15 }, { name: 'ب', lat: 21.55, lng: 39.17 }, { name: 'د', lat: 21.70, lng: 39.10 }, { name: 'بلا', lat: null, lng: 39.1 }];
+t('nearest landmarks: the closest first, three by default', (() => {
+    const r = nearestLandmarks({ lat: 21.551, lng: 39.171 }, L3);
+    return same(r.map((x) => x.landmark.name), ['ب', 'أ', 'ج']) && r[0].km < r[1].km && r[1].km <= r[2].km;
+})());
+t('nearest landmarks: n, no place, a landmark without a place is skipped', nearestLandmarks({ lat: 21.5, lng: 39.15 }, L3, 1).length === 1
+    && same(nearestLandmarks(null, L3), []) && same(nearestLandmarks({ lat: null, lng: 39 }, L3), [])
+    && same(nearestLandmarks({ lat: 21.5, lng: 39.15 }, L3, 9).map((x) => x.landmark.name), ['أ', 'ب', 'ج', 'د']));
+t('nearest landmarks: a tie goes by name', same(nearestLandmarks({ lat: 21.5, lng: 39.2 }, [{ name: 'ص', lat: 21.6, lng: 39.2 }, { name: 'ب', lat: 21.6, lng: 39.2 }]).map((x) => x.landmark.name), ['ب', 'ص']));
+t('nearby text: «name · km» like «أقرب مشروع»', nearbyText({ landmark: { name: 'ردسي مول' }, km: 1.23 }) === 'ردسي مول · 1.2 كم' && nearbyText(null) === '');
+t('nearest landmarks on the real data: the fountain is the closest to itself', (() => {
+    const f = LANDMARKS.find((l) => l.osm === 'node/3098654094');
+    return f && nearestLandmarks(f, LANDMARKS, 1)[0].landmark === f;
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
